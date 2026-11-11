@@ -140,32 +140,16 @@ pub(crate) fn call_running_info_text(
 	is_reconnecting: bool,
 ) -> String {
 	let clock = format_call_duration(duration_secs);
-	if crate::i18n::is_indonesian() {
-		let line2 = if is_reconnecting { format!("{} ({clock})", crate::i18n::tr("Reconnecting...")) } else { clock };
-		let prefix = match (direction, is_video) {
-			(CallDirection::Incoming, false) => crate::i18n::tr("Incoming call from"),
-			(CallDirection::Incoming, true) => crate::i18n::tr("Incoming video call from"),
-			(CallDirection::Answered, false) => crate::i18n::tr("Call with"),
-			(CallDirection::Answered, true) => crate::i18n::tr("Video call with"),
-			(CallDirection::Outgoing, false) => crate::i18n::tr("Outgoing call to"),
-			(CallDirection::Outgoing, true) => crate::i18n::tr("Outgoing video call to"),
-		};
-		format!("{prefix} {peer_name}\r\n{line2}")
-	} else {
-		let (direction, prep) = match direction {
-			CallDirection::Incoming => ("Incoming ", "from"),
-			CallDirection::Answered => ("", "with"),
-			CallDirection::Outgoing => ("Outgoing ", "to"),
-		};
-		let kind = match (direction.is_empty(), is_video) {
-			(true, true) => "Video call",
-			(true, false) => "Call",
-			(false, true) => "video call",
-			(false, false) => "call",
-		};
-		let line2 = if is_reconnecting { format!("Reconnecting... ({clock})") } else { clock };
-		format!("{direction}{kind} {prep} {peer_name}\r\n{line2}")
-	}
+	let line2 = if is_reconnecting { format!("{} ({clock})", crate::i18n::tr("Reconnecting...")) } else { clock };
+	let prefix = match (direction, is_video) {
+		(CallDirection::Incoming, false) => crate::i18n::tr("Incoming call from"),
+		(CallDirection::Incoming, true) => crate::i18n::tr("Incoming video call from"),
+		(CallDirection::Answered, false) => crate::i18n::tr("Call with"),
+		(CallDirection::Answered, true) => crate::i18n::tr("Video call with"),
+		(CallDirection::Outgoing, false) => crate::i18n::tr("Outgoing call to"),
+		(CallDirection::Outgoing, true) => crate::i18n::tr("Outgoing video call to"),
+	};
+	format!("{prefix} {peer_name}\r\n{line2}")
 }
 
 pub(crate) fn call_incoming_info_text(

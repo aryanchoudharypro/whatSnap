@@ -233,11 +233,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			if mentions == 1 {
 				unread_line.push_str(crate::i18n::tr(", 1 mention"));
 			} else if mentions > 1 {
-				if crate::i18n::is_indonesian() {
-					unread_line.push_str(&format!(", {mentions} sebutan"));
-				} else {
-					unread_line.push_str(&format!(", {mentions} mentions"));
-				}
+				unread_line.push_str(&crate::i18n::tr_fmt(", {} mentions", &[&mentions]));
 			}
 
 			let body_raw = if preview.is_empty() {

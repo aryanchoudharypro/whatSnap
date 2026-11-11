@@ -416,12 +416,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								if let Some(di) = existing_di {
 									s.unread_divider_count += 1;
 									let count = s.unread_divider_count;
-									let label = if crate::i18n::is_indonesian() {
-										format!("{count} pesan belum dibaca")
-									} else if count == 1 {
-										"1 unread message".to_string()
+									let label = if count == 1 {
+										crate::i18n::tr("1 unread message").to_string()
 									} else {
-										format!("{} unread messages", count)
+										crate::i18n::tr_fmt("{} unread messages", &[&count])
 									};
 									update_loaded_messages(&mut s, |m| m.is_unread_divider, |m| m.text = label.clone());
 									parts.conversations_parts.messages_list.set_string(di as u32, &label);
@@ -520,12 +518,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							}
 							if alert.toast && s.locked_jids.contains(jid) {
 								let unread = s.unread_counts.get(jid).copied().unwrap_or(0).max(1);
-								let body = if crate::i18n::is_indonesian() {
-									format!("{unread} pesan baru")
-								} else if unread == 1 {
-									"1 new message".to_string()
+								let body = if unread == 1 {
+									crate::i18n::tr("1 new message").to_string()
 								} else {
-									format!("{unread} new messages")
+									crate::i18n::tr_fmt("{} new messages", &[&unread])
 								};
 								crate::ui::chat_ui::show_chat_notification(&s, jid, "WhatsApp", &body, true);
 							} else if alert.toast {
@@ -947,11 +943,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								.map(|a| a.iter().filter_map(|o| o.as_str()).collect())
 								.unwrap_or_default();
 							let when = fmt_ts(v.get("timestamp").and_then(|x| x.as_i64()).unwrap_or(0));
-							let entry = if crate::i18n::is_indonesian() {
-								format!("  {name} memilih {}", options.join(" dan "))
-							} else {
-								format!("  {} voted {}", name, options.join(" and "))
-							};
+							let entry = crate::i18n::tr_fmt("  {} voted {}", &[&name, &options.join(&crate::i18n::tr_str(" and "))]);
 							poll_lines.push(if when.is_empty() { entry } else { format!("{}, {}", entry, when) });
 						}
 					}
@@ -1430,11 +1422,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if let Some(data) = val.get("data") {
 				let results = data.get("pollResults").and_then(|m| m.as_str()).unwrap_or("");
 				let trans_results = translate_event_results(results);
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Jawaban terkirim. {trans_results}")
-				} else {
-					format!("Answer sent. {}", results)
-				};
+				let msg = crate::i18n::tr_fmt("Answer sent. {}", &[&trans_results]);
 				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 			}
 		}

@@ -2474,6 +2474,12 @@ pub fn translate(text: &str) -> Option<&'static str> {
 		"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later. ({})" => Some("Tidak dapat memuat siapa yang dikecualikan dari {} saat ini, sehingga tidak dapat diubah. Coba lagi nanti. ({})"),
 		"Replace text with emoji turns these into emoji as soon as you type their last character. Press Backspace straight after to get the text back. You can turn it off on the Chats tab of Settings." => Some("Ganti teks menjadi emoji akan langsung mengubah karakter berikut menjadi emoji begitu huruf terakhirnya diketik. Tekan Backspace tepat setelahnya untuk mengembalikan teks. Anda bisa menonaktifkannya di tab Chat pada Setelan."),
 		"Type {} for {} {}. Example: \"{}\" becomes \"{}\"." => Some("Ketik {} untuk {} {}. Contoh: \"{}\" menjadi \"{}\"."),
+		"Answer sent. {}" => Some("Jawaban terkirim. {}"),
+		"  {} voted {}" => Some("  {} memilih {}"),
+		" and " => Some(" dan "),
+		"1 new message" => Some("1 pesan baru"),
+		"{} new messages" => Some("{} pesan baru"),
+		", {} mentions" => Some(", {} sebutan"),
 		_ => None,
 	}
 }
