@@ -1177,6 +1177,68 @@ pub fn join_album(item: DisplayItem, msg: Msg) -> DisplayItem {
 	}
 }
 
+/// WA Web's own clustering of photos that carry no album link: this many
+/// captionless photos or videos in a row from one sender (at most this far
+/// apart) show as one album.
+pub const LEGACY_ALBUM_MIN: usize = 4;
+pub const LEGACY_ALBUM_MAX: usize = 102;
+
+pub fn is_legacy_album_candidate(msg: &ChatMessage) -> bool {
+	msg.album_id.is_empty()
+		&& msg.quoted_id.is_empty()
+		&& !msg.is_deleted
+		&& matches!(msg.text.trim(), "[Photo]" | "[Image]" | "[Video]")
+}
+
+pub fn legacy_album_continues(prev: &ChatMessage, msg: &ChatMessage) -> bool {
+	is_legacy_album_candidate(prev)
+		&& is_legacy_album_candidate(msg)
+		&& prev.from_me == msg.from_me
+		&& prev.sender_jid == msg.sender_jid
+		&& (0..=ALBUM_MAX_GAP_SECS).contains(&(msg.timestamp - prev.timestamp))
+}
+
+fn cluster_legacy_albums(items: Vec<DisplayItem>) -> Vec<DisplayItem> {
+	let mut out: Vec<DisplayItem> = Vec::with_capacity(items.len());
+	let mut run: Vec<Msg> = Vec::new();
+
+	fn flush(run: &mut Vec<Msg>, out: &mut Vec<DisplayItem>) {
+		if run.len() >= LEGACY_ALBUM_MIN {
+			for chunk in std::mem::take(run).chunks(LEGACY_ALBUM_MAX) {
+				let first = &chunk[0];
+				out.push(DisplayItem::Album {
+					id: first.id.clone(),
+					sender_jid: first.sender_jid.clone(),
+					sender_name: first.sender_name.clone(),
+					from_me: first.from_me,
+					timestamp: first.timestamp,
+					messages: chunk.to_vec(),
+				});
+			}
+		} else {
+			out.extend(run.drain(..).map(DisplayItem::Single));
+		}
+		run.clear();
+	}
+
+	for item in items {
+		match item {
+			DisplayItem::Single(msg) if is_legacy_album_candidate(&msg) => {
+				if run.last().is_some_and(|prev| !legacy_album_continues(prev, &msg)) {
+					flush(&mut run, &mut out);
+				}
+				run.push(msg);
+			}
+			other => {
+				flush(&mut run, &mut out);
+				out.push(other);
+			}
+		}
+	}
+	flush(&mut run, &mut out);
+	out
+}
+
 pub fn group_messages_into_display_items(messages: &[Msg]) -> Vec<DisplayItem> {
 	let mut items: Vec<DisplayItem> = Vec::with_capacity(messages.len());
 	for msg in messages {
@@ -1189,7 +1251,7 @@ pub fn group_messages_into_display_items(messages: &[Msg]) -> Vec<DisplayItem> {
 			items.push(DisplayItem::Single(msg.clone()));
 		}
 	}
-	items
+	cluster_legacy_albums(items)
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -2144,13 +2206,25 @@ mod tests {
 	}
 
 	#[test]
-	fn photos_sent_close_together_without_an_album_packet_stay_separate() {
+	fn a_few_photos_without_an_album_packet_stay_separate() {
 		let msgs = vec![
 			media("a", "", "x@s.whatsapp.net", 100),
 			media("b", "", "x@s.whatsapp.net", 105),
 			media("c", "", "x@s.whatsapp.net", 200),
 		];
 		assert_eq!(ids(&group_messages_into_display_items(&rc(&msgs))), vec![vec!["a"], vec!["b"], vec!["c"]]);
+	}
+
+	#[test]
+	fn four_or_more_photos_in_a_row_group_like_wa_web() {
+		let msgs = vec![
+			media("a", "", "x@s.whatsapp.net", 100),
+			media("b", "", "x@s.whatsapp.net", 105),
+			media("c", "", "x@s.whatsapp.net", 200),
+			media("d", "", "x@s.whatsapp.net", 800),
+			media("e", "", "x@s.whatsapp.net", 2000),
+		];
+		assert_eq!(ids(&group_messages_into_display_items(&rc(&msgs))), vec![vec!["a", "b", "c", "d"], vec!["e"]]);
 	}
 
 	#[test]

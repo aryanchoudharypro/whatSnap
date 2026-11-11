@@ -214,7 +214,7 @@ The actions menu of a message has these items, when they apply to the message: `
 ### Selection Mode
 In selection mode, `Space` selects or clears a message. whatSnap says "Selection mode" when you enter it and "1 message selected", "2 messages selected" and so on each time you select or clear a message. A bar shows how many messages you selected, with `Delete` and `Cancel` buttons. To leave selection mode, press `Ctrl+Space` or `Escape`.
 
-Photos and videos sent as an album show as one item, such as `Album: 4 photos`, with the reactions to all of its photos. Press Enter on it, or use `Open album`, to list the items as `Photo 2 of 4`. In that list, Up and Down move between items, Enter opens the item (or downloads it), `Save as...` saves it, and Escape returns to the message list.
+Photos and videos sent as an album show as one item, and so do four or more captionless photos or videos from one person sent one after another within ten minutes of each other, as in WhatsApp Web. An album looks like `Album: 4 photos`, with the reactions to all of its photos. Press Enter on it, or use `Open album`, to list the items as `Photo 2 of 4`. In that list, Up and Down move between items, Enter opens the item (or downloads it), `Save as...` saves it, and Escape returns to the message list.
 
 ### Writing Messages
 Type your message in the message box. If `Enter is send` is on in the settings, `Enter` sends the message, and `Shift+Enter` starts a new line. If it is off, use the `Send message` button. whatSnap doesn't read your own messages back to you when you send them.

@@ -273,7 +273,33 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							None
 						};
 
-						if let Some(idx) = target {
+						let legacy = if target.is_none() && whatsnap::is_legacy_album_candidate(&chat_msg) {
+							legacy_album_join(&s.display_items, &chat_msg)
+						} else {
+							None
+						};
+
+						if let Some((first, count)) = legacy {
+							let mut members: Vec<whatsnap::Msg> = Vec::new();
+							for item in s.display_items.drain(first..) {
+								members.extend(item.messages().iter().cloned());
+							}
+							members.push(chat_msg.clone());
+							for row in ((first + 1)..(first + count)).rev() {
+								parts.conversations_parts.messages_list.delete(row as u32);
+							}
+							let head = members[0].clone();
+							let album = whatsnap::DisplayItem::Album {
+								id: head.id.clone(),
+								sender_jid: head.sender_jid.clone(),
+								sender_name: head.sender_name.clone(),
+								from_me: head.from_me,
+								timestamp: head.timestamp,
+								messages: members,
+							};
+							parts.conversations_parts.messages_list.set_string(first as u32, &album.format_display(is_group));
+							s.display_items.push(album);
+						} else if let Some(idx) = target {
 							let item = std::mem::replace(
 								&mut s.display_items[idx],
 								whatsnap::DisplayItem::Single(chat_msg.clone()),
@@ -1906,4 +1932,29 @@ fn refresh_action_buttons_now(s: &AppState, parts: &WindowParts) {
 	// Also shows or hides the whole action row, which the Tab order needs.
 	refresh_voice_action_button(s, &parts.conversations_parts);
 	parts.conversations_parts.conversation_panel.layout();
+}
+
+/// Where a new captionless photo joins a run of photos WA Web would show as
+/// one album: the index of the first display item to fold in and how many
+/// items that covers, or None when it stays on its own.
+fn legacy_album_join(items: &[whatsnap::DisplayItem], msg: &whatsnap::ChatMessage) -> Option<(usize, usize)> {
+	if let Some(whatsnap::DisplayItem::Album { messages, .. }) = items.last()
+		&& messages.len() < whatsnap::LEGACY_ALBUM_MAX
+		&& messages.iter().all(|m| m.album_id.is_empty())
+		&& messages.last().is_some_and(|last| whatsnap::legacy_album_continues(last, msg))
+	{
+		return Some((items.len() - 1, 1));
+	}
+	let mut first = items.len();
+	let mut next: &whatsnap::ChatMessage = msg;
+	while first > 0 {
+		let whatsnap::DisplayItem::Single(prev) = &items[first - 1] else { break };
+		if !whatsnap::legacy_album_continues(prev, next) {
+			break;
+		}
+		first -= 1;
+		next = prev;
+	}
+	let count = items.len() - first;
+	(count + 1 >= whatsnap::LEGACY_ALBUM_MIN && count + 1 <= whatsnap::LEGACY_ALBUM_MAX).then_some((first, count))
 }

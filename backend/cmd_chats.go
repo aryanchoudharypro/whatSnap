@@ -374,7 +374,8 @@ func localDay(ts int64) string {
 
 func (acc *Account) rowCount(jid, cond string, args []interface{}, skipDay string) int {
 	rows, err := acc.db.Query(`SELECT timestamp, COALESCE(from_me, 0), COALESCE(sender_jid, ''), COALESCE(album_id, ''),
-			COALESCE(media_type, ''), substr(COALESCE(text, ''), 1, 7), COALESCE(is_deleted, 0)
+			COALESCE(media_type, ''), substr(COALESCE(text, ''), 1, 7), COALESCE(is_deleted, 0),
+			COALESCE(length(text), 0), COALESCE(quoted_id, '')
 		FROM messages WHERE jid = ? AND `+cond+` ORDER BY timestamp ASC, id ASC`, append([]interface{}{jid}, args...)...)
 	if err != nil {
 		return 0
@@ -385,18 +386,32 @@ func (acc *Account) rowCount(jid, cond string, args []interface{}, skipDay strin
 		fromMe  bool
 		sender  string
 		albumID string
+		legacy  bool
 	}
 	count := 0
 	day := ""
 	var prev *mediaRow
+	// runLen counts the captionless photos in a row that WA Web shows as one
+	// album once there are four of them (see whatsnap::cluster_legacy_albums).
+	var run *mediaRow
+	runLen := 0
+	flushRun := func() {
+		if runLen >= 4 {
+			count += (runLen + 101) / 102
+		} else {
+			count += runLen
+		}
+		run, runLen = nil, 0
+	}
 	for rows.Next() {
 		var m mediaRow
-		var mediaType, prefix string
-		var deleted int
-		if rows.Scan(&m.ts, &m.fromMe, &m.sender, &m.albumID, &mediaType, &prefix, &deleted) != nil {
+		var mediaType, prefix, quotedID string
+		var deleted, textLen int
+		if rows.Scan(&m.ts, &m.fromMe, &m.sender, &m.albumID, &mediaType, &prefix, &deleted, &textLen, &quotedID) != nil {
 			continue
 		}
 		if d := localDay(m.ts); d != day {
+			flushRun()
 			day = d
 			prev = nil
 			if d != skipDay {
@@ -406,17 +421,30 @@ func (acc *Account) rowCount(jid, cond string, args []interface{}, skipDay strin
 		isMedia := deleted == 0 && (mediaType == "image" || mediaType == "video" ||
 			strings.HasPrefix(prefix, "[Photo]") || strings.HasPrefix(prefix, "[Image]") || strings.HasPrefix(prefix, "[Video]"))
 		if !isMedia {
+			flushRun()
 			prev = nil
 			count++
 			continue
 		}
-		// Only the album packet groups media, as WA Web does; see whatsnap::same_album.
+		m.legacy = m.albumID == "" && quotedID == "" && textLen == 7 &&
+			(prefix == "[Photo]" || prefix == "[Image]" || prefix == "[Video]")
+		if m.legacy {
+			if run != nil && !(run.fromMe == m.fromMe && run.sender == m.sender && m.ts-run.ts >= 0 && m.ts-run.ts <= 600) {
+				flushRun()
+			}
+			run = &m
+			runLen++
+			prev = nil
+			continue
+		}
+		flushRun()
 		sameAlbum := prev != nil && prev.fromMe == m.fromMe && prev.sender == m.sender && m.albumID != "" && prev.albumID == m.albumID
 		if !sameAlbum {
 			count++
 		}
 		prev = &m
 	}
+	flushRun()
 	return count
 }
 
