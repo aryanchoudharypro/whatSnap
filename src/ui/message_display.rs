@@ -589,7 +589,12 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			if t.phone.is_empty() || t.name == t.phone || t.name.contains(&t.phone) {
 				t.name.clone()
 			} else {
-				format!("{}, {}", t.name, t.phone)
+				let shown = if t.phone.bytes().all(|b| b.is_ascii_digit()) {
+					crate::ui::contact_picker::format_phone_digits(&t.phone)
+				} else {
+					t.phone.clone()
+				};
+				if t.name.contains(&shown) { t.name.clone() } else { format!("{}, {}", t.name, shown) }
 			}
 		};
 		let mut push_section = |heading: &str, rows: Vec<(String, String, String)>| {
