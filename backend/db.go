@@ -230,6 +230,7 @@ func (acc *Account) migrateDB() error {
 	// their rich response JSON was parsed one level too deep.
 	acc.runOnce("backfill_template_messages_v4", acc.backfillTemplateMessages)
 	acc.runOnce("backfill_album_messages_v1", acc.backfillAlbumMessages)
+	acc.runOnce("backfill_album_association_v1", acc.backfillAlbumAssociation)
 	acc.runOnce("backfill_media_sizes_v1", acc.backfillMediaSizes)
 	acc.runOnce("remove_key_distribution_stubs_v1", acc.removeKeyDistributionStubs)
 	acc.runOnce("tokenize_system_line_names_v1", acc.tokenizeBakedSystemLines)
@@ -1385,4 +1386,35 @@ func (acc *Account) getChatLockSecretCode() ([]byte, error) {
 		return nil, nil
 	}
 	return b, err
+}
+
+// backfillAlbumAssociation links photos and videos stored before the album
+// association was read to their album header, so an album that showed as a
+// pile of single photos groups the way WA Web shows it.
+func (acc *Account) backfillAlbumAssociation() {
+	rows, err := acc.db.Query(`SELECT id, jid, raw FROM messages
+		WHERE media_type IN ('image', 'video') AND COALESCE(album_id, '') = '' AND raw IS NOT NULL AND length(raw) > 0`)
+	if err != nil {
+		return
+	}
+	type link struct{ id, jid, album string }
+	var links []link
+	for rows.Next() {
+		var id, jid string
+		var raw []byte
+		if rows.Scan(&id, &jid, &raw) != nil {
+			continue
+		}
+		msg := &waE2E.Message{}
+		if proto.Unmarshal(raw, msg) != nil {
+			continue
+		}
+		if album := albumParentID(msg); album != "" {
+			links = append(links, link{id, jid, album})
+		}
+	}
+	rows.Close()
+	for _, l := range links {
+		acc.db.Exec("UPDATE messages SET album_id = ? WHERE id = ? AND jid = ?", l.album, l.id, l.jid)
+	}
 }

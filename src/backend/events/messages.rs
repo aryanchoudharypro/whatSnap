@@ -267,72 +267,23 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							);
 						}
 
-						let is_deleted_msg = chat_msg.is_deleted;
-						let is_media_msg = !is_deleted_msg
-							&& (chat_msg.media_type == "image"
-								|| chat_msg.media_type == "video"
-								|| chat_msg.text.starts_with("[Photo]")
-								|| chat_msg.text.starts_with("[Image]")
-								|| chat_msg.text.starts_with("[Video]"));
-
-						let should_merge = if is_media_msg {
-							if let Some(last_item) = s.display_items.last() {
-								match last_item {
-									whatsnap::DisplayItem::Single(prev_msg) => {
-										let prev_is_media = !prev_msg.is_deleted
-											&& (prev_msg.media_type == "image"
-												|| prev_msg.media_type == "video"
-												|| prev_msg.text.starts_with("[Photo]")
-												|| prev_msg.text.starts_with("[Image]")
-												|| prev_msg.text.starts_with("[Video]"));
-										prev_is_media && whatsnap::same_album(prev_msg, &chat_msg)
-									}
-									whatsnap::DisplayItem::Album { messages, .. } => {
-										messages.last().is_some_and(|m| whatsnap::same_album(m, &chat_msg))
-									}
-								}
-							} else {
-								false
-							}
+						let target = if whatsnap::is_media_for_album(&chat_msg) {
+							whatsnap::find_album_target(&s.display_items, &chat_msg)
 						} else {
-							false
+							None
 						};
 
-						if should_merge {
-							let last_idx = s.display_items.len() - 1;
-							let merged = match s.display_items.pop().unwrap() {
-								whatsnap::DisplayItem::Single(prev_msg) => whatsnap::DisplayItem::Album {
-									id: prev_msg.id.clone(),
-									sender_jid: prev_msg.sender_jid.clone(),
-									sender_name: prev_msg.sender_name.clone(),
-									from_me: prev_msg.from_me,
-									timestamp: prev_msg.timestamp,
-									messages: vec![prev_msg, chat_msg.clone()],
-								},
-								whatsnap::DisplayItem::Album {
-									id,
-									sender_jid,
-									sender_name,
-									from_me,
-									timestamp,
-									mut messages,
-								} => {
-									messages.push(chat_msg.clone());
-									whatsnap::DisplayItem::Album {
-										id,
-										sender_jid,
-										sender_name,
-										from_me,
-										timestamp,
-										messages,
-									}
-								}
-							};
+						if let Some(idx) = target {
+							let item = std::mem::replace(
+								&mut s.display_items[idx],
+								whatsnap::DisplayItem::Single(chat_msg.clone()),
+							);
+							let merged = whatsnap::join_album(item, chat_msg.clone());
 							parts
 								.conversations_parts
 								.messages_list
-								.set_string(last_idx as u32, &merged.format_display(is_group));
-							s.display_items.push(merged);
+								.set_string(idx as u32, &merged.format_display(is_group));
+							s.display_items[idx] = merged;
 						} else {
 							s.display_items.push(whatsnap::DisplayItem::Single(chat_msg.clone()));
 							parts
@@ -1644,7 +1595,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								);
 							}
 							if alert.toast && s.locked_jids.contains(chat_jid) {
-								crate::ui::chat_ui::show_chat_notification(&s, chat_jid, "WhatsApp", "New reaction", true);
+								crate::ui::chat_ui::show_chat_notification(
+									&s,
+									chat_jid,
+									"WhatsApp",
+									"New reaction",
+									true,
+								);
 							} else if alert.toast {
 								let previews =
 									s.settings.notification_previews && !s.settings.chat_notify(chat_jid).hide_content;

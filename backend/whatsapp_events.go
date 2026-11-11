@@ -1553,12 +1553,14 @@ func (acc *Account) eventHandler(evt interface{}) {
 								}
 							}
 						}
+						historyAlbumID := albumParentID(evtMsg.Message)
 						writes = append(writes, func(tx sqlExecer) {
 							_, err := tx.Exec(`INSERT INTO messages
-								(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_size, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at, wire_sender)
-							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+								(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_size, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at, wire_sender, album_id)
+							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 							ON CONFLICT(id) DO UPDATE SET text=excluded.text, timestamp=excluded.timestamp, sender_jid=excluded.sender_jid, raw=excluded.raw,
 								wire_sender=COALESCE(NULLIF(excluded.wire_sender, ''), messages.wire_sender),
+								album_id=CASE WHEN excluded.album_id != '' THEN excluded.album_id ELSE messages.album_id END,
 								status=CASE WHEN excluded.status != '' THEN excluded.status ELSE messages.status END,
 								media_type=excluded.media_type, media_mimetype=excluded.media_mimetype, media_filename=excluded.media_filename, media_size=excluded.media_size,
 								quoted_id=excluded.quoted_id, quoted_text=excluded.quoted_text, quoted_sender=excluded.quoted_sender,
@@ -1567,7 +1569,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 								read_at=CASE WHEN messages.read_at != 0 THEN messages.read_at ELSE excluded.read_at END,
 								played_at=CASE WHEN messages.played_at != 0 THEN messages.played_at ELSE excluded.played_at END`,
 								msgID, msgJID, msgFromMe, msgText, msgTS, senderJID.String(), rawBytes, status,
-								mediaType, mimetype, filename, mediaSize, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt, msgWireSender)
+								mediaType, mimetype, filename, mediaSize, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt, msgWireSender, historyAlbumID)
 							if err != nil {
 								log.Println("Error inserting message from HistorySync:", err)
 								return

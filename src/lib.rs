@@ -581,6 +581,28 @@ impl ChatMessage {
 		})
 	}
 
+	/// The ", X reacted with Y" suffix for `reactions` as read on this message.
+	fn reactions_text(&self, reactions: &[ChatReaction]) -> String {
+		let active: Vec<String> = reactions
+			.iter()
+			.filter(|r| !r.emoji.is_empty())
+			.map(|r| {
+				let name = if r.reactor_name == "me" || r.reactor_name == "You" || r.reactor_jid == "me" {
+					"You".to_string()
+				} else if !is_placeholder_name(&r.reactor_name) && !r.reactor_name.contains('@') {
+					r.reactor_name.clone()
+				} else if !is_placeholder_name(&self.sender_name) && !self.sender_name.contains('@') && !self.from_me {
+					self.sender_name.clone()
+				} else {
+					"Contact".to_string()
+				};
+				format!("{} reacted with {}", name, r.emoji)
+			})
+			.collect();
+
+		if !active.is_empty() { format!(", {}", active.join(", ")) } else { String::new() }
+	}
+
 	pub fn format_display(&self, _is_group: bool) -> String {
 		if self.is_date_divider || self.is_unread_divider || self.is_system() {
 			return self.text.clone();
@@ -644,30 +666,7 @@ impl ChatMessage {
 			None => String::new(),
 		};
 
-		let reactions_suffix = {
-			let active: Vec<String> = self
-				.reactions
-				.iter()
-				.filter(|r| !r.emoji.is_empty())
-				.map(|r| {
-					let name = if r.reactor_name == "me" || r.reactor_name == "You" || r.reactor_jid == "me" {
-						"You".to_string()
-					} else if !is_placeholder_name(&r.reactor_name) && !r.reactor_name.contains('@') {
-						r.reactor_name.clone()
-					} else if !is_placeholder_name(&self.sender_name)
-						&& !self.sender_name.contains('@')
-						&& !self.from_me
-					{
-						self.sender_name.clone()
-					} else {
-						"Contact".to_string()
-					};
-					format!("{} reacted with {}", name, r.emoji)
-				})
-				.collect();
-
-			if !active.is_empty() { format!(", {}", active.join(", ")) } else { String::new() }
-		};
+		let reactions_suffix = self.reactions_text(&self.reactions);
 
 		let edit_suffix = if self.is_edited { ", edited" } else { "" };
 		let star_suffix = format!(
@@ -846,11 +845,17 @@ impl DisplayItem {
 					format!("{} media items", total)
 				};
 
+				let all_reactions: Vec<ChatReaction> =
+					messages.iter().flat_map(|m| m.reactions.iter().cloned()).collect();
+				let reactions = match messages.first() {
+					Some(first) => first.reactions_text(&all_reactions),
+					None => String::new(),
+				};
 				if *from_me {
 					if !formatted_time.is_empty() {
-						format!("You: [Album: {}], sent at {}", desc, formatted_time)
+						format!("You: [Album: {}], sent at {}{}", desc, formatted_time, reactions)
 					} else {
-						format!("You: [Album: {}]", desc)
+						format!("You: [Album: {}]{}", desc, reactions)
 					}
 				} else {
 					let name = if !is_placeholder_name(sender_name) {
@@ -861,9 +866,9 @@ impl DisplayItem {
 						"Contact"
 					};
 					if !formatted_time.is_empty() {
-						format!("{}: [Album: {}], received at {}", name, desc, formatted_time)
+						format!("{}: [Album: {}], received at {}{}", name, desc, formatted_time, reactions)
 					} else {
-						format!("{}: [Album: {}]", name, desc)
+						format!("{}: [Album: {}]{}", name, desc, reactions)
 					}
 				}
 			}
@@ -1125,53 +1130,65 @@ pub fn next_sequential_voice<'a>(messages: &'a [Msg], current_id: &str) -> Optio
 	(is_voice_note && !next.is_deleted).then_some(next)
 }
 
-pub fn group_messages_into_display_items(messages: &[Msg]) -> Vec<DisplayItem> {
-	let mut items = Vec::with_capacity(messages.len());
-	let mut current_album: Vec<Msg> = Vec::new();
+/// How far apart two photos of one album may be, as in WA Web's album grouping.
+pub const ALBUM_MAX_GAP_SECS: i64 = 600;
 
-	fn flush(current_album: &mut Vec<Msg>, items: &mut Vec<DisplayItem>) {
-		match current_album.len() {
-			0 => {}
-			1 => items.push(DisplayItem::Single(current_album.remove(0))),
-			_ => {
-				let album = std::mem::take(current_album);
-				let first = &album[0];
-				items.push(DisplayItem::Album {
-					id: first.id.clone(),
-					sender_jid: first.sender_jid.clone(),
-					sender_name: first.sender_name.clone(),
-					from_me: first.from_me,
-					timestamp: first.timestamp,
-					messages: album,
-				});
-			}
-		}
-		current_album.clear();
+pub fn is_media_for_album(msg: &ChatMessage) -> bool {
+	!msg.is_deleted
+		&& (msg.media_type == "image"
+			|| msg.media_type == "video"
+			|| msg.text.starts_with("[Photo]")
+			|| msg.text.starts_with("[Image]")
+			|| msg.text.starts_with("[Video]"))
+}
+
+/// The display item `msg` belongs to when it links to an album already shown,
+/// even with other messages in between.
+pub fn find_album_target(items: &[DisplayItem], msg: &ChatMessage) -> Option<usize> {
+	if msg.album_id.is_empty() {
+		return None;
 	}
+	for (idx, item) in items.iter().enumerate().rev() {
+		let Some(last) = item.messages().last() else { continue };
+		if msg.timestamp - last.timestamp > ALBUM_MAX_GAP_SECS {
+			return None;
+		}
+		if same_album(last, msg) {
+			return Some(idx);
+		}
+	}
+	None
+}
 
+pub fn join_album(item: DisplayItem, msg: Msg) -> DisplayItem {
+	match item {
+		DisplayItem::Single(first) => DisplayItem::Album {
+			id: first.id.clone(),
+			sender_jid: first.sender_jid.clone(),
+			sender_name: first.sender_name.clone(),
+			from_me: first.from_me,
+			timestamp: first.timestamp,
+			messages: vec![first, msg],
+		},
+		DisplayItem::Album { id, sender_jid, sender_name, from_me, timestamp, mut messages } => {
+			messages.push(msg);
+			DisplayItem::Album { id, sender_jid, sender_name, from_me, timestamp, messages }
+		}
+	}
+}
+
+pub fn group_messages_into_display_items(messages: &[Msg]) -> Vec<DisplayItem> {
+	let mut items: Vec<DisplayItem> = Vec::with_capacity(messages.len());
 	for msg in messages {
-		let is_deleted = msg.is_deleted;
-		let is_media = !is_deleted
-			&& (msg.media_type == "image"
-				|| msg.media_type == "video"
-				|| msg.text.starts_with("[Photo]")
-				|| msg.text.starts_with("[Image]")
-				|| msg.text.starts_with("[Video]"));
-
-		if is_media {
-			if current_album.last().is_some_and(|prev| same_album(prev, msg)) {
-				current_album.push(msg.clone());
-			} else {
-				flush(&mut current_album, &mut items);
-				current_album.push(msg.clone());
-			}
+		if is_media_for_album(msg)
+			&& let Some(idx) = find_album_target(&items, msg)
+		{
+			let item = std::mem::replace(&mut items[idx], DisplayItem::Single(msg.clone()));
+			items[idx] = join_album(item, msg.clone());
 		} else {
-			flush(&mut current_album, &mut items);
 			items.push(DisplayItem::Single(msg.clone()));
 		}
 	}
-	flush(&mut current_album, &mut items);
-
 	items
 }
 
@@ -2107,6 +2124,22 @@ mod tests {
 		assert_eq!(
 			ids(&group_messages_into_display_items(&rc(&msgs))),
 			vec![vec!["a", "b"], vec!["c", "d"], vec!["e"], vec!["f"]]
+		);
+	}
+
+	#[test]
+	fn album_photos_group_across_a_message_in_between_within_ten_minutes() {
+		let msgs = vec![
+			media("a", "alb1", "x@s.whatsapp.net", 100),
+			ChatMessage { timestamp: 150, ..text("t", "hi") },
+			media("b", "alb1", "x@s.whatsapp.net", 400),
+			ChatMessage { timestamp: 800, ..text("u", "ok") },
+			media("c", "alb1", "x@s.whatsapp.net", 900),
+			media("d", "alb1", "x@s.whatsapp.net", 2000),
+		];
+		assert_eq!(
+			ids(&group_messages_into_display_items(&rc(&msgs))),
+			vec![vec!["a", "b", "c"], vec!["t"], vec!["u"], vec!["d"]]
 		);
 	}
 
