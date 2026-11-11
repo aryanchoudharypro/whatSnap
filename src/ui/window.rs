@@ -4442,6 +4442,8 @@ pub fn bind_input_handlers(
 	let _conv_panel_key = parts.conversations_parts.conversation_panel;
 	let last_left_arrow =
 		std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
+	// Each Left-Left jump to a quoted message: (reply it started from, message it went to).
+	let reply_jumps: std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>> = Default::default();
 	let msgs_list_ctx = parts.conversations_parts.messages_list;
 	let state_ctx = state.clone();
 	let parent_frame_ctx = parts.frame;
@@ -5365,6 +5367,14 @@ pub fn bind_input_handlers(
 							}
 
 							if let Some(target_idx) = target {
+								let target_id = match &s.display_items[target_idx] {
+									whatsnap::DisplayItem::Single(m) => m.id.clone(),
+									whatsnap::DisplayItem::Album { messages, .. } => {
+										messages.iter().find(|m| m.id == msg.quoted_id).or(messages.first())
+											.map(|m| m.id.clone()).unwrap_or_default()
+									}
+								};
+								reply_jumps.borrow_mut().push((msg.id.clone(), target_id));
 								msgs_list_play.set_selection(target_idx as u32, true);
 								unsafe {
 									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
@@ -5372,6 +5382,7 @@ pub fn bind_input_handlers(
 									);
 								}
 							} else if !msg.quoted_id.is_empty() {
+								reply_jumps.borrow_mut().push((msg.id.clone(), msg.quoted_id.clone()));
 								let _ = tx_close_list.send(UiCommand::JumpToSearchResult {
 									message_id: msg.quoted_id.clone(),
 									message_text: String::new(),
@@ -5406,6 +5417,37 @@ pub fn bind_input_handlers(
 			} else if keys::is_right(code) {
 				if crate::ui_commands::voice::is_voice_playing(&state_play.borrow()) {
 					let _ = tx_close_list.send(UiCommand::SeekAudio(5.0));
+					event.skip(false);
+				} else if !search_panel_key.is_shown() && !reply_jumps.borrow().is_empty() {
+					// Right Arrow goes back along the Left-Left jumps, but only while the
+					// selection is still on the message that jump arrived at.
+					let s = state_play.borrow();
+					let has = |item: &whatsnap::DisplayItem, id: &str| match item {
+						whatsnap::DisplayItem::Single(m) => m.id == id,
+						whatsnap::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == id),
+					};
+					let top = reply_jumps.borrow().last().cloned();
+					let here = msgs_list_play.get_selection().and_then(|i| s.display_items.get(i as usize));
+					match (top, here) {
+						(Some((origin, arrived)), Some(item)) if has(item, &arrived) => {
+							reply_jumps.borrow_mut().pop();
+							if let Some(idx) = s.display_items.iter().position(|it| has(it, &origin)) {
+								msgs_list_play.set_selection(idx as u32, true);
+								unsafe {
+									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+										windows::Win32::UI::WindowsAndMessaging::MB_OK,
+									);
+								}
+							} else {
+								reply_jumps.borrow_mut().clear();
+							}
+						}
+						_ => {
+							reply_jumps.borrow_mut().clear();
+							event.skip(true);
+							return;
+						}
+					}
 					event.skip(false);
 				} else {
 					event.skip(true);
