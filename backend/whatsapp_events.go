@@ -1899,6 +1899,9 @@ func (acc *Account) eventHandler(evt interface{}) {
 		if mt, _, _, _ := mediaInfoFromMessage(v.Message); mt == "image" || mt == "video" {
 			albumChat, albumSender := acc.resolveLIDChat(v)
 			albumID = acc.claimAlbumID(albumChat.String(), albumSender.String())
+			if linked := albumParentID(v.Message); linked != "" {
+				albumID = linked
+			}
 		}
 
 		func() {

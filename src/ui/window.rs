@@ -5989,6 +5989,14 @@ pub fn bind_input_handlers(
 				} else {
 					if let Some(idx) = msgs_list_enter.get_selection() {
 						let s = state_enter.borrow();
+						let is_album = matches!(s.display_items.get(idx as usize), Some(whatsnap::DisplayItem::Album { .. }));
+						drop(s);
+						if is_album {
+							let _ = tx_invite_enter.send(UiCommand::OpenMedia);
+							event.skip(false);
+							return;
+						}
+						let s = state_enter.borrow();
 						let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
 							whatsnap::DisplayItem::Single(m) => Some(m.clone()),
 							whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),

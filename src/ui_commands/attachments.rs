@@ -457,6 +457,9 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 }
 
 pub(crate) fn open_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if open_album_items(state, parts) {
+		return;
+	}
 	let s = state.borrow();
 	if let (Some(jid), Some(idx)) = (s.selected_chat.clone(), parts.conversations_parts.messages_list.get_selection())
 		&& let Some(item) = s.display_items.get(idx as usize)
@@ -747,4 +750,53 @@ pub(crate) fn copy_album_to_clipboard(
 			"Downloading file before copying to clipboard...",
 		);
 	}
+}
+
+/// Opens the item list of the selected album row. False when the row isn't an album.
+pub(crate) fn open_album_items(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
+	let messages = {
+		let s = state.borrow();
+		let Some(idx) = parts.conversations_parts.messages_list.get_selection() else { return false };
+		match s.display_items.get(idx as usize) {
+			Some(whatsnap::DisplayItem::Album { messages, .. }) => {
+				messages.iter().filter(|m| !m.is_deleted).cloned().collect::<Vec<_>>()
+			}
+			_ => return false,
+		}
+	};
+	let total = messages.len();
+	let labels: Vec<String> = messages
+		.iter()
+		.enumerate()
+		.map(|(i, m)| {
+			let kind = if m.media_type == "video" || m.text.starts_with("[Video]") { "Video" } else { "Photo" };
+			let state_note = if m.is_media_downloaded() { "" } else { ", not downloaded" };
+			format!("{} {} of {}{}", kind, i + 1, total, state_note)
+		})
+		.collect();
+	let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
+	let downloaded: Vec<bool> = messages.iter().map(|m| m.is_media_downloaded()).collect();
+	let (state_open, parts_open, ids_open) = (state.clone(), parts.clone(), ids.clone());
+	let (state_save, parts_save) = (state.clone(), parts.clone());
+	crate::ui::dialogs::album_items::show_album_items(
+		&parts.frame,
+		"Album",
+		&labels,
+		move |i| {
+			if let Some(id) = ids_open.get(i) {
+				if downloaded[i] {
+					open_media_message(&state_open, &parts_open, id.clone());
+				} else {
+					download_media_message(&state_open, &parts_open, id.clone());
+				}
+			}
+		},
+		move |i| {
+			if let Some(id) = ids.get(i) {
+				save_media_message_as(&state_save, &parts_save, id.clone());
+			}
+		},
+	);
+	crate::platform::tray::enter_release_guard().set(true);
+	true
 }

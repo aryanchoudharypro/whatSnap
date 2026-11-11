@@ -74,3 +74,17 @@ func (acc *Account) noteLiveHDMedia(parentID string, msg *waE2E.Message) {
 	os.Remove(path)
 	go acc.downloadMediaNow(MessageRefData{MessageID: parentID, JID: jid}, true)
 }
+
+// albumParentID is the album header a photo or video links to through its
+// MEDIA_ALBUM message association, the way WA Web groups an album. "" when
+// the message carries none.
+func albumParentID(msg *waE2E.Message) string {
+	for m := msg; m != nil; {
+		assoc := m.GetMessageContextInfo().GetMessageAssociation()
+		if assoc.GetAssociationType() == waE2E.MessageAssociation_MEDIA_ALBUM {
+			return assoc.GetParentMessageKey().GetID()
+		}
+		m = m.GetAssociatedChildMessage().GetMessage()
+	}
+	return ""
+}
