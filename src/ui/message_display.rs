@@ -1213,10 +1213,18 @@ fn status_row_label(group: &crate::StatusGroup) -> String {
 	let count = group.items.len();
 	let mut parts: Vec<String> = Vec::new();
 	if count == 1 {
-		let preview = if !newest.text.is_empty() {
+		let preview = if !newest.text.is_empty() && !newest.text.starts_with('[') {
 			newest.text.clone()
+		} else if newest.media_type == "image" {
+			crate::i18n::tr("Photo").to_string()
+		} else if newest.media_type == "video" {
+			crate::i18n::tr("Video").to_string()
+		} else if newest.media_type == "voice" || newest.media_type == "audio" {
+			crate::i18n::tr("Voice note").to_string()
 		} else if !newest.media_type.is_empty() {
 			crate::i18n::tr("Media").to_string()
+		} else if !newest.text.is_empty() {
+			newest.text.clone()
 		} else {
 			String::new()
 		};

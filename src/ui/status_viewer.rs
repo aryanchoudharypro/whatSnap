@@ -134,7 +134,7 @@ fn kind(entry: &Entry) -> &'static str {
 	match entry.media_type.as_str() {
 		"image" => crate::i18n::tr("Photo"),
 		"video" => crate::i18n::tr("Video"),
-		"audio" => crate::i18n::tr("Voice note"),
+		"audio" | "voice" => crate::i18n::tr("Voice note"),
 		"" => crate::i18n::tr("Text"),
 		_ => crate::i18n::tr("Media"),
 	}
@@ -787,8 +787,8 @@ impl Viewer {
 
 		let body = match entry.media_type.as_str() {
 			"" => entry.text.clone(),
-			"audio" if entry.text.is_empty() => crate::i18n::tr("Voice note status.").to_string(),
-			"audio" => format!("{}: {}", crate::i18n::tr("Voice note"), entry.text),
+			"audio" | "voice" if entry.text.is_empty() => crate::i18n::tr("Voice note status.").to_string(),
+			"audio" | "voice" => format!("{}: {}", crate::i18n::tr("Voice note"), entry.text),
 			_ if entry.text.is_empty() => format!("{}.", kind(&entry)),
 			_ => format!("{}. {}", kind(&entry), entry.text),
 		};
@@ -1106,8 +1106,8 @@ impl Viewer {
 		let who = if entry.from_me { crate::i18n::tr("My status").to_string() } else { entry.poster_name.clone() };
 		let body = match entry.media_type.as_str() {
 			"" => entry.text.clone(),
-			"audio" if entry.text.is_empty() => crate::i18n::tr("Voice note status.").to_string(),
-			"audio" => format!("{}: {}", crate::i18n::tr("Voice note"), entry.text),
+			"audio" | "voice" if entry.text.is_empty() => crate::i18n::tr("Voice note status.").to_string(),
+			"audio" | "voice" => format!("{}: {}", crate::i18n::tr("Voice note"), entry.text),
 			_ if entry.text.is_empty() => format!("{}.", kind(&entry)),
 			_ => format!("{}. {}", kind(&entry), entry.text),
 		};
@@ -1202,7 +1202,7 @@ impl Viewer {
 		let Some(entry) = self.current() else { return };
 		*self.media_path.borrow_mut() = Some(path.clone());
 		self.save_btn.enable(true);
-		if entry.media_type == "video" || entry.media_type == "audio" {
+		if entry.media_type == "video" || entry.media_type == "audio" || entry.media_type == "voice" {
 			self.player.panel.show(true);
 			self.dialog.layout();
 			self.player.load(&path, !self.paused.get());

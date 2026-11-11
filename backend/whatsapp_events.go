@@ -1200,6 +1200,18 @@ func (acc *Account) eventHandler(evt interface{}) {
 				var writes []func(tx sqlExecer)
 
 				jid := conv.GetID()
+				if jid == types.StatusBroadcastJID.String() || jid == "status@broadcast" {
+					var wmis []*waWeb.WebMessageInfo
+					for _, historyMsg := range conv.GetMessages() {
+						if wmi := historyMsg.GetMessage(); wmi != nil {
+							wmis = append(wmis, wmi)
+						}
+					}
+					if len(wmis) > 0 {
+						acc.storeHistoryStatuses(wmis)
+					}
+					continue
+				}
 				if isIgnoredChatJID(jid) {
 					continue
 				}
@@ -3390,6 +3402,15 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 		text = ""
 	}
 	senderJID := v.Info.Sender.ToNonAD()
+	if v.Info.IsFromMe && (senderJID.IsEmpty() || senderJID.User == "") && acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.ID != nil {
+		senderJID = acc.wa().Store.ID.ToNonAD()
+	} else if senderJID.Server == "lid" {
+		if !v.Info.SenderAlt.IsEmpty() {
+			senderJID = v.Info.SenderAlt.ToNonAD()
+		} else if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+			senderJID = pn.ToNonAD()
+		}
+	}
 	mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(v.Message)
 	if text == "" && mediaType == "" {
 		return
@@ -3399,7 +3420,8 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 	if v.Info.IsFromMe {
 		status = "sent"
 	}
-	rawBytes, _ := proto.Marshal(v.Message)
+	cleanMsg := unwrapMessage(v.Message)
+	rawBytes, _ := proto.Marshal(cleanMsg)
 	if err := acc.saveMessage(StoredMessage{
 		ID: v.Info.ID, JID: "status@broadcast", SenderJID: senderJID.String(),
 		FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,

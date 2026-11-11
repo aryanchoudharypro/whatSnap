@@ -78,15 +78,17 @@ func (acc *Account) handleGetStatuses(conn net.Conn) {
 					continue
 				}
 				background, textColor, font := textStatusColors(raw)
-				key := senderJID
+				normJID := senderJID
+				if parsed, perr := types.ParseJID(senderJID); perr == nil {
+					normJID = acc.preferPN(parsed).String()
+				}
+				key := normJID
 				if fromMe {
 					key = "me"
 				}
 				g, ok := groups[key]
 				if !ok {
-					// The poster's name and mute state are looked up once the
-					// rows are closed, as those run queries of their own.
-					g = &groupMeta{posterJID: senderJID, posterName: "You", fromMe: fromMe}
+					g = &groupMeta{posterJID: normJID, posterName: "You", fromMe: fromMe}
 					groups[key] = g
 					order = append(order, key)
 				}
@@ -152,7 +154,14 @@ func textStatusColors(raw []byte) (background, text uint32, font int32) {
 	if proto.Unmarshal(raw, msg) != nil {
 		return 0, 0, 0
 	}
+	msg = unwrapMessage(msg)
+	if msg == nil {
+		return 0, 0, 0
+	}
 	ext := msg.GetExtendedTextMessage()
+	if ext == nil {
+		return 0, 0, 0
+	}
 	fontVal := int32(0)
 	if ext.Font != nil {
 		fontVal = int32(*ext.Font)

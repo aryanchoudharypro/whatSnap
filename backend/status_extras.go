@@ -519,16 +519,45 @@ func (acc *Account) storeHistoryStatuses(statuses []*waWeb.WebMessageInfo) {
 	cutoff := time.Now().Add(-24 * time.Hour)
 	stored := 0
 	for _, wmi := range statuses {
+		if wmi == nil || wmi.GetMessage() == nil {
+			continue
+		}
+		ts := time.Unix(int64(wmi.GetMessageTimestamp()), 0)
+		if ts.Before(cutoff) {
+			continue
+		}
 		evt, err := acc.wa().ParseWebMessage(types.StatusBroadcastJID, wmi)
-		if err != nil {
-			log.Printf("Skipping history status %s: %v", wmi.GetKey().GetID(), err)
-			continue
-		}
-		if evt.Info.Timestamp.Before(cutoff) || evt.Message == nil {
-			continue
-		}
-		if evt.Info.Sender.IsEmpty() {
-			continue
+		if err != nil || evt == nil || evt.Info.Sender.IsEmpty() {
+			var sender types.JID
+			fromMe := wmi.GetKey().GetFromMe()
+			if fromMe && acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.ID != nil {
+				sender = acc.wa().Store.ID.ToNonAD()
+			} else if p := wmi.GetParticipant(); p != "" {
+				sender, _ = types.ParseJID(p)
+			} else if p := wmi.GetKey().GetParticipant(); p != "" {
+				sender, _ = types.ParseJID(p)
+			} else if r := wmi.GetKey().GetRemoteJID(); r != "" && r != "status@broadcast" {
+				sender, _ = types.ParseJID(r)
+			}
+			if sender.IsEmpty() {
+				log.Printf("Skipping history status %s: cannot determine sender", wmi.GetKey().GetID())
+				continue
+			}
+			evt = &events.Message{
+				Info: types.MessageInfo{
+					MessageSource: types.MessageSource{
+						Chat:     types.StatusBroadcastJID,
+						Sender:   sender,
+						IsFromMe: fromMe,
+						IsGroup:  true,
+					},
+					ID:        types.MessageID(wmi.GetKey().GetID()),
+					PushName:  wmi.GetPushName(),
+					Timestamp: ts,
+				},
+				RawMessage: wmi.GetMessage(),
+				Message:    unwrapMessage(wmi.GetMessage()),
+			}
 		}
 		acc.handleIncomingStatus(evt)
 		stored++
