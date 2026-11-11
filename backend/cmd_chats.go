@@ -397,7 +397,12 @@ func (acc *Account) rowCount(jid, cond string, args []interface{}, skipDay strin
 	runLen := 0
 	flushRun := func() {
 		if runLen >= 4 {
-			count += (runLen + 101) / 102
+			count += runLen / 102
+			if rest := runLen % 102; rest >= 4 {
+				count++
+			} else {
+				count += rest
+			}
 		} else {
 			count += runLen
 		}
@@ -411,7 +416,6 @@ func (acc *Account) rowCount(jid, cond string, args []interface{}, skipDay strin
 			continue
 		}
 		if d := localDay(m.ts); d != day {
-			flushRun()
 			day = d
 			prev = nil
 			if d != skipDay {
@@ -429,7 +433,7 @@ func (acc *Account) rowCount(jid, cond string, args []interface{}, skipDay strin
 		m.legacy = m.albumID == "" && quotedID == "" && textLen == 7 &&
 			(prefix == "[Photo]" || prefix == "[Image]" || prefix == "[Video]")
 		if m.legacy {
-			if run != nil && !(run.fromMe == m.fromMe && run.sender == m.sender && m.ts-run.ts >= 0 && m.ts-run.ts <= 600) {
+			if run != nil && !(run.fromMe == m.fromMe && run.sender == m.sender && m.ts-run.ts <= 600) {
 				flushRun()
 			}
 			run = &m

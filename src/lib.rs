@@ -1195,43 +1195,71 @@ pub fn legacy_album_continues(prev: &ChatMessage, msg: &ChatMessage) -> bool {
 		&& is_legacy_album_candidate(msg)
 		&& prev.from_me == msg.from_me
 		&& prev.sender_jid == msg.sender_jid
-		&& (0..=ALBUM_MAX_GAP_SECS).contains(&(msg.timestamp - prev.timestamp))
+		&& msg.timestamp - prev.timestamp <= ALBUM_MAX_GAP_SECS
 }
 
 fn cluster_legacy_albums(items: Vec<DisplayItem>) -> Vec<DisplayItem> {
 	let mut out: Vec<DisplayItem> = Vec::with_capacity(items.len());
-	let mut run: Vec<Msg> = Vec::new();
+	// The run is every item since its first photo, date dividers included: WA
+	// Web carries a run across midnight, so a divider doesn't end it.
+	let mut run: Vec<DisplayItem> = Vec::new();
 
-	fn flush(run: &mut Vec<Msg>, out: &mut Vec<DisplayItem>) {
-		if run.len() >= LEGACY_ALBUM_MIN {
-			for chunk in std::mem::take(run).chunks(LEGACY_ALBUM_MAX) {
-				let first = &chunk[0];
-				out.push(DisplayItem::Album {
-					id: first.id.clone(),
-					sender_jid: first.sender_jid.clone(),
-					sender_name: first.sender_name.clone(),
-					from_me: first.from_me,
-					timestamp: first.timestamp,
-					messages: chunk.to_vec(),
-				});
-			}
-		} else {
-			out.extend(run.drain(..).map(DisplayItem::Single));
+	fn flush(run: &mut Vec<DisplayItem>, out: &mut Vec<DisplayItem>) {
+		let mut tail: Vec<DisplayItem> = Vec::new();
+		while run.last().is_some_and(is_date_divider_item) {
+			tail.push(run.pop().unwrap());
 		}
-		run.clear();
+		tail.reverse();
+		flush_photos(run, out);
+		out.append(&mut tail);
 	}
 
+	fn flush_photos(run: &mut Vec<DisplayItem>, out: &mut Vec<DisplayItem>) {
+		let photos: Vec<Msg> = run
+			.iter()
+			.filter_map(|item| match item {
+				DisplayItem::Single(m) if !m.is_date_divider => Some(m.clone()),
+				_ => None,
+			})
+			.collect();
+		if photos.len() < LEGACY_ALBUM_MIN {
+			out.append(run);
+			return;
+		}
+		out.extend(run.drain(..).filter(is_date_divider_item));
+		for chunk in photos.chunks(LEGACY_ALBUM_MAX) {
+			if chunk.len() < LEGACY_ALBUM_MIN {
+				out.extend(chunk.iter().cloned().map(DisplayItem::Single));
+				continue;
+			}
+			let first = &chunk[0];
+			out.push(DisplayItem::Album {
+				id: first.id.clone(),
+				sender_jid: first.sender_jid.clone(),
+				sender_name: first.sender_name.clone(),
+				from_me: first.from_me,
+				timestamp: first.timestamp,
+				messages: chunk.to_vec(),
+			});
+		}
+	}
+
+	let mut last_photo: Option<Msg> = None;
 	for item in items {
-		match item {
-			DisplayItem::Single(msg) if is_legacy_album_candidate(&msg) => {
-				if run.last().is_some_and(|prev| !legacy_album_continues(prev, &msg)) {
+		let is_divider = is_date_divider_item(&item);
+		match &item {
+			DisplayItem::Single(msg) if is_legacy_album_candidate(msg) => {
+				if last_photo.as_ref().is_some_and(|prev| !legacy_album_continues(prev, msg)) {
 					flush(&mut run, &mut out);
 				}
-				run.push(msg);
+				last_photo = Some(msg.clone());
+				run.push(item);
 			}
-			other => {
+			_ if is_divider && !run.is_empty() => run.push(item),
+			_ => {
 				flush(&mut run, &mut out);
-				out.push(other);
+				last_photo = None;
+				out.push(item);
 			}
 		}
 	}
@@ -2213,6 +2241,23 @@ mod tests {
 			media("c", "", "x@s.whatsapp.net", 200),
 		];
 		assert_eq!(ids(&group_messages_into_display_items(&rc(&msgs))), vec![vec!["a"], vec!["b"], vec!["c"]]);
+	}
+
+	#[test]
+	fn a_run_of_photos_carries_across_a_date_divider() {
+		let divider = ChatMessage { id: "day".into(), is_date_divider: true, timestamp: 300, ..Default::default() };
+		let msgs = vec![
+			media("a", "", "x@s.whatsapp.net", 100),
+			media("b", "", "x@s.whatsapp.net", 200),
+			divider,
+			media("c", "", "x@s.whatsapp.net", 400),
+			media("d", "", "x@s.whatsapp.net", 500),
+			text("e", "bye"),
+		];
+		assert_eq!(
+			ids(&group_messages_into_display_items(&rc(&msgs))),
+			vec![vec!["day"], vec!["a", "b", "c", "d"], vec!["e"]]
+		);
 	}
 
 	#[test]
