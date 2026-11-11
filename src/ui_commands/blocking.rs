@@ -135,24 +135,12 @@ pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 				crate::ui_commands::calls::apply_call_buttons(&s, parts, jid);
 			}
 		}
-		let msg = if crate::i18n::is_indonesian() {
-			if blocked { format!("{name} diblokir.") } else { format!("Blokir {name} dibuka.") }
-		} else {
-			format!("{name} {}.", if blocked { "blocked" } else { "unblocked" })
-		};
+		let msg = crate::i18n::tr_fmt(if blocked { "{} blocked." } else { "{} unblocked." }, &[&name]);
 		announce(state, parts, &msg);
 		return;
 	};
 	let err_text = crate::i18n::translate_backend_message(error);
-	let message = if crate::i18n::is_indonesian() {
-		if blocked {
-			format!("Tidak dapat memblokir {name}: {err_text}")
-		} else {
-			format!("Tidak dapat membuka blokir {name}: {err_text}")
-		}
-	} else {
-		format!("Couldn't {} {name}: {err_text}", if blocked { "block" } else { "unblock" })
-	};
+	let message = crate::i18n::tr_fmt(if blocked { "Couldn't block {}: {}" } else { "Couldn't unblock {}: {}" }, &[&name, &err_text]);
 	let title = crate::i18n::tr("Error");
 	let dialog = state.borrow().blocked_contacts.clone();
 	let style = MessageDialogStyle::OK | MessageDialogStyle::IconError;

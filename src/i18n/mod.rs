@@ -112,6 +112,11 @@ pub fn tr_str(text: &str) -> String {
 	text.to_string()
 }
 
+/// "1 person" or "5 people" with the noun translated.
+pub fn count_noun(count: usize, one: &str, many: &str) -> String {
+	if count == 1 { format!("1 {}", tr_str(one)) } else { format!("{count} {}", tr_str(many)) }
+}
+
 /// Translates `template` (English text with `{}` placeholders) and fills the placeholders in order.
 pub fn tr_fmt(template: &'static str, args: &[&dyn std::fmt::Display]) -> String {
 	use std::fmt::Write;

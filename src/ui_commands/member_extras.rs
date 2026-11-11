@@ -127,12 +127,7 @@ pub(crate) fn group_history_result(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	let name = PENDING_HISTORY.with(|p| p.borrow_mut().take()).unwrap_or_else(|| crate::i18n::tr("them").to_string());
 	if data.get("ok").and_then(|o| o.as_bool()) == Some(true) {
 		let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
-		let msg = if crate::i18n::is_indonesian() {
-			format!("Riwayat pesan dikirim ke {name}: {count} pesan.")
-		} else {
-			let what = if count == 1 { "1 message".to_string() } else { format!("{count} messages") };
-			format!("Message history sent to {name}: {what}.")
-		};
+		let msg = crate::i18n::tr_fmt("Message history sent to {}: {}.", &[&name, &crate::i18n::count_noun(count as usize, "message", "messages")]);
 		tell(parts, &msg, crate::i18n::tr("Send Message History"), false);
 		// Refresh the members so the menu no longer offers it.
 		let group = state.borrow().selected_chat.clone();

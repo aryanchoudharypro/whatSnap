@@ -297,11 +297,7 @@ pub(crate) fn react(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	}
 	let Some(emoji) = usize::try_from(choice.get_selection()).ok().and_then(|i| CALL_REACTIONS.get(i)) else { return };
 	send(&state.borrow(), "call_reaction", serde_json::json!({ "call_id": call_id, "emoji": emoji }));
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Anda memberi reaksi {emoji}.")
-	} else {
-		format!("You reacted {emoji}.")
-	};
+	let msg = crate::i18n::tr_fmt("You reacted {}.", &[&emoji]);
 	announce_call(parts, &msg, Priority::High);
 }
 
@@ -318,12 +314,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"call_hand" => {
 			let raised = data.get("raised").and_then(|v| v.as_bool()).unwrap_or(false);
 			let name = text(data, "name");
-			let msg = if crate::i18n::is_indonesian() {
-				if raised { format!("{name} mengangkat tangan.") } else { format!("{name} menurunkan tangan.") }
-			} else {
-				let verb = if raised { "raised" } else { "lowered" };
-				format!("{name} {verb} their hand.")
-			};
+			let msg = crate::i18n::tr_fmt(if raised { "{} raised their hand." } else { "{} lowered their hand." }, &[&name]);
 			announce_call(parts, &msg, Priority::High);
 		}
 		"call_reaction" => {
@@ -408,21 +399,14 @@ fn waiting_room(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 	drop(s);
 	if admin && !arrived.is_empty() {
 		let names: Vec<&str> = arrived.iter().map(String::as_str).collect();
-		let msg = if crate::i18n::is_indonesian() {
-			let joined = match names.as_slice() {
-				[] => String::new(),
-				[one] => (*one).to_string(),
-				[rest @ .., last] => format!("{} dan {}", rest.join(", "), last),
-			};
-			format!("{joined} ingin bergabung ke panggilan. Pilih Izinkan masuk atau Tolak masuk di bagian Orang.")
-		} else {
-			let verb = if arrived.len() == 1 { "wants" } else { "want" };
-			format!(
-				"{} {} to join the call. Choose Let in or Don't let in under People.",
-				crate::calls::helpers::join_names(&names),
-				verb
-			)
-		};
+		let msg = crate::i18n::tr_fmt(
+			if arrived.len() == 1 {
+				"{} wants to join the call. Choose Let in or Don't let in under People."
+			} else {
+				"{} want to join the call. Choose Let in or Don't let in under People."
+			},
+			&[&crate::calls::helpers::join_names(&names)],
+		);
 		announce_call(parts, &msg, Priority::High);
 	}
 }
@@ -434,14 +418,7 @@ fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: S
 	let panel = Panel::builder(&dialog).build();
 	crate::ui::theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let intro_text = if crate::i18n::is_indonesian() {
-		let kind_id = if video { "video" } else { "suara" };
-		format!(
-			"Siapa saja yang memiliki WhatsApp dapat menggunakan tautan ini untuk bergabung ke panggilan {kind_id} Anda."
-		)
-	} else {
-		format!("Anyone with WhatsApp can use this link to join your {kind} call.")
-	};
+	let intro_text = crate::i18n::tr_fmt("Anyone with WhatsApp can use this link to join your {} call.", &[&crate::i18n::tr_str(kind)]);
 	let intro = StaticText::builder(&panel).with_label(&intro_text).build();
 	sizer.add(&intro, 0, SizerFlag::All, 10);
 	let link_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ReadOnly).build();
@@ -487,12 +464,7 @@ fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: S
 	dialog.destroy();
 
 	if result == SEND {
-		let text = if crate::i18n::is_indonesian() {
-			let kind_id = if video { "video" } else { "suara" };
-			format!("Gabung ke panggilan {kind_id} WhatsApp saya: {url}")
-		} else {
-			format!("Join my WhatsApp {kind} call: {url}")
-		};
+		let text = crate::i18n::tr_fmt("Join my WhatsApp {} call: {}", &[&crate::i18n::tr_str(kind), &url]);
 		crate::ui_commands::links::send_text_to_chosen_chats(state, parts, crate::i18n::tr("Send call link"), &text);
 	} else if result == JOIN
 		&& let Some(whatsnap::WhatsAppLink::Call { token, video }) = whatsnap::parse_whatsapp_link(&url)

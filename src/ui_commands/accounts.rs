@@ -797,11 +797,7 @@ fn account_rows(a: &Accounts) -> Vec<crate::ui::dialogs::accounts::AccountRow> {
 				&& !bg.unread.is_empty()
 			{
 				let n = bg.unread.len();
-				if crate::i18n::is_indonesian() {
-					label.push_str(&format!(", {n} chat belum dibaca"));
-				} else {
-					label.push_str(&format!(", {n} unread chat{}", if n == 1 { "" } else { "s" }));
-				}
+				label.push_str(&crate::i18n::tr_fmt(if n == 1 { ", {} unread chat" } else { ", {} unread chats" }, &[&n]));
 			}
 			if x.messages == crate::platform::accounts::MessageAlerts::Off && x.calls == CallAlerts::Off {
 				label.push_str(crate::i18n::tr(", notifications off"));

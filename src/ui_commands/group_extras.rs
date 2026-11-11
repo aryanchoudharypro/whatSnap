@@ -90,17 +90,11 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 			let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
 			let failed = data.get("failed").and_then(|c| c.as_u64()).unwrap_or(0);
 			let approve = data.get("approve").and_then(|c| c.as_bool()).unwrap_or(false);
-			let spoken = if crate::i18n::is_indonesian() {
-				let mut s = format!("{} {count} orang.", if approve { "Disetujui" } else { "Ditolak" });
+			let spoken = {
+				let people = |n: u64| crate::i18n::count_noun(n as usize, "person", "people");
+				let mut s = crate::i18n::tr_fmt(if approve { "Approved {}." } else { "Rejected {}." }, &[&people(count)]);
 				if failed > 0 {
-					s.push_str(&format!(" {failed} orang tidak dapat diproses."));
-				}
-				s
-			} else {
-				let people = |n: u64| if n == 1 { "1 person".to_string() } else { format!("{} people", n) };
-				let mut s = format!("{} {}.", if approve { "Approved" } else { "Rejected" }, people(count));
-				if failed > 0 {
-					s.push_str(&format!(" {} couldn't be.", people(failed)));
+					s.push_str(&crate::i18n::tr_fmt(" {} couldn't be.", &[&people(failed)]));
 				}
 				s
 			};
@@ -179,11 +173,10 @@ fn answer_join_requests(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 		return;
 	}
 	let all: Vec<String> = requests.iter().map(|r| text(r, "jid")).collect();
-	let mut labels = if crate::i18n::is_indonesian() {
-		vec![format!("Setujui semua ({})", all.len()), format!("Tolak semua ({})", all.len())]
-	} else {
-		vec![format!("Approve everyone ({})", all.len()), format!("Reject everyone ({})", all.len())]
-	};
+	let mut labels = vec![
+		crate::i18n::tr_fmt("Approve everyone ({})", &[&all.len()]),
+		crate::i18n::tr_fmt("Reject everyone ({})", &[&all.len()]),
+	];
 	for r in &requests {
 		let when = r
 			.get("requested_at")
@@ -195,14 +188,7 @@ fn answer_join_requests(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 		labels.push(entry);
 	}
 	let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-	let title = if crate::i18n::is_indonesian() {
-		format!("{} orang meminta bergabung:", all.len())
-	} else {
-		format!(
-			"{} asking to join:",
-			if all.len() == 1 { "1 person".to_string() } else { format!("{} people", all.len()) }
-		)
-	};
+	let title = crate::i18n::tr_fmt("{} asking to join:", &[&crate::i18n::count_noun(all.len(), "person", "people")]);
 	let choice = SingleChoiceDialog::builder(dialog, &title, crate::i18n::tr("Join Requests"), &refs).build();
 	if choice.show_modal() != wxdragon::id::ID_OK {
 		return;

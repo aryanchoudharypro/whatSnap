@@ -203,16 +203,14 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	let names_joined = names.join(", ");
 	let mut message = crate::i18n::tr_fmt("Sending to {}.", &[&names_joined]);
 	if left_out > 0 {
-		if crate::i18n::is_indonesian() {
-			message.push_str(&format!(
-				" Anda dapat mengirim maksimal {max} file sekaligus; {left_out} file tidak dikirim."
-			));
-		} else {
-			message.push_str(&format!(
-				" You can send up to {max} files at once; {left_out} file{} weren't sent.",
-				if left_out == 1 { "" } else { "s" }
-			));
-		}
+		message.push_str(&crate::i18n::tr_fmt(
+			if left_out == 1 {
+				" You can send up to {} files at once; {} file weren't sent."
+			} else {
+				" You can send up to {} files at once; {} files weren't sent."
+			},
+			&[&max, &left_out],
+		));
 	}
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 }

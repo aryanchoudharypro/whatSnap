@@ -34,28 +34,18 @@ pub(crate) struct JoinableCall {
 pub(crate) const JOIN_ROW_PREFIX: &str = "join:";
 
 pub(crate) fn joinable_call_label(s: &AppState, call: &JoinableCall) -> String {
-	if crate::i18n::is_indonesian() {
-		let kind = if call.video { crate::i18n::tr("Group video call") } else { crate::i18n::tr("Group voice call") };
-		let place = match s.contacts.get(&call.group_jid) {
-			Some(name) if !call.group_jid.is_empty() => format!(" di {}", name),
-			_ if !call.creator_name.is_empty() => format!(" dimulai oleh {}", call.creator_name),
-			_ => String::new(),
-		};
-		let people = if call.connected == 0 { String::new() } else { format!(", {} orang bergabung", call.connected) };
-		return format!("{}{}{}{}", kind, place, people, ongoing_call_suffix());
-	}
 	let kind = if call.video { "Group video call" } else { "Group voice call" };
 	let place = match s.contacts.get(&call.group_jid) {
-		Some(name) if !call.group_jid.is_empty() => format!(" in {}", name),
-		_ if !call.creator_name.is_empty() => format!(" started by {}", call.creator_name),
+		Some(name) if !call.group_jid.is_empty() => crate::i18n::tr_fmt(" in {}", &[name]),
+		_ if !call.creator_name.is_empty() => crate::i18n::tr_fmt(" started by {}", &[&call.creator_name]),
 		_ => String::new(),
 	};
 	let people = match call.connected {
 		0 => String::new(),
-		1 => ", 1 person in it".to_string(),
-		n => format!(", {} people in it", n),
+		1 => crate::i18n::tr(", 1 person in it").to_string(),
+		n => crate::i18n::tr_fmt(", {} people in it", &[&n]),
 	};
-	format!("{}{}{}{}", kind, place, people, ongoing_call_suffix())
+	format!("{}{}{}{}", crate::i18n::tr(kind), place, people, ongoing_call_suffix())
 }
 
 pub(crate) const ONGOING_CALL_SUFFIX: &str = ". Going on now, press Enter to join";
