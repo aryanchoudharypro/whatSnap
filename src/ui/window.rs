@@ -1691,6 +1691,7 @@ pub fn bind_input_handlers(
 			let is_reconnecting = s.call_is_reconnecting;
 			let peer_name = s.call_peer_name.clone();
 			let is_incoming = s.call_shows_incoming();
+			let direction = s.call_info_direction();
 			let is_video = s.call_video.video_call || s.call_video.is_video || s.call_video.local_camera_on;
 			let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 			drop(s);
@@ -1707,7 +1708,7 @@ pub fn bind_input_handlers(
 			call_status_label.set_label(&status);
 
 			let running_info =
-				crate::calls::helpers::call_running_info_text(is_incoming, is_video, &peer_name, secs, is_reconnecting);
+				crate::calls::helpers::call_running_info_text(direction, is_video, &peer_name, secs, is_reconnecting);
 			// Rewriting the read-only box every second would reset a screen
 			// reader's caret while the user reads it, so refresh it only every
 			// 30 seconds and keep the caret where it was.

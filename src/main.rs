@@ -84,6 +84,17 @@ impl AppState {
 	fn call_shows_incoming(&self) -> bool {
 		self.call_is_incoming && self.active_call_audio.is_none()
 	}
+
+	fn call_info_direction(&self) -> crate::calls::helpers::CallDirection {
+		use crate::calls::helpers::CallDirection;
+		if self.call_shows_incoming() {
+			CallDirection::Incoming
+		} else if self.call_is_incoming {
+			CallDirection::Answered
+		} else {
+			CallDirection::Outgoing
+		}
+	}
 }
 
 struct AppState {
@@ -563,7 +574,7 @@ fn main() {
 				}
 				let secs = total.as_secs();
 				let info = calls::helpers::call_running_info_text(
-					s.call_shows_incoming(),
+					s.call_info_direction(),
 					s.call_video.is_video,
 					&s.call_peer_name,
 					secs,

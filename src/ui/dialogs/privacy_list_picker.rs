@@ -14,23 +14,21 @@ struct PickerState {
 }
 
 fn picker_rows(contacts: &[Contact], excluded: &[Contact]) -> (Vec<(String, String)>, HashSet<String>) {
-	let mut rows: Vec<(String, String)> = contacts.iter().map(|c| (c.jid.clone(), contact_picker_label(c))).collect();
+	let mut rows: Vec<(String, String)> = Vec::new();
 	let mut checked = HashSet::new();
 	for person in excluded {
-		let found = contacts
-			.iter()
-			.find(|c| c.jid == person.jid || (!person.phone.is_empty() && c.phone == person.phone))
-			.map(|c| c.jid.clone());
-		match found {
-			Some(jid) => {
-				checked.insert(jid);
-			}
-			None => {
-				checked.insert(person.jid.clone());
-				rows.push((person.jid.clone(), contact_picker_label(person)));
-			}
+		let found =
+			contacts.iter().find(|c| c.jid == person.jid || (!person.phone.is_empty() && c.phone == person.phone));
+		let (jid, label) = match found {
+			Some(c) => (c.jid.clone(), contact_picker_label(c)),
+			None => (person.jid.clone(), contact_picker_label(person)),
+		};
+		if checked.insert(jid.clone()) {
+			rows.push((jid, label));
 		}
 	}
+	let rest = contacts.iter().filter(|c| !checked.contains(&c.jid));
+	rows.extend(rest.map(|c| (c.jid.clone(), contact_picker_label(c))));
 	(rows, checked)
 }
 
@@ -109,6 +107,9 @@ pub fn pick_with(
 	list.set_font(&theme::Fonts::body());
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
+	let select_all = CheckBox::builder(&panel).with_label("Select all").build();
+	sizer.add(&select_all, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
 	let announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&announcer);
 	theme::style_muted_label(&announcer);
@@ -180,6 +181,7 @@ pub fn pick_with(
 	});
 
 	let state_toggle = state.clone();
+	let counts_all = counts.clone();
 	let toggle_words = counts;
 	let off = words.off.to_string();
 	list.on_toggled(move |event| {
@@ -198,6 +200,23 @@ pub fn pick_with(
 			announcer,
 			&format!("{}: {}. {}", label, now, counted(&toggle_words, s.checked.len())),
 		);
+	});
+
+	let state_all = state.clone();
+	let all_words = counts_all;
+	select_all.on_toggled(move |event| {
+		let on = event.is_checked();
+		let mut s = state_all.borrow_mut();
+		let shown = s.shown.clone();
+		for (idx, jid) in shown.iter().enumerate() {
+			list.check(idx as u32, on);
+			if on {
+				s.checked.insert(jid.clone());
+			} else {
+				s.checked.remove(jid);
+			}
+		}
+		crate::platform::announce::announce(announcer, &counted(&all_words, s.checked.len()));
 	});
 
 	crate::ui::keys::escape_cancels_anywhere(dialog);
@@ -258,7 +277,8 @@ mod tests {
 		];
 		let (rows, checked) = picker_rows(&contacts, &excluded);
 		assert_eq!(rows.len(), 4);
-		assert_eq!(rows[3].0, "9@lid");
+		assert_eq!(rows[2].0, "9@lid");
+		assert_eq!(rows[3].0, "916@s.whatsapp.net");
 		let want: HashSet<String> = ["911@s.whatsapp.net", "5@lid", "9@lid"].iter().map(|s| s.to_string()).collect();
 		assert_eq!(checked, want);
 	}

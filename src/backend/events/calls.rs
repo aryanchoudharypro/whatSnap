@@ -55,7 +55,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							parts.call_parts.status_label.set_label(&group_call_status_text(&s.call_participants));
 						}
 						let running_info = crate::calls::helpers::call_running_info_text(
-							s.call_shows_incoming(),
+							s.call_info_direction(),
 							s.call_video.is_video,
 							&s.call_peer_name,
 							0,
@@ -237,7 +237,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.call_is_reconnecting = true;
 					let secs = s.call_connected_duration.as_secs();
 					let info = crate::calls::helpers::call_running_info_text(
-						s.call_shows_incoming(),
+						s.call_info_direction(),
 						s.call_video.is_video,
 						&s.call_peer_name,
 						secs,
@@ -253,7 +253,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.call_connected_segment_start = Some(std::time::Instant::now());
 					let secs = s.call_connected_duration.as_secs();
 					let info = crate::calls::helpers::call_running_info_text(
-						s.call_shows_incoming(),
+						s.call_info_direction(),
 						s.call_video.is_video,
 						&s.call_peer_name,
 						secs,
@@ -335,6 +335,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						let name = s.call_peer_name.clone();
 						let is_saved = s.call_peer_is_saved;
 						let is_incoming = s.call_shows_incoming();
+						let direction = s.call_info_direction();
 						let elapsed = s.call_connected_duration
 							+ s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
 						let secs = elapsed.as_secs();
@@ -350,7 +351,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						);
 						parts.call_parts.frame.set_title(&win_title);
 						let running_info = crate::calls::helpers::call_running_info_text(
-							is_incoming,
+							direction,
 							true,
 							&name,
 							secs,

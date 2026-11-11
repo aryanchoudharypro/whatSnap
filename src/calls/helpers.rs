@@ -112,19 +112,35 @@ pub(crate) fn format_call_duration(seconds: u64) -> String {
 	}
 }
 
+/// Which wording a call's info box uses: still ringing in, picked up, or one we placed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CallDirection {
+	Incoming,
+	Answered,
+	Outgoing,
+}
+
 pub(crate) fn call_running_info_text(
-	is_incoming: bool,
+	direction: CallDirection,
 	is_video: bool,
 	peer_name: &str,
 	duration_secs: u64,
 	is_reconnecting: bool,
 ) -> String {
-	let direction = if is_incoming { "Incoming" } else { "Outgoing" };
-	let kind = if is_video { " video call " } else { " call " };
-	let prep = if is_incoming { "from" } else { "to" };
+	let (direction, prep) = match direction {
+		CallDirection::Incoming => ("Incoming ", "from"),
+		CallDirection::Answered => ("", "with"),
+		CallDirection::Outgoing => ("Outgoing ", "to"),
+	};
+	let kind = match (direction.is_empty(), is_video) {
+		(true, true) => "Video call",
+		(true, false) => "Call",
+		(false, true) => "video call",
+		(false, false) => "call",
+	};
 	let clock = format_call_duration(duration_secs);
 	let line2 = if is_reconnecting { format!("Reconnecting... ({clock})") } else { clock };
-	format!("{direction}{kind}{prep} {peer_name}\r\n{line2}")
+	format!("{direction}{kind} {prep} {peer_name}\r\n{line2}")
 }
 
 pub(crate) fn call_incoming_info_text(
@@ -299,11 +315,25 @@ mod caller_info_tests {
 
 	#[test]
 	fn running_call_shows_direction_peer_and_formatted_duration() {
-		assert_eq!(call_running_info_text(true, false, "Asha", 0, false), "Incoming call from Asha\r\n0:00");
-		assert_eq!(call_running_info_text(true, true, "Asha", 42, false), "Incoming video call from Asha\r\n0:42");
-		assert_eq!(call_running_info_text(false, false, "Asha", 125, false), "Outgoing call to Asha\r\n2:05");
+		assert_eq!(call_running_info_text(CallDirection::Answered, false, "Asha", 5, false), "Call with Asha\r\n0:05");
 		assert_eq!(
-			call_running_info_text(false, true, "Asha", 65, true),
+			call_running_info_text(CallDirection::Answered, true, "Asha", 5, false),
+			"Video call with Asha\r\n0:05"
+		);
+		assert_eq!(
+			call_running_info_text(CallDirection::Incoming, false, "Asha", 0, false),
+			"Incoming call from Asha\r\n0:00"
+		);
+		assert_eq!(
+			call_running_info_text(CallDirection::Incoming, true, "Asha", 42, false),
+			"Incoming video call from Asha\r\n0:42"
+		);
+		assert_eq!(
+			call_running_info_text(CallDirection::Outgoing, false, "Asha", 125, false),
+			"Outgoing call to Asha\r\n2:05"
+		);
+		assert_eq!(
+			call_running_info_text(CallDirection::Outgoing, true, "Asha", 65, true),
 			"Outgoing video call to Asha\r\nReconnecting... (1:05)"
 		);
 	}
