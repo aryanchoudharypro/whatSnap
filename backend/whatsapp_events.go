@@ -3435,6 +3435,9 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 		return
 	}
 	go acc.purgeExpiredStatuses()
+	if mediaType == "voice" {
+		logVoiceStatusShape(v.Info.ID, cleanMsg)
+	}
 	background, textColor, font := textStatusColors(rawBytes)
 	posterName := ""
 	if !v.Info.IsFromMe {

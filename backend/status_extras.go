@@ -14,6 +14,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -556,4 +557,20 @@ func (acc *Account) storeHistoryStatuses(statuses []*waWeb.WebMessageInfo) {
 		}
 	}
 	log.Printf("History sync: %d of %d status updates stored", stored, len(statuses))
+}
+
+// logVoiceStatusShape writes the fields of a received voice status to the
+// log, so the format the phone uses can be copied when we post our own. The
+// media key and download addresses are left out.
+func logVoiceStatusShape(id string, msg *waE2E.Message) {
+	clone := proto.Clone(msg).(*waE2E.Message)
+	if a := clone.GetAudioMessage(); a != nil {
+		a.MediaKey, a.DirectPath, a.URL, a.FileEncSHA256, a.FileSHA256 = nil, nil, nil, nil, nil
+		a.StreamingSidecar = nil
+	}
+	out, err := protojson.Marshal(clone)
+	if err != nil {
+		return
+	}
+	log.Printf("Voice status %s shape: %s", id, out)
 }
