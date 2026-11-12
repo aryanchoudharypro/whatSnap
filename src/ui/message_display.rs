@@ -613,15 +613,18 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		};
 
-		let ongoing: Vec<(String, String, String)> = s
-			.joinable_calls
-			.iter()
-			.map(|c| (crate::ui_commands::calls::joinable_call_label(s, c), c))
+		let mut ongoing: Vec<(String, String, String)> = crate::ui_commands::calls::active_call_row(s)
 			.filter(|(label, _)| lower_query.is_empty() || label.to_lowercase().contains(&lower_query))
-			.map(|(label, c)| {
-				(label, format!("{}{}", crate::ui_commands::calls::JOIN_ROW_PREFIX, c.call_id), String::new())
-			})
+			.map(|(label, row)| (label, row, String::new()))
+			.into_iter()
 			.collect();
+		for c in &s.joinable_calls {
+			let label = crate::ui_commands::calls::joinable_call_label(s, c);
+			if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) {
+				let row = format!("{}{}", crate::ui_commands::calls::JOIN_ROW_PREFIX, c.call_id);
+				ongoing.push((label, row, String::new()));
+			}
+		}
 		push_section(crate::i18n::tr("Going on now"), ongoing);
 
 		if s.settings.show_frequent_calls {

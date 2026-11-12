@@ -122,11 +122,15 @@ impl RowArt {
 		}
 		let jid = if jid.starts_with(crate::ui_commands::calls::JOIN_ROW_PREFIX) { "" } else { jid };
 		let suffix = crate::ui_commands::calls::ongoing_call_suffix();
-		let (text, ongoing) =
-			match text.strip_suffix(suffix).or_else(|| text.strip_suffix(". Going on now, press Enter to join")) {
-				Some(t) => (t, true),
-				None => (text, false),
-			};
+		let (text, ongoing) = match text
+			.strip_suffix(suffix)
+			.or_else(|| text.strip_suffix(". Going on now, press Enter to join"))
+			.or_else(|| text.strip_suffix(crate::ui_commands::calls::active_call_suffix()))
+			.or_else(|| text.strip_suffix(crate::ui_commands::calls::ACTIVE_CALL_SUFFIX))
+		{
+			Some(t) => (t, true),
+			None => (text, false),
+		};
 		let looks_like_time = |t: &str| t.ends_with("AM") || t.ends_with("PM") || t.contains(':');
 		let (desc, time) = match text.rsplit_once(", ") {
 			Some((d, t)) if looks_like_time(t) => (d, t),

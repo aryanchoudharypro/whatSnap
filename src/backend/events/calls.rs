@@ -42,6 +42,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							parts.call_parts.mute_btn.set_label(crate::i18n::tr("Mute microphone"));
 						}
 						s.active_call_audio = Some(streams);
+						crate::ui_commands::calls::refresh_active_call_row(&mut s, parts);
 						let connected_msg = if s.call_video.is_video {
 							crate::i18n::tr("Video call connected. Your camera is off.")
 						} else {
@@ -136,6 +137,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let _ = s.ws_tx.send(msg.to_string());
 				} else {
 					s.active_call_id = Some(call_id.to_string());
+					crate::ui_commands::calls::refresh_active_call_row(&mut s, parts);
 					s.call_participants.clear();
 					s.active_call_video_send = None;
 					s.call_video_port = None;
@@ -501,6 +503,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 					crate::audio::stop_call_reconnect_tone(&mut s);
 					s.active_call_id = None;
+					crate::ui_commands::calls::refresh_active_call_row(&mut s, parts);
 					s.active_call_audio = None;
 					s.call_connected_segment_start = None;
 					s.call_connected_duration = std::time::Duration::ZERO;
@@ -612,6 +615,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let mut s = state.borrow_mut();
 				if s.active_call_id.as_deref() == Some(call_id) {
 					s.active_call_id = None;
+					crate::ui_commands::calls::refresh_active_call_row(&mut s, parts);
 					s.active_call_audio = None;
 					s.call_connected_segment_start = None;
 					s.call_connected_duration = std::time::Duration::ZERO;
@@ -647,6 +651,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let mut s = state.borrow_mut();
 					call_log(parts, &s, "incoming", call_id);
 					s.active_call_id = Some(call_id.to_string());
+					crate::ui_commands::calls::refresh_active_call_row(&mut s, parts);
 					s.call_answer_deadline = None;
 					let chat_jid = data.get("chat_jid").and_then(|j| j.as_str());
 					let raw_name = data.get("caller_name").and_then(|n| n.as_str());

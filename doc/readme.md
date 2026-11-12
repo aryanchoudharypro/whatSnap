@@ -103,7 +103,7 @@ To change the order of the sections, select a section in the Main Navigation lis
 | Section | Shortcut | What it shows |
 |---|---|---|
 | Chats | `Alt+1` | Your chats and groups. |
-| Calls | `Alt+2` | Your recent calls. |
+| Calls | `Alt+2` | Your recent calls. A `Going on now` section at the top lists the call you are in, press `Enter` on it to bring the call window back, and group calls you can still join. |
 | Status | `Alt+3` | The status updates of your contacts, and your own. |
 | Starred Messages | `Alt+4` | The messages that you starred, in all chats. |
 | Archived Chats | `Alt+5` | The chats that you archived. |

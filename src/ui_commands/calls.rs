@@ -50,6 +50,32 @@ pub(crate) fn joinable_call_label(s: &AppState, call: &JoinableCall) -> String {
 
 pub(crate) const ONGOING_CALL_SUFFIX: &str = ". Going on now, press Enter to join";
 
+pub(crate) const ACTIVE_CALL_SUFFIX: &str = ". In progress, press Enter to return to it";
+
+pub(crate) fn active_call_suffix() -> &'static str {
+	crate::i18n::tr(ACTIVE_CALL_SUFFIX)
+}
+
+/// The call this account is in right now, as a row for the top of the Calls tab:
+/// its label and the row id (the call id behind the join prefix, so Enter on it
+/// brings the call window back).
+pub(crate) fn active_call_row(s: &AppState) -> Option<(String, String)> {
+	let call_id = s.active_call_id.as_deref()?;
+	if s.call_shows_incoming() || s.call_peer_name.is_empty() {
+		return None;
+	}
+	let kind = if s.call_video.video_call { "Video call with {}" } else { "Call with {}" };
+	let label = format!("{}{}", crate::i18n::tr_fmt(kind, &[&s.call_peer_name]), active_call_suffix());
+	Some((label, format!("{JOIN_ROW_PREFIX}{call_id}")))
+}
+
+/// Rebuilds the Calls tab when the call this account is in starts or ends, so its row appears and goes.
+pub(crate) fn refresh_active_call_row(s: &mut AppState, parts: &WindowParts) {
+	if s.active_tab == 6 {
+		crate::ui::message_display::apply_chat_filter(s, parts);
+	}
+}
+
 pub(crate) fn ongoing_call_suffix() -> &'static str {
 	crate::i18n::tr(ONGOING_CALL_SUFFIX)
 }
@@ -123,6 +149,13 @@ pub(crate) fn on_joinable_calls(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 
 pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, call_id: Option<String>) {
 	let mut s = state.borrow_mut();
+	if call_id.is_some() && call_id == s.active_call_id {
+		drop(s);
+		parts.call_parts.frame.show(true);
+		parts.call_parts.frame.iconize(false);
+		parts.call_parts.frame.raise();
+		return;
+	}
 	let call = match call_id {
 		Some(id) => s.joinable_calls.iter().find(|c| c.call_id == id).cloned(),
 		None => s.selected_chat.as_deref().and_then(|jid| joinable_call_for_chat(&s, jid)).cloned(),
@@ -498,6 +531,7 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		parts.call_parts.callback_btn.show(false);
 		parts.call_parts.close_btn.show(false);
 		s.active_call_id = None;
+		refresh_active_call_row(&mut s, parts);
 		s.active_call_video_send = None;
 		s.call_video_port = None;
 		s.call_participants.clear();
@@ -528,6 +562,7 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		parts.call_parts.camera_device_group.show(false);
 		parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 		s.active_call_id = None;
+		refresh_active_call_row(&mut s, parts);
 		s.active_call_audio = None;
 		s.active_call_video_send = None;
 		s.call_video_port = None;
