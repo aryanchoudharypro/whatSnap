@@ -183,21 +183,29 @@ func cleanupScratchTempDirs(maxAge time.Duration) {
 }
 
 func (acc *Account) purgeMessages(where string, args ...interface{}) {
-	rows, err := acc.db.Query(`SELECT id, COALESCE(media_path, '') FROM messages WHERE `+where, args...)
+	rows, err := acc.db.Query(`SELECT id, COALESCE(media_path, ''), jid = 'status@broadcast' FROM messages WHERE `+where, args...)
 	if err != nil {
 		return
 	}
 	var ids, paths []string
+	statuses := 0
 	for rows.Next() {
 		var id, path string
-		if rows.Scan(&id, &path) == nil {
+		var isStatus bool
+		if rows.Scan(&id, &path, &isStatus) == nil {
 			ids = append(ids, id)
 			if path != "" {
 				paths = append(paths, path)
 			}
+			if isStatus {
+				statuses++
+			}
 		}
 	}
 	rows.Close()
+	if statuses > 0 {
+		log.Printf("Purging %d status updates (where %s)", statuses, where)
+	}
 	if len(ids) == 0 {
 		return
 	}

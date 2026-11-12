@@ -103,6 +103,11 @@ func (acc *Account) handleGetStatuses(conn net.Conn) {
 			}
 			rows.Close()
 		}
+		itemCount := 0
+		for _, g := range groups {
+			itemCount += len(g.items)
+		}
+		log.Printf("Status tab: %d people, %d updates", len(groups), itemCount)
 		for _, g := range groups {
 			if g.fromMe {
 				continue
