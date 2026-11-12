@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -219,7 +220,13 @@ func (acc *Account) purgeMessages(where string, args ...interface{}) {
 }
 
 func (acc *Account) purgeExpiredStatuses() {
-	acc.purgeMessages(`jid = 'status@broadcast' AND timestamp <= ?`, time.Now().Add(-24*time.Hour).Unix())
+	cutoff := time.Now().Add(-24 * time.Hour).Unix()
+	var expired int
+	acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?`, cutoff).Scan(&expired)
+	if expired > 0 {
+		log.Printf("Removing %d status updates older than 24 hours", expired)
+	}
+	acc.purgeMessages(`jid = 'status@broadcast' AND timestamp <= ?`, cutoff)
 	acc.db.Exec(`DELETE FROM status_viewers WHERE status_id NOT IN (SELECT id FROM messages WHERE jid = 'status@broadcast')`)
 }
 

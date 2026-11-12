@@ -313,6 +313,7 @@ func (acc *Account) withStatusViewers(id string, recipients []types.JID) []types
 }
 
 func (acc *Account) removeStatus(id string) {
+	log.Printf("Removing deleted status update %s", id)
 	acc.db.Exec(`DELETE FROM status_recipients WHERE status_id = ?`, id)
 	acc.purgeMessages(`id = ? AND jid = 'status@broadcast'`, id)
 	acc.db.Exec(`DELETE FROM status_viewers WHERE status_id = ?`, id)
