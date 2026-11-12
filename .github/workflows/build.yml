@@ -18,7 +18,16 @@ permissions:
   contents: read
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # arm64 builds natively on GitHub's Windows arm64 runner; its packages are named -arm64.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - arch: x64
+          runner: windows-latest
+        - arch: arm64
+          runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -27,7 +36,7 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       with:
-        arch: x64
+        arch: ${{ matrix.arch }}
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -53,7 +62,8 @@ jobs:
       run: cargo release
     - name: Check the build produced both packages
       run: |
-        foreach ($pattern in 'whatSnap_setup.exe', 'whatSnap.zip') {
+        $suffix = if ('${{ matrix.arch }}' -eq 'arm64') { '-arm64' } else { '' }
+        foreach ($pattern in "whatSnap_setup$suffix.exe", "whatSnap$suffix.zip") {
           if (-not (Get-ChildItem target\release -Filter $pattern)) { throw "target\release\$pattern is missing" }
         }
         Get-ChildItem target\release -Filter whatSnap* | Format-Table Name, Length
@@ -61,20 +71,20 @@ jobs:
       id: upload-setup
       uses: actions/upload-artifact@v7
       with:
-        name: whatSnap-windows-setup
-        path: target/release/whatSnap_setup.exe*
+        name: whatSnap-windows-setup-${{ matrix.arch }}
+        path: target/release/whatSnap_setup*.exe*
         if-no-files-found: error
         retention-days: 1
     - name: Upload portable zip
       uses: actions/upload-artifact@v7
       with:
-        name: whatSnap-windows-portable
-        path: target/release/whatSnap.zip*
+        name: whatSnap-windows-portable-${{ matrix.arch }}
+        path: target/release/whatSnap*.zip*
         if-no-files-found: error
         retention-days: 1
     - name: Link the installer in the run summary
       run: |
-        echo "Installer: ${{ steps.upload-setup.outputs.artifact-url }}" >> $env:GITHUB_STEP_SUMMARY
+        echo "Installer (${{ matrix.arch }}): ${{ steps.upload-setup.outputs.artifact-url }}" >> $env:GITHUB_STEP_SUMMARY
 
   release:
     needs: [build-windows]
@@ -93,15 +103,11 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-    - name: Download installer
+    - name: Download installers and portable zips
       uses: actions/download-artifact@v8
       with:
-        name: whatSnap-windows-setup
-        path: windows-build
-    - name: Download portable zip
-      uses: actions/download-artifact@v8
-      with:
-        name: whatSnap-windows-portable
+        pattern: whatSnap-windows-*
+        merge-multiple: true
         path: windows-build
     - name: Get latest tag reachable from HEAD
       id: get_tag

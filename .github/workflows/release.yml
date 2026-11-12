@@ -13,7 +13,16 @@ permissions:
   contents: write
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # arm64 builds natively on GitHub's Windows arm64 runner; its packages are named -arm64.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - arch: x64
+          runner: windows-latest
+        - arch: arm64
+          runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
     outputs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -24,7 +33,7 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       with:
-        arch: x64
+        arch: ${{ matrix.arch }}
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -62,12 +71,12 @@ jobs:
     - name: Upload release files
       uses: actions/upload-artifact@v7
       with:
-        name: whatSnap-release
+        name: whatSnap-release-${{ matrix.arch }}
         path: |
-          target/release/whatSnap_setup.exe
-          target/release/whatSnap_setup.exe.minisig
-          target/release/whatSnap.zip
-          target/release/whatSnap.zip.minisig
+          target/release/whatSnap_setup*.exe
+          target/release/whatSnap_setup*.exe.minisig
+          target/release/whatSnap*.zip
+          target/release/whatSnap*.zip.minisig
         if-no-files-found: error
         retention-days: 7
 
@@ -82,7 +91,8 @@ jobs:
     - name: Download release files
       uses: actions/download-artifact@v8
       with:
-        name: whatSnap-release
+        pattern: whatSnap-release-*
+        merge-multiple: true
         path: dist
     # The release goes out with no notes: write the changelog on GitHub
     # afterwards (a release made there first keeps its notes).

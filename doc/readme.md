@@ -12,7 +12,7 @@ Using a third-party client may go against the WhatsApp Terms of Service. WhatsAp
 You use whatSnap at your own risk. If you can't afford to lose your WhatsApp account, don't use whatSnap with it. whatSnap comes as is, with no warranty. Its authors and contributors are not responsible for anything that happens to your account, your data, or your device because you used it, including restrictions, bans, and lost messages.
 
 ## System Requirements
-- Windows 10 or 11, on x64.
+- Windows 10 or 11, on x64 or arm64.
 - WhatsApp on your phone. whatSnap is a linked device, so you need a phone with WhatsApp to link it the first time.
 
 ## Core Features

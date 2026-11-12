@@ -17,11 +17,13 @@ fn install_kind() -> InstallKind {
 }
 
 pub fn run(frame: &Frame, ui_tx: &UiCommandSender, channel: &str, automatic: bool) {
-	let config = Arc::new(
-		UpdaterConfig::new(GITHUB_REPO, "whatSnap", "whatSnap", MINISIGN_PUBLIC_KEY, env!("CARGO_PKG_VERSION"))
-			.with_commit(env!("WHATSNAP_COMMIT_HASH"))
-			.with_install_kind(install_kind()),
-	);
+	let config = UpdaterConfig::new(GITHUB_REPO, "whatSnap", "whatSnap", MINISIGN_PUBLIC_KEY, env!("CARGO_PKG_VERSION"))
+		.with_commit(env!("WHATSNAP_COMMIT_HASH"))
+		.with_install_kind(install_kind());
+	// The arm64 packages are whatSnap-arm64.zip and whatSnap_setup-arm64.exe; x64 stays unsuffixed.
+	#[cfg(target_arch = "aarch64")]
+	let config = config.with_asset_suffix("-arm64");
+	let config = Arc::new(config);
 	let channel = if channel == "dev" { UpdateChannel::Dev } else { UpdateChannel::Stable };
 	let trigger = if automatic { CheckTrigger::Automatic } else { CheckTrigger::Manual };
 	let tx = ui_tx.clone();

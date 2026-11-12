@@ -51,6 +51,8 @@ cargo build --release
 - `target\release\whatSnap_setup.exe`, the installer.
 - `target\release\whatSnap.zip`, the portable version.
 
+`cargo release` builds for the architecture of the machine it runs on. On an arm64 machine the files are named `whatSnap_setup-arm64.exe` and `whatSnap-arm64.zip`, and the update check in an arm64 build looks for those names.
+
 It reads the version from `Cargo.toml`. You don't need to install Inno Setup: if it isn't installed, `cargo release` downloads it one time to a cache for your user. The code is in `xtask/`, and it uses [shipfitter](https://crates.io/crates/shipfitter).
 
 ### Update Signatures
