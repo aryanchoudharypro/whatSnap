@@ -1,5 +1,5 @@
 use std::{
-	cell::RefCell,
+	cell::{Cell, RefCell},
 	rc::Rc,
 	sync::{Arc, Mutex},
 	time::{Duration, Instant},
@@ -55,7 +55,7 @@ fn clock(secs: u64) -> String {
 }
 
 pub fn show_voice_status_composer(parent: &impl WxWidget, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let dialog = Dialog::builder(parent, crate::i18n::tr("Post Voice Status")).with_size(460, 260).build();
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Post Voice Status")).with_size(520, 300).build();
 	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
@@ -74,6 +74,40 @@ pub fn show_voice_status_composer(parent: &impl WxWidget, state: &Rc<RefCell<App
 	let record_btn = Button::builder(&panel).with_label(crate::i18n::tr("&Record")).build();
 	dialog_look::pill_button(&record_btn, true, theme::Palette::CONTENT_BG());
 	sizer.add(&record_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
+
+	// The phone starts on a random background and lets you change it.
+	let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().subsec_nanos();
+	let colour_idx = Rc::new(Cell::new(nanos as usize % STATUS_PALETTE.len()));
+	let colour_row = BoxSizer::builder(Orientation::Horizontal).build();
+	let colour_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Background &colour:")).build();
+	theme::style_muted_label(&colour_label);
+	colour_row.add(&colour_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+	let colour_names: Vec<String> = STATUS_PALETTE.iter().map(|(name, _)| crate::i18n::tr(name).to_string()).collect();
+	let colour_combo = ComboBox::builder(&panel).with_choices(colour_names).with_style(ComboBoxStyle::ReadOnly).build();
+	colour_combo.set_selection(colour_idx.get() as u32);
+	colour_row.add(&colour_combo, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+	let next_colour_btn = Button::builder(&panel).with_label(crate::i18n::tr("&Next Colour")).build();
+	dialog_look::pill_button(&next_colour_btn, false, theme::Palette::CONTENT_BG());
+	colour_row.add(&next_colour_btn, 0, SizerFlag::AlignCenterVertical, 0);
+	sizer.add_sizer(&colour_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+	{
+		let colour_idx = colour_idx.clone();
+		next_colour_btn.on_click(move |_| {
+			let next = (colour_idx.get() + 1) % STATUS_PALETTE.len();
+			colour_idx.set(next);
+			colour_combo.set_selection(next as u32);
+			let label = crate::i18n::tr(STATUS_PALETTE[next].0);
+			crate::platform::announce::announce(announcer, &crate::i18n::tr_fmt("Background colour: {}", &[&label]));
+		});
+	}
+	{
+		let colour_idx = colour_idx.clone();
+		colour_combo.on_selection_changed(move |event| {
+			if let Some(sel) = event.get_selection() {
+				colour_idx.set((sel as usize).min(STATUS_PALETTE.len() - 1));
+			}
+		});
+	}
 
 	let privacy_row = BoxSizer::builder(Orientation::Horizontal).build();
 	let privacy_hint =
@@ -227,6 +261,7 @@ pub fn show_voice_status_composer(parent: &impl WxWidget, state: &Rc<RefCell<App
 
 	let do_post = {
 		let recorder = recorder.clone();
+		let colour_idx = colour_idx.clone();
 		let state = state.clone();
 		let parts = parts.clone();
 		let timer = weak_timer();
@@ -248,10 +283,7 @@ pub fn show_voice_status_composer(parent: &impl WxWidget, state: &Rc<RefCell<App
 					}
 				}
 			};
-			// The phone picks a random background for each voice status.
-			let nanos =
-				std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().subsec_nanos();
-			let (_, background) = STATUS_PALETTE[nanos as usize % STATUS_PALETTE.len()];
+			let (_, background) = STATUS_PALETTE[colour_idx.get()];
 			let ws_tx = state.borrow().ws_tx.clone();
 			std::thread::spawn(move || {
 				let waveform = compute_voice_waveform(&path);
