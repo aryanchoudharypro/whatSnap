@@ -69,7 +69,10 @@ impl Card {
 			let jid = if self.lid_chat.is_empty() { format!("{}@lid", self.lid) } else { self.lid_chat.clone() };
 			return vec![(jid, self.name.clone())];
 		}
-		self.numbers.iter().map(|n| (n.jid.clone(), format!("{}, {}", n.shown(), n.label))).collect()
+		self.numbers
+			.iter()
+			.map(|n| (n.jid.clone(), format!("{}, {}", n.shown(), crate::i18n::tr_str(&n.label))))
+			.collect()
 	}
 
 	fn main_jid(&self) -> Option<String> {
@@ -121,9 +124,10 @@ fn card_rows(cards: &[Card], multi: bool) -> Vec<Row> {
 			&& card.details.is_empty()
 		{
 			let shown = number.shown();
+			let label = crate::i18n::tr_str(&number.label);
 			rows.push(Row {
 				card: i,
-				text: crate::i18n::tr_fmt("{}, {}, {}, on WhatsApp", &[&head, &shown, &number.label]),
+				text: crate::i18n::tr_fmt("{}, {}, {}, on WhatsApp", &[&head, &shown, &label]),
 				copy: shown,
 				action: RowAction::Message(number.jid.clone()),
 			});
@@ -133,9 +137,10 @@ fn card_rows(cards: &[Card], multi: bool) -> Vec<Row> {
 		rows.push(Row { card: i, text: head, copy: card.name.clone(), action });
 		for number in &card.numbers {
 			let shown = number.shown();
+			let label = crate::i18n::tr_str(&number.label);
 			rows.push(Row {
 				card: i,
-				text: crate::i18n::tr_fmt("{}, {}, on WhatsApp", &[&shown, &number.label]),
+				text: crate::i18n::tr_fmt("{}, {}, on WhatsApp", &[&shown, &label]),
 				copy: shown,
 				action: RowAction::Message(number.jid.clone()),
 			});
