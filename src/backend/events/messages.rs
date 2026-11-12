@@ -1392,6 +1392,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				crate::ui_commands::polls::show_poll_vote_dialog(state, parts, data);
 			}
 		}
+		"contact_card" => {
+			if let Some(data) = val.get("data") {
+				crate::ui_commands::contact_cards::on_contact_card(state, parts, data);
+			}
+		}
 		"message_options" => {
 			if let Some(data) = val.get("data") {
 				crate::ui_commands::business::show_message_options(state, parts, data);

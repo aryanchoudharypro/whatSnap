@@ -497,6 +497,8 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 		acc.handleSendEvent(conn, cmd.Data)
 	case "get_event":
 		acc.handleGetEvent(conn, cmd.Data)
+	case "get_contact_card":
+		acc.handleGetContactCard(conn, cmd.Data)
 	case "get_message_options":
 		acc.handleGetMessageOptions(conn, cmd.Data)
 	case "send_message_option":

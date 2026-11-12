@@ -13,6 +13,9 @@ const UNPIN: i32 = 3402;
 const KEEP: i32 = 3403;
 const UNKEEP: i32 = 3404;
 const STICKER_FAVORITE: i32 = 3405;
+const VIEW_CONTACT: i32 = 3406;
+const MESSAGE_CONTACT: i32 = 3407;
+const DOWNLOAD_CONTACT: i32 = 3408;
 
 const PIN_DURATIONS: [(&str, u32); 3] = [("24 hours", 86_400), ("7 days", 604_800), ("30 days", 2_592_000)];
 
@@ -37,10 +40,32 @@ pub(crate) fn append_message_actions(
 	if m.from_me && (m.status == "pending" || m.status == "failed") {
 		return None;
 	}
+	let is_contact = m.text.starts_with("[Contact]");
+	if is_contact {
+		// The buttons WA Web puts under a contact card.
+		menu.append(
+			MESSAGE_CONTACT,
+			crate::i18n::tr("&Message Contact"),
+			crate::i18n::tr("Open a chat with the person in this contact card"),
+			ItemKind::Normal,
+		);
+		menu.append(
+			VIEW_CONTACT,
+			crate::i18n::tr("&View Contact..."),
+			crate::i18n::tr("See the contact card's numbers and details, and save it"),
+			ItemKind::Normal,
+		);
+		menu.append(
+			DOWNLOAD_CONTACT,
+			crate::i18n::tr("Do&wnload Contact..."),
+			crate::i18n::tr("Save the contact card as a .vcf file"),
+			ItemKind::Normal,
+		);
+	}
 	let s = state.borrow();
 	let jid = s.selected_chat.as_ref()?;
 	if jid.ends_with("@newsletter") || jid.ends_with("@broadcast") {
-		return None;
+		return is_contact.then(|| (**m).clone());
 	}
 	let can_pin = !s.admins_only_jids.contains(jid) || s.admin_group_jids.contains(jid);
 	if m.pinned {
@@ -136,6 +161,14 @@ pub(crate) fn handle_message_action(
 			send(state, "keep_message", data);
 		}
 		STICKER_FAVORITE => crate::ui_commands::stickers::set_favorite(state, &msg.id, !msg.sticker_favorite),
+		VIEW_CONTACT | MESSAGE_CONTACT | DOWNLOAD_CONTACT => {
+			let intent = match id {
+				VIEW_CONTACT => "view",
+				MESSAGE_CONTACT => "message",
+				_ => "download",
+			};
+			crate::ui_commands::contact_cards::request_contact_card(state, msg.id.clone(), intent);
+		}
 		_ => return false,
 	}
 	true

@@ -452,7 +452,7 @@ pub(crate) fn open_new_contact_form(parts: &Rc<WindowParts>) {
 	open_contact_form(parts, crate::i18n::tr("New Contact"), crate::i18n::tr("Create"), "", "", "", true);
 }
 
-fn open_contact_form(
+pub(crate) fn open_contact_form(
 	parts: &Rc<WindowParts>,
 	title: &str,
 	ok_label: &str,
