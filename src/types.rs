@@ -165,6 +165,10 @@ pub enum UiCommand {
 	ShowScheduledMessages,
 	OpenPollVote(String),
 	OpenMessageOptions(String),
+	OpenContactCard {
+		message_id: String,
+		intent: String,
+	},
 	OpenOrderDetails(String),
 	OpenCatalog(Option<String>),
 	SendPoll {

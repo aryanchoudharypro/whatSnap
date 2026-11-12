@@ -20,7 +20,7 @@ You use whatSnap at your own risk. If you can't afford to lose your WhatsApp acc
 - Chats, groups, communities, channels, status updates, starred messages, archived chats, and the call history.
 - Messages, with:
   - Replies, forwarding, editing, deleting, reactions, and stars.
-  - Photos, videos, audio files, documents, contacts, stickers, and sending view once media. Like WhatsApp Web, view once messages you receive can only be opened on your phone.
+  - Photos, videos, audio files, documents, contacts (open a contact someone sends you to message or save them), stickers, and sending view once media. Like WhatsApp Web, view once messages you receive can only be opened on your phone.
   - Voice messages, which you can pause while you record. whatSnap can remove background noise from them.
   - Polls, quizzes, and events.
   - Mentions, link previews, and disappearing messages.
@@ -185,7 +185,7 @@ The newest message is at the bottom. When you go up, whatSnap loads older messag
 | `Page Up` and `Page Down` | Move one page. |
 | `Home` | Go to the oldest message of the chat. |
 | `End` | Go to the newest message. |
-| `Enter` | Play a voice message. On a call, call back or join the call. |
+| `Enter` | Play a voice message. On a call, call back or join the call. On a contact card, open it. |
 | `Space` | Play or pause a voice message. |
 | `Shift+Space` | Stop the voice message that plays or is paused. |
 | `Shift+Enter` | Show the full text of the message in a dialog. |
@@ -210,7 +210,23 @@ While a voice message plays, `Left Arrow` and `J` go back 5 seconds, and `Right 
 
 To stop a voice message, press `Shift+Space`. The next time you play it, it starts from the beginning. When you close the chat or open another chat, the voice message stops too.
 
-The actions menu of a message has these items, when they apply to the message: `Copy`, `Reply`, `Forward...`, `Edit`, `Delete`, `React...`, `Star` or `Unstar`, `Retry send`, `Request again`, `Save voice message...`, `Message Info`, `Copy all photos`, `Copy Number`, `Message Number`, and `Report...`. In a group, a submenu for the sender lets you message or call them. In a channel, a submenu lets you pin a post, or see who reacted or voted.
+The actions menu of a message has these items, when they apply to the message: `Copy`, `Reply`, `Forward...`, `Edit`, `Delete`, `React...`, `Star` or `Unstar`, `Retry send`, `Request again`, `Save voice message...`, `Message Info`, `Copy all photos`, `Copy Number`, `Message Number`, `Message Contact`, `View Contact...`, `Download Contact...`, and `Report...`. In a group, a submenu for the sender lets you message or call them. In a channel, a submenu lets you pin a post, or see who reacted or voted.
+
+### Contact Cards
+When someone sends you a contact, the message reads `Contact:` and the name. Press `Enter` on it to open the `View contact` dialog. A message with several contacts opens a list of all of them, with each contact's name followed by its place in the list, for example `(2 of 3)`.
+
+The list shows the name and work title, each WhatsApp number, then email addresses, home and work addresses, other phone numbers, the birthday, the nickname, and other accounts, the way WhatsApp Web shows them. The buttons work on the item you select:
+
+- `Message` opens a chat with the person. On the name, it uses their WhatsApp number. If the contact has more than one, it asks which one.
+- `Send Email` opens your email app on an email address. `Open in Maps` opens an address in Google Maps.
+- `Copy` copies the selected number, address, or name.
+- `Save Contact` opens the contact form with the name and number filled in, so you can save the person to your contacts. If they are already saved, the button is `Edit Contact`. It needs a WhatsApp number in the contact.
+- `View Business` is there for a business contact. It opens the chat and the business info.
+- `Add to Group` is there in a group where you are an admin and the person isn't a member yet. It asks before it adds them.
+
+Only numbers that the sender's phone marked as WhatsApp numbers can be messaged, as in WhatsApp Web. Other numbers are only listed.
+
+The actions menu of a contact card has `Message Contact`, `View Contact...`, and `Download Contact...`, which saves the contact as a `.vcf` file. If whatSnap can't read a contact, it offers to download it so you can open it with another app.
 
 ### Selection Mode
 In selection mode, `Space` selects or clears a message. whatSnap says "Selection mode" when you enter it and "1 message selected", "2 messages selected" and so on each time you select or clear a message. A bar shows how many messages you selected, with `Delete` and `Cancel` buttons. To leave selection mode, press `Ctrl+Space` or `Escape`.
@@ -572,5 +588,6 @@ These features are built, but nobody has tested them with a real WhatsApp accoun
 - `Hide phone numbers in groups`.
 - Buttons and menus in messages from businesses, and `Business Catalogue...`.
 - Several accounts: adding, switching, removing, and the notifications and calls of the accounts that aren't on screen.
+- Contact cards: the `View contact` dialog, messaging, saving, and downloading a received contact.
 
 If you test one of these, please tell us if it works.

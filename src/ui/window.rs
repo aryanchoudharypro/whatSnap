@@ -6265,6 +6265,14 @@ pub fn bind_input_handlers(
 								event.skip(false);
 								return;
 							}
+							if msg.text.starts_with("[Contact]") && !msg.is_deleted {
+								let _ = tx_invite_enter.send(UiCommand::OpenContactCard {
+									message_id: msg.id.clone(),
+									intent: "view".to_string(),
+								});
+								event.skip(false);
+								return;
+							}
 							if msg.text.starts_with("[Channel Admin Invite]") {
 								let _ = tx_invite_enter.send(UiCommand::OpenChannelAdminInvite(msg.id.clone()));
 								event.skip(false);

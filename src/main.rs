@@ -1235,6 +1235,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ShowScheduledMessages => ui_commands::scheduled::show_scheduled_messages(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
 		UiCommand::OpenMessageOptions(id) => ui_commands::business::open_message_options(state, parts, id),
+		UiCommand::OpenContactCard { message_id, intent } => {
+			ui_commands::contact_cards::request_contact_card(state, message_id, &intent)
+		}
 		UiCommand::OpenOrderDetails(id) => ui_commands::business::open_order_details(state, id),
 		UiCommand::OpenCatalog(message_id) => ui_commands::business::open_catalog(state, parts, message_id),
 		UiCommand::SendPoll { question, options, multiple_answers, correct_answer } => {
