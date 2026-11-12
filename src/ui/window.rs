@@ -1705,6 +1705,10 @@ pub fn bind_input_handlers(
 	parts.call_parts.react_btn.on_click(move |_| {
 		let _ = tx_call_react.send(UiCommand::CallReact);
 	});
+	let tx_people_toggle = ui_tx.clone();
+	parts.call_parts.people_toggle_btn.on_click(move |_| {
+		let _ = tx_people_toggle.send(UiCommand::ToggleCallPeople);
+	});
 	let tx_person_selected = ui_tx.clone();
 	parts.call_parts.people_list.on_selection_changed(move |_| {
 		let _ = tx_person_selected.send(UiCommand::CallPersonSelected);
@@ -1716,6 +1720,10 @@ pub fn bind_input_handlers(
 	let tx_remove_person = ui_tx.clone();
 	parts.call_parts.remove_person_btn.on_click(move |_| {
 		let _ = tx_remove_person.send(UiCommand::RemoveCallPerson);
+	});
+	let tx_ring_person = ui_tx.clone();
+	parts.call_parts.ring_person_btn.on_click(move |_| {
+		let _ = tx_ring_person.send(UiCommand::RingCallPerson);
 	});
 	let tx_let_in = ui_tx.clone();
 	parts.call_parts.let_in_btn.on_click(move |_| {
@@ -1781,21 +1789,26 @@ pub fn bind_input_handlers(
 			let direction = s.call_info_direction();
 			let is_video = s.call_video.video_call || s.call_video.is_video || s.call_video.local_camera_on;
 			let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
+			let participants = s.call_participants.clone();
 			drop(s);
 
 			// The heading never carries the clock: the duration lives in the
 			// call info box, so the heading reads the same for the whole call.
-			let status = crate::i18n::tr(if is_reconnecting {
-				"Reconnecting..."
+			let status = if is_reconnecting {
+				crate::i18n::tr("Reconnecting...").to_string()
 			} else if is_group {
-				"In group call"
+				if participants.is_empty() {
+					crate::i18n::tr("In group call").to_string()
+				} else {
+					crate::calls::helpers::group_call_status_text(&participants)
+				}
 			} else {
-				"Connected"
-			});
-			call_status_label.set_label(status);
+				crate::i18n::tr("Connected").to_string()
+			};
+			call_status_label.set_label(&status);
 
 			let running_info =
-				crate::calls::helpers::call_running_info_text(direction, is_video, &peer_name, secs, is_reconnecting);
+				crate::calls::helpers::call_running_info_text(direction, is_video, is_group, &peer_name, secs, is_reconnecting);
 			// Rewriting the read-only box every second would reset a screen
 			// reader's caret while the user reads it, so refresh it only every
 			// 30 seconds and keep the caret where it was.

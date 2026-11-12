@@ -578,9 +578,11 @@ fn main() {
 					total += start.elapsed();
 				}
 				let secs = total.as_secs();
+				let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 				let info = calls::helpers::call_running_info_text(
 					s.call_info_direction(),
 					s.call_video.is_video,
+					is_group,
 					&s.call_peer_name,
 					secs,
 					s.call_is_reconnecting,
@@ -1224,6 +1226,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::AdmitCallPerson(admit) => ui_commands::call_extras::admit_selected(state, parts, admit),
 		UiCommand::MuteCallPerson => ui_commands::call_extras::act_on_person(state, parts, false),
 		UiCommand::RemoveCallPerson => ui_commands::call_extras::act_on_person(state, parts, true),
+		UiCommand::RingCallPerson => ui_commands::call_extras::ring_call_participant(state, parts),
+		UiCommand::ToggleCallPeople => ui_commands::call_extras::toggle_people_panel(parts),
 		UiCommand::CallPersonSelected => ui_commands::call_extras::person_buttons(&state.borrow(), parts),
 		UiCommand::SetCallApproval(on) => ui_commands::call_extras::set_approval(state, parts, on),
 		UiCommand::DismissIncomingCall => ui_commands::calls::dismiss_incoming_call(state, parts),

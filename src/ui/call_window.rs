@@ -22,6 +22,7 @@ pub struct CallWindowParts {
 	pub camera_btn: Button,
 	pub screen_btn: Button,
 	pub device_settings_btn: Button,
+	pub device_settings_panel: Panel,
 	/// Device selectors shown inline when device settings is expanded. Each
 	/// group is a visible label above its combo; show/hide the group, not the combo.
 	pub input_device_group: Panel,
@@ -33,6 +34,7 @@ pub struct CallWindowParts {
 	pub add_participant_btn: Button,
 	pub raise_hand_btn: Button,
 	pub react_btn: Button,
+	pub people_toggle_btn: Button,
 	pub leave_btn: Button,
 	pub callback_btn: Button,
 	pub close_btn: Button,
@@ -40,6 +42,7 @@ pub struct CallWindowParts {
 	pub people_list: ListBox,
 	pub mute_person_btn: Button,
 	pub remove_person_btn: Button,
+	pub ring_person_btn: Button,
 	pub let_in_btn: Button,
 	pub keep_out_btn: Button,
 	pub approval_check: CheckBox,
@@ -204,25 +207,6 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_sizer.add(&screen_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	screen_btn.show(false);
 
-	let device_settings_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Device settings")).build();
-	crate::ui::owner_draw::install_tile(&device_settings_btn, CALL_BG);
-	btn_sizer.add(&device_settings_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
-	device_settings_btn.show(false);
-
-	// Device selectors shown inline when device settings is expanded. Screen
-	// readers name a combo from the static text just before it, so each one
-	// sits under a visible label, the way the old devices panel did.
-	let (input_device_group, input_device_combo) =
-		device_selector(&btn_panel, &btn_sizer, crate::i18n::tr("Microphone"));
-	let (output_device_group, output_device_combo) =
-		device_selector(&btn_panel, &btn_sizer, crate::i18n::tr("Speaker"));
-	let (camera_device_group, camera_device_combo) = device_selector(&btn_panel, &btn_sizer, crate::i18n::tr("Camera"));
-
-	let add_participant_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Add participant")).build();
-	crate::ui::owner_draw::install_tile(&add_participant_btn, CALL_BG);
-	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
-	add_participant_btn.show(false);
-
 	let raise_hand_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Raise hand")).build();
 	crate::ui::owner_draw::install_tile(&raise_hand_btn, CALL_BG);
 	btn_sizer.add(&raise_hand_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
@@ -232,6 +216,21 @@ pub fn build_call_window() -> CallWindowParts {
 	crate::ui::owner_draw::install_tile(&react_btn, CALL_BG);
 	btn_sizer.add(&react_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	react_btn.show(false);
+
+	let people_toggle_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("People")).build();
+	crate::ui::owner_draw::install_tile(&people_toggle_btn, CALL_BG);
+	btn_sizer.add(&people_toggle_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	people_toggle_btn.show(false);
+
+	let add_participant_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Add participant")).build();
+	crate::ui::owner_draw::install_tile(&add_participant_btn, CALL_BG);
+	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	add_participant_btn.show(false);
+
+	let device_settings_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Device settings")).build();
+	crate::ui::owner_draw::install_tile(&device_settings_btn, CALL_BG);
+	btn_sizer.add(&device_settings_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	device_settings_btn.show(false);
 
 	let leave_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("End call")).build();
 	if theme::use_custom_colours() {
@@ -256,6 +255,22 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_panel.set_sizer(btn_sizer, true);
 	sizer.add(&btn_panel, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
+	// Dedicated collapsible panel for audio/video device selection
+	let device_settings_panel = Panel::builder(&panel).build();
+	if theme::use_custom_colours() {
+		device_settings_panel.set_background_color(CALL_BG);
+	}
+	let device_settings_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let (input_device_group, input_device_combo) =
+		device_selector(&device_settings_panel, &device_settings_sizer, crate::i18n::tr("Microphone"));
+	let (output_device_group, output_device_combo) =
+		device_selector(&device_settings_panel, &device_settings_sizer, crate::i18n::tr("Speaker"));
+	let (camera_device_group, camera_device_combo) =
+		device_selector(&device_settings_panel, &device_settings_sizer, crate::i18n::tr("Camera"));
+	device_settings_panel.set_sizer(device_settings_sizer, true);
+	sizer.add(&device_settings_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
+	device_settings_panel.show(false);
+
 	let people_panel = Panel::builder(&panel).build();
 	theme::style_content(&people_panel);
 	let people_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -267,10 +282,13 @@ pub fn build_call_window() -> CallWindowParts {
 	let mute_person_btn = Button::builder(&people_panel).with_label(crate::i18n::tr("Mute")).build();
 	person_sizer.add(&mute_person_btn, 0, SizerFlag::Right, 5);
 	let remove_person_btn = Button::builder(&people_panel).with_label(crate::i18n::tr("Remove")).build();
-	person_sizer.add(&remove_person_btn, 0, SizerFlag::empty(), 0);
+	person_sizer.add(&remove_person_btn, 0, SizerFlag::Right, 5);
+	let ring_person_btn = Button::builder(&people_panel).with_label(crate::i18n::tr("Ring again")).build();
+	person_sizer.add(&ring_person_btn, 0, SizerFlag::empty(), 0);
 	people_sizer.add_sizer(&person_sizer, 0, SizerFlag::All, 4);
 	mute_person_btn.show(false);
 	remove_person_btn.show(false);
+	ring_person_btn.show(false);
 	let admit_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let let_in_btn = Button::builder(&people_panel).with_label(crate::i18n::tr("Let in")).build();
 	admit_sizer.add(&let_in_btn, 0, SizerFlag::Right, 5);
@@ -302,6 +320,7 @@ pub fn build_call_window() -> CallWindowParts {
 		camera_btn,
 		screen_btn,
 		device_settings_btn,
+		device_settings_panel,
 		input_device_group,
 		input_device_combo,
 		output_device_group,
@@ -311,6 +330,7 @@ pub fn build_call_window() -> CallWindowParts {
 		add_participant_btn,
 		raise_hand_btn,
 		react_btn,
+		people_toggle_btn,
 		leave_btn,
 		callback_btn,
 		close_btn,
@@ -318,6 +338,7 @@ pub fn build_call_window() -> CallWindowParts {
 		people_list,
 		mute_person_btn,
 		remove_person_btn,
+		ring_person_btn,
 		let_in_btn,
 		keep_out_btn,
 		approval_check,

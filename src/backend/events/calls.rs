@@ -55,9 +55,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						} else {
 							parts.call_parts.status_label.set_label(&group_call_status_text(&s.call_participants));
 						}
+						let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 						let running_info = crate::calls::helpers::call_running_info_text(
 							s.call_info_direction(),
 							s.call_video.is_video,
+							is_group,
 							&s.call_peer_name,
 							0,
 							false,
@@ -235,10 +237,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						s.call_connected_duration += start.elapsed();
 					}
 					s.call_is_reconnecting = true;
+					let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 					let secs = s.call_connected_duration.as_secs();
 					let info = crate::calls::helpers::call_running_info_text(
 						s.call_info_direction(),
 						s.call_video.is_video,
+						is_group,
 						&s.call_peer_name,
 						secs,
 						true,
@@ -251,10 +255,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				} else {
 					s.call_is_reconnecting = false;
 					s.call_connected_segment_start = Some(std::time::Instant::now());
+					let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 					let secs = s.call_connected_duration.as_secs();
 					let info = crate::calls::helpers::call_running_info_text(
 						s.call_info_direction(),
 						s.call_video.is_video,
+						is_group,
 						&s.call_peer_name,
 						secs,
 						false,
@@ -298,6 +304,25 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				} else {
 					Vec::new()
 				};
+				let upgraded_to_group = participants.len() > 1 && s.call_video.peer_name.is_some();
+				if upgraded_to_group {
+					s.call_video.peer_name = None;
+					let is_group_chat = s.call_last_target.as_ref().map(|(j, _)| j.ends_with("@g.us")).unwrap_or(false);
+					if !is_group_chat {
+						s.call_peer_name = String::new();
+					}
+					let win_title = crate::calls::helpers::format_call_window_title(
+						false,
+						true,
+						s.call_video.is_video,
+						&s.call_peer_name,
+						true,
+						None,
+					);
+					parts.call_parts.frame.set_title(&win_title);
+					parts.call_parts.leave_btn.set_label(crate::i18n::tr("Leave call"));
+					crate::ui_commands::call_extras::show_call_buttons(&s, parts);
+				}
 				s.call_video.roster_seen = true;
 				s.call_video.can_remove = data.get("can_remove").and_then(|v| v.as_bool()).unwrap_or(false);
 				s.call_participants = participants;
@@ -306,6 +331,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.status_label.set_label(&group_call_status_text(&s.call_participants));
 				}
 				drop(s);
+				if upgraded_to_group {
+					announce_call(parts, crate::i18n::tr("Call upgraded to group call."), Priority::High);
+				}
 				if !changes.is_empty() {
 					announce_call(parts, &changes.join(" "), Priority::High);
 				}
@@ -353,6 +381,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						let running_info = crate::calls::helpers::call_running_info_text(
 							direction,
 							true,
+							is_group,
 							&name,
 							secs,
 							s.call_is_reconnecting,
@@ -590,7 +619,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.call_parts.add_participant_btn.show(false);
 						parts.call_parts.raise_hand_btn.show(false);
 						parts.call_parts.react_btn.show(false);
+						parts.call_parts.people_toggle_btn.show(false);
 						parts.call_parts.people_panel.show(false);
+						parts.call_parts.device_settings_panel.show(false);
 						parts.call_parts.input_device_group.show(false);
 						parts.call_parts.output_device_group.show(false);
 						parts.call_parts.camera_device_group.show(false);
@@ -712,14 +743,25 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						video_call: is_video,
 						..Default::default()
 					};
-					let win_title = crate::calls::helpers::format_call_window_title(
-						true,
-						is_group,
-						is_video,
-						group_name.as_deref().unwrap_or(&name),
-						is_saved,
-						None,
-					);
+					let win_title = if is_group {
+						if let Some(grp) = group_name.as_deref() {
+							let kind = crate::i18n::tr(if is_video { "Incoming group video call in" } else { "Incoming group voice call in" });
+							format!("{kind} {grp}")
+						} else {
+							let title_name = crate::calls::helpers::clean_call_title_peer_name(&name, is_saved);
+							let kind = crate::i18n::tr(if is_video { "Incoming group video call from" } else { "Incoming group voice call from" });
+							format!("{kind} {title_name}")
+						}
+					} else {
+						crate::calls::helpers::format_call_window_title(
+							true,
+							false,
+							is_video,
+							&name,
+							is_saved,
+							None,
+						)
+					};
 					let avatar_target = chat_jid.unwrap_or(caller);
 					crate::calls::helpers::update_call_avatar(parts, avatar_target);
 					parts.call_parts.frame.set_title(&win_title);
@@ -743,6 +785,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.camera_btn.show(true);
 					parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 					parts.call_parts.device_settings_btn.show(true);
+					parts.call_parts.device_settings_panel.show(false);
 					parts.call_parts.input_device_group.show(false);
 					parts.call_parts.output_device_group.show(false);
 					parts.call_parts.camera_device_group.show(false);

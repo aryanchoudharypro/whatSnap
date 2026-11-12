@@ -59,20 +59,25 @@ func (acc *Account) recordIncomingGroupCallJID(evt interface{}) {
 		return
 	}
 	snapshot, isGroup, err := signaling.ParseGroupInviteSnapshot(offer.Data)
-	if err != nil || !isGroup || snapshot.GroupJID.IsEmpty() {
+	if err != nil || !isGroup {
 		return
 	}
 	acc.incomingGroupCallJIDsMutex.Lock()
-	acc.incomingGroupCallJIDs[offer.CallID] = snapshot.GroupJID
+	if !snapshot.GroupJID.IsEmpty() {
+		acc.incomingGroupCallJIDs[offer.CallID] = snapshot.GroupJID
+	}
+	acc.incomingGroupCallIsGroup[offer.CallID] = true
 	acc.incomingGroupCallJIDsMutex.Unlock()
 }
 
-func (acc *Account) takeIncomingGroupCallJID(callID string) (types.JID, bool) {
+func (acc *Account) takeIncomingGroupCallJID(callID string) (types.JID, bool, bool) {
 	acc.incomingGroupCallJIDsMutex.Lock()
 	defer acc.incomingGroupCallJIDsMutex.Unlock()
-	jid, ok := acc.incomingGroupCallJIDs[callID]
+	jid, hasJID := acc.incomingGroupCallJIDs[callID]
 	delete(acc.incomingGroupCallJIDs, callID)
-	return jid, ok
+	isGroup := acc.incomingGroupCallIsGroup[callID]
+	delete(acc.incomingGroupCallIsGroup, callID)
+	return jid, hasJID, isGroup
 }
 
 // outgoingCallProgress is how far each call we placed has got before it
@@ -233,15 +238,19 @@ func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 		acc.activeAudioBridgesMutex.Unlock()
 	})
 	call.OnGroupState(func(state meowcaller.GroupCallState) {
-		participants := make([]map[string]string, 0, len(state.Participants))
+		if len(state.Participants) > 1 {
+			acc.updateLiveCall(call.ID(), func(c *liveCall) { c.group = true })
+		}
+		participants := make([]map[string]interface{}, 0, len(state.Participants))
 		for _, p := range state.Participants {
 			if acc.isOwnJID(p.JID) || acc.isOwnJID(p.PN) {
 				continue
 			}
-			participants = append(participants, map[string]string{
-				"jid":   p.JID.String(),
-				"name":  acc.callJoinerName(p.JID, p.PN, p.PushName, p.Guest),
-				"state": p.State,
+			participants = append(participants, map[string]interface{}{
+				"jid":         p.JID.String(),
+				"name":        acc.callJoinerName(p.JID, p.PN, p.PushName, p.Guest),
+				"state":       p.State,
+				"hand_raised": p.HandRaised,
 			})
 		}
 		acc.broadcastEvent("call_participants", map[string]interface{}{
@@ -335,7 +344,7 @@ func (acc *Account) initCallClient() {
 
 	acc.callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())
-		groupJID, hasGroupJID := acc.takeIncomingGroupCallJID(call.ID())
+		groupJID, hasGroupJID, isGroupOffer := acc.takeIncomingGroupCallJID(call.ID())
 
 		acc.activeCallsMutex.Lock()
 		// A call only leaves activeCalls through its OnEnd handler, and one
@@ -353,7 +362,8 @@ func (acc *Account) initCallClient() {
 		}
 		acc.activeCallsMutex.Unlock()
 
-		_, isGroupCall := call.GroupState()
+		_, hasGroupState := call.GroupState()
+		isGroupCall := hasGroupState || isGroupOffer || hasGroupJID
 		chatJID := call.Peer()
 		if hasGroupJID {
 			chatJID = groupJID
@@ -408,7 +418,13 @@ func (acc *Account) callerPhoneDigits(jid types.JID) string {
 	return ""
 }
 
-func (acc *Account) placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*meowcaller.Call, error) {
+func (acc *Account) placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool, explicitTargets []string) (*meowcaller.Call, error) {
+	if len(explicitTargets) > 0 {
+		return acc.callClient.GroupCallWithOptions(ctx, explicitTargets, meowcaller.GroupCallOptions{
+			GroupJID: groupJID.String(),
+			Video:    video,
+		})
+	}
 	info, err := acc.wa().GetGroupInfo(ctx, groupJID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't load the group's members: %w", err)
@@ -420,19 +436,27 @@ func (acc *Account) placeGroupChatCall(ctx context.Context, groupJID types.JID, 
 		}
 		others = append(others, p.JID)
 	}
-	switch {
-	case len(others) == 0:
+	if len(others) == 0 {
 		return nil, errors.New("There's no one else in this group to call.")
-	case len(others) > 31:
-		return nil, fmt.Errorf("This group has %d other members; WhatsApp group calls allow at most 32 people.", len(others))
 	}
-	return acc.callClient.GroupCallByIDWithOptions(ctx, groupJID.String(), meowcaller.GroupCallOptions{Video: video})
+	if len(others) > 31 {
+		others = others[:31]
+	}
+	targets := make([]string, len(others))
+	for i, o := range others {
+		targets[i] = o.String()
+	}
+	return acc.callClient.GroupCallWithOptions(ctx, targets, meowcaller.GroupCallOptions{
+		GroupJID: groupJID.String(),
+		Video:    video,
+	})
 }
 
 func (acc *Account) handlePlaceCall(data []byte) {
 	var req struct {
-		JID   string `json:"jid"`
-		Video bool   `json:"video"`
+		JID     string   `json:"jid"`
+		Video   bool     `json:"video"`
+		Targets []string `json:"targets,omitempty"`
 	}
 	if err := json.Unmarshal(data, &req); err != nil {
 		log.Println("Invalid place_call format:", err)
@@ -463,7 +487,7 @@ func (acc *Account) handlePlaceCall(data []byte) {
 	ctx := context.Background()
 	var call *meowcaller.Call
 	if parsedJID.Server == types.GroupServer {
-		call, err = acc.placeGroupChatCall(ctx, parsedJID, req.Video)
+		call, err = acc.placeGroupChatCall(ctx, parsedJID, req.Video, req.Targets)
 	} else if req.Video {
 		call, err = acc.callClient.CallWithOptions(ctx, parsedJID.String(), meowcaller.CallOptions{Video: true})
 	} else {
@@ -879,3 +903,28 @@ func addParticipantErrorMessage(err error, name string) string {
 	}
 	return "Couldn't add " + name + ": " + msg
 }
+
+func (acc *Account) handleRingParticipant(data []byte) {
+	var req struct {
+		CallID string `json:"call_id"`
+		JID    string `json:"jid"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		return
+	}
+	call := acc.activeCall(req.CallID)
+	if call == nil {
+		return
+	}
+	go func() {
+		if err := call.RingParticipant(context.Background(), req.JID); err != nil {
+			log.Println("Failed to ring participant:", err)
+			acc.broadcastEvent("call_participant_add_failed", map[string]string{
+				"call_id": req.CallID,
+				"jid":     req.JID,
+				"message": "Couldn't ring participant: " + err.Error(),
+			})
+		}
+	}()
+}
+
