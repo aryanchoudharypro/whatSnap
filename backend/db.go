@@ -1268,12 +1268,22 @@ func (acc *Account) getCachedAvatarPath(jid string) string {
 	return path
 }
 
+// isPSAJID reports the official WhatsApp account (0@s.whatsapp.net); WA Web
+// treats it as a name-only account, never a phone number.
+func isPSAJID(jid types.JID) bool {
+	jid = jid.ToNonAD()
+	return jid == types.PSAJID || jid == types.LegacyPSAJID
+}
+
 func (acc *Account) resolveDisplayName(jid types.JID) string {
 	jid = jid.ToNonAD()
 	if acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.ID != nil {
 		if (jid.Server == types.DefaultUserServer && jid.User == acc.wa().Store.ID.User) || (jid.Server == types.HiddenUserServer && jid.User == acc.wa().Store.GetLID().User) {
 			return "You"
 		}
+	}
+	if isPSAJID(jid) {
+		return "WhatsApp"
 	}
 	// Meta AI's bot JID has no phone number and whatsmeow only learns its
 	// pushname ("Meta AI") from the notify attribute on its first reply -

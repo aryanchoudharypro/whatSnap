@@ -1,0 +1,6221 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: id\n"
+
+msgid "Chats"
+msgstr "Chat"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Starred Messages"
+msgstr "Pesan Berbintang"
+
+msgid "Archived Chats"
+msgstr "Chat Diarsipkan"
+
+msgid "Communities"
+msgstr "Komunitas"
+
+msgid "Channels"
+msgstr "Saluran"
+
+msgid "Calls"
+msgstr "Panggilan"
+
+msgid "Account"
+msgstr "Akun"
+
+msgid "Go"
+msgstr "Navigasi"
+
+msgid "Conversation"
+msgstr "Percakapan"
+
+msgid "Voice"
+msgstr "Pesan Suara"
+
+msgid "Call"
+msgstr "Panggilan"
+
+msgid "unread"
+msgstr "belum dibaca"
+
+msgid "Main Navigation"
+msgstr "Navigasi Utama"
+
+msgid "Cannot move left"
+msgstr "Tidak dapat digeser ke kiri"
+
+msgid "Cannot move right"
+msgstr "Tidak dapat digeser ke kanan"
+
+msgid "Moved between"
+msgstr "Dipindahkan di antara"
+
+msgid "and"
+msgstr "dan"
+
+msgid "Moved before"
+msgstr "Dipindahkan sebelum"
+
+msgid "Moved after"
+msgstr "Dipindahkan setelah"
+
+msgid "Moved"
+msgstr "Dipindahkan"
+
+msgid "&Account"
+msgstr "&Akun"
+
+msgid "&Go"
+msgstr "&Navigasi"
+
+msgid "&Chats"
+msgstr "&Chat"
+
+msgid "C&onversation"
+msgstr "&Percakapan"
+
+msgid "Call&s"
+msgstr "Pang&gilan"
+
+msgid "&Settings..."
+msgstr "&Setelan..."
+
+msgid "A&ccounts..."
+msgstr "&Akun..."
+
+msgid "&Reconnect Now"
+msgstr "&Hubungkan Ulang Sekarang"
+
+msgid "&Blocked Contacts..."
+msgstr "Kontak &Diblokir..."
+
+msgid "Check for &Updates..."
+msgstr "Periksa &Pembaruan..."
+
+msgid "Log &Out"
+msgstr "&Keluar"
+
+msgid "&Status"
+msgstr "&Status"
+
+msgid "S&tarred Messages"
+msgstr "Pesan &Berbintang"
+
+msgid "&Archived Chats"
+msgstr "Chat &Diarsipkan"
+
+msgid "C&ommunities"
+msgstr "K&omunitas"
+
+msgid "C&hannels"
+msgstr "Sa&luran"
+
+msgid "&Calls"
+msgstr "&Panggilan"
+
+msgid "&New Chat"
+msgstr "Chat &Baru"
+
+msgid "New &Group"
+msgstr "&Grup Baru"
+
+msgid "New C&ommunity..."
+msgstr "K&omunitas Baru..."
+
+msgid "&Search"
+msgstr "&Cari"
+
+msgid "Manage &Lists..."
+msgstr "Kelola &Daftar..."
+
+msgid "Toggle &Mute"
+msgstr "Beralih &Bisukan"
+
+msgid "&End Call"
+msgstr "&Akhiri Panggilan"
+
+msgid "&Create Call Link..."
+msgstr "&Buat Tautan Panggilan..."
+
+msgid "&Join Call Link..."
+msgstr "&Gabung Lewat Tautan..."
+
+msgid "&Open whatSnap"
+msgstr "&Buka whatSnap"
+
+msgid "Show the main window"
+msgstr "Tampilkan jendela utama"
+
+msgid "E&xit"
+msgstr "&Keluar"
+
+msgid "Quit whatSnap"
+msgstr "Keluar dari whatSnap"
+
+msgid "Search in &Chat"
+msgstr "Cari dalam &Chat"
+
+msgid "&Mute Chat"
+msgstr "&Bisukan Chat"
+
+msgid "&Archive Chat"
+msgstr "&Arsipkan Chat"
+
+msgid "&Pin Chat"
+msgstr "&Sematkan Chat"
+
+msgid "&Lock Chat"
+msgstr "&Kunci Chat"
+
+msgid "Mark as &Unread"
+msgstr "Tandai Belum &Dibaca"
+
+msgid "Mark as Read"
+msgstr "Tandai Sudah Dibaca"
+
+msgid "Chat &Info"
+msgstr "&Info Chat"
+
+msgid "&Star Message"
+msgstr "&Bintangi Pesan"
+
+msgid "Sc&hedule Message..."
+msgstr "&Jadwalkan Pesan..."
+
+msgid "Scheduled Messa&ges..."
+msgstr "Pesan Ter&jadwal..."
+
+msgid "Jump to Message Fi&eld"
+msgstr "Lompat ke Kolom &Pesan"
+
+msgid "Jump to &Messages List"
+msgstr "Lompat ke Daftar &Pesan"
+
+msgid "Announce Chat Sta&tus"
+msgstr "Umumkan Sta&tus Chat"
+
+msgid "Read Ne&w Messages Aloud"
+msgstr "Bacakan Pesan &Baru"
+
+msgid "Em&oji..."
+msgstr "Em&oji..."
+
+msgid "Ne&xt Spelling Error"
+msgstr "Kesalahan Ejaan &Berikutnya"
+
+msgid "Stic&kers..."
+msgstr "Sti&ker..."
+
+msgid "Go to &Date..."
+msgstr "Buka &Tanggal..."
+
+msgid "Pi&nned Messages..."
+msgstr "Pesan Ter&semat..."
+
+msgid "Business Catalo&gue..."
+msgstr "Katalo&g Bisnis..."
+
+msgid "&Disappearing Messages..."
+msgstr "Pesan &Sementara..."
+
+msgid "Ad&vanced Chat Privacy..."
+msgstr "Privasi Chat &Lanjutan..."
+
+msgid "&Report..."
+msgstr "&Laporkan..."
+
+msgid "&Block or Unblock Contact"
+msgstr "&Blokir atau Buka Blokir Kontak"
+
+msgid "&Contact info"
+msgstr "&Info kontak"
+
+msgid "C&hannel info"
+msgstr "Info &saluran"
+
+msgid "&Pin chat"
+msgstr "&Sematkan chat"
+
+msgid "Un&pin chat"
+msgstr "Lepas &sematan chat"
+
+msgid "&Archive chat"
+msgstr "&Arsipkan chat"
+
+msgid "&Unarchive chat"
+msgstr "Batalkan &arsip chat"
+
+msgid "&Lock chat"
+msgstr "&Kunci chat"
+
+msgid "Un&lock chat"
+msgstr "Buka &kunci chat"
+
+msgid "Mark as &read"
+msgstr "Tandai sudah &dibaca"
+
+msgid "Mark as &unread"
+msgstr "Tandai belum &dibaca"
+
+msgid "Add to fa&vorites"
+msgstr "Tambah ke fa&vorit"
+
+msgid "Remove from fa&vorites"
+msgstr "Hapus dari fa&vorit"
+
+msgid "Add to l&ist..."
+msgstr "Tambah ke daf&tar..."
+
+msgid "&Export chat..."
+msgstr "&Ekspor chat..."
+
+msgid "Export &text only (Markdown)..."
+msgstr "Ekspor &teks saja (Markdown)..."
+
+msgid "Leave &group..."
+msgstr "Keluar dari &grup..."
+
+msgid "Clea&r chat..."
+msgstr "Be&rsihkan chat..."
+
+msgid "Re&port..."
+msgstr "La&porkan..."
+
+msgid "&Block contact..."
+msgstr "&Blokir kontak..."
+
+msgid "Un&block contact"
+msgstr "Buka &blokir kontak"
+
+msgid "&Delete chat..."
+msgstr "&Hapus chat..."
+
+msgid "&Mute notifications"
+msgstr "&Bisukan notifikasi"
+
+msgid "&Unmute notifications"
+msgstr "&Bunyikan notifikasi"
+
+msgid "Open settings"
+msgstr "Buka setelan"
+
+msgid "Switch between, add and remove WhatsApp accounts"
+msgstr "Beralih, menambah, dan menghapus akun WhatsApp"
+
+msgid "Retry connecting to WhatsApp right away"
+msgstr "Coba menghubungkan ulang ke WhatsApp sekarang"
+
+msgid "See and change who you have blocked"
+msgstr "Lihat dan ubah siapa yang Anda blokir"
+
+msgid "See if a newer version of whatSnap is out"
+msgstr "Lihat apakah versi baru whatSnap tersedia"
+
+msgid "Log out of WhatsApp on this device"
+msgstr "Keluar dari WhatsApp di perangkat ini"
+
+msgid "Jump to the chat list"
+msgstr "Lompat ke daftar chat"
+
+msgid "Jump to Status"
+msgstr "Lompat ke Status"
+
+msgid "Jump to Starred Messages"
+msgstr "Lompat ke Pesan Berbintang"
+
+msgid "Jump to Archived Chats"
+msgstr "Lompat ke Chat Diarsipkan"
+
+msgid "Jump to Communities"
+msgstr "Lompat ke Komunitas"
+
+msgid "Jump to the channels you follow"
+msgstr "Lompat ke saluran yang Anda ikuti"
+
+msgid "Jump to Calls"
+msgstr "Lompat ke Panggilan"
+
+msgid "Start a new chat"
+msgstr "Mulai chat baru"
+
+msgid "Start a new group"
+msgstr "Mulai grup baru"
+
+msgid "Start a community to bring groups together"
+msgstr "Mulai komunitas untuk menggabungkan beberapa grup"
+
+msgid "Search chats"
+msgstr "Cari chat"
+
+msgid "Make, rename or delete your chat lists"
+msgstr "Buat, ganti nama, atau hapus daftar chat Anda"
+
+msgid "Mute/unmute the microphone during a call"
+msgstr "Bisukan/bunyikan mikrofon saat panggilan"
+
+msgid "End the active call"
+msgstr "Akhiri panggilan aktif"
+
+msgid "Make a link anyone can use to join a call"
+msgstr "Buat tautan yang dapat digunakan siapa saja untuk bergabung"
+
+msgid "Join a call from a link someone shared"
+msgstr "Gabung ke panggilan dari tautan yang dibagikan"
+
+msgid "Open this file"
+msgstr "Buka file ini"
+
+msgid "Save this file to a chosen location"
+msgstr "Simpan file ini ke lokasi yang dipilih"
+
+msgid "Download this file"
+msgstr "Unduh file ini"
+
+msgid "Open info for the open chat"
+msgstr "Buka info chat yang sedang terbuka"
+
+msgid "Move focus to the message box, or back to where you were"
+msgstr "Pindahkan fokus ke kolom pesan, atau kembali ke sebelumnya"
+
+msgid "Move focus to the messages list"
+msgstr "Pindahkan fokus ke daftar pesan"
+
+msgid "Say the open chat's status: online, typing and so on"
+msgstr "Umumkan status chat: online, mengetik, dan sebagainya"
+
+msgid "Turn reading new messages aloud on or off for the open chat"
+msgstr "Nyalakan atau matikan pembacaan pesan baru untuk chat ini"
+
+msgid "Pick an emoji to put in the message box"
+msgstr "Pilih emoji untuk dimasukkan ke kolom pesan"
+
+msgid "Pick a sticker to send: favorites, recent ones or WhatsApp's own packs"
+msgstr "Pilih stiker untuk dikirim: favorit, terbaru, atau paket WhatsApp"
+
+msgid "Select the next misspelled word in the message box and offer its fixes"
+msgstr "Pilih kata salah eja berikutnya di kolom pesan dan sarankan perbaikan"
+
+msgid "Search within the open chat"
+msgstr "Cari di dalam chat yang sedang dibuka"
+
+msgid "Jump to the messages of a date in the open chat"
+msgstr "Lompat ke pesan pada tanggal tertentu di chat ini"
+
+msgid "See and go to the open chat's pinned messages"
+msgstr "Lihat dan buka pesan tersemat di chat ini"
+
+msgid "Browse the products of the business you're chatting with"
+msgstr "Jelajahi produk bisnis yang sedang chat dengan Anda"
+
+msgid "Pick a date and time for the message in the message box to be sent"
+msgstr "Pilih tanggal dan waktu pengiriman untuk pesan di kolom pesan"
+
+msgid "See, send now or delete the open chat's scheduled messages"
+msgstr "Lihat, kirim sekarang, atau hapus pesan terjadwal chat ini"
+
+msgid "Mute the open chat"
+msgstr "Bisukan chat ini"
+
+msgid "Archive the open chat"
+msgstr "Arsipkan chat ini"
+
+msgid "Pin the open chat"
+msgstr "Sematkan chat ini"
+
+msgid "Lock or unlock the open chat"
+msgstr "Kunci atau buka kunci chat ini"
+
+msgid "Toggle read/unread on the open chat"
+msgstr "Tandai sudah/belum dibaca pada chat ini"
+
+msgid "Turn disappearing messages on or off for the open chat"
+msgstr "Nyalakan atau matikan pesan sementara untuk chat ini"
+
+msgid "Turn advanced chat privacy on or off for the open chat"
+msgstr "Nyalakan atau matikan privasi chat lanjutan untuk chat ini"
+
+msgid "Report the open chat's contact or group to WhatsApp"
+msgstr "Laporkan kontak atau grup chat ini ke WhatsApp"
+
+msgid "Block or unblock the open chat's contact"
+msgstr "Blokir atau buka blokir kontak chat ini"
+
+msgid "Star the selected message"
+msgstr "Bintangi pesan yang dipilih"
+
+msgid "See this contact's info, call them, or edit or delete the contact"
+msgstr "Lihat info kontak ini, telepon, atau edit maupun hapus kontak"
+
+msgid "See this channel's details without opening it"
+msgstr "Lihat detail saluran ini tanpa membukanya"
+
+msgid "Pin or unpin chat"
+msgstr "Sematkan atau lepas sematan chat"
+
+msgid "Archive or unarchive chat"
+msgstr "Arsipkan atau batalkan arsip chat"
+
+msgid "Lock or unlock chat"
+msgstr "Kunci atau buka kunci chat"
+
+msgid "Mark chat as read or unread"
+msgstr "Tandai chat sudah atau belum dibaca"
+
+msgid "Show or stop showing this chat under Favorites"
+msgstr "Tampilkan atau hapus chat ini dari Favorit"
+
+msgid "Choose which of your lists this chat is in"
+msgstr "Pilih daftar mana saja yang berisi chat ini"
+
+msgid "Export this chat's transcript and media"
+msgstr "Ekspor transkrip dan media chat ini"
+
+msgid "Export just the message text as a Markdown file, no media"
+msgstr "Ekspor teks pesan saja sebagai file Markdown tanpa media"
+
+msgid "Leave this group"
+msgstr "Keluar dari grup ini"
+
+msgid "Delete this chat's messages, keeping the chat itself"
+msgstr "Hapus pesan di chat ini tanpa menghapus chatnya"
+
+msgid "Report this group to WhatsApp"
+msgstr "Laporkan grup ini ke WhatsApp"
+
+msgid "Report this contact to WhatsApp"
+msgstr "Laporkan kontak ini ke WhatsApp"
+
+msgid "Let this contact message and call you again"
+msgstr "Izinkan kontak ini mengirim pesan dan menelepon Anda lagi"
+
+msgid "Stop this contact messaging and calling you"
+msgstr "Hentikan kontak ini mengirim pesan dan menelepon Anda"
+
+msgid "Delete chat history"
+msgstr "Hapus riwayat chat"
+
+msgid "Mute or unmute notifications"
+msgstr "Bisukan atau bunyikan notifikasi"
+
+msgid "Choose how long to mute this chat"
+msgstr "Pilih berapa lama chat ini dibisukan"
+
+msgid "Start Recording"
+msgstr "Mulai Merekam"
+
+msgid "Pause Recording"
+msgstr "Jeda Perekaman"
+
+msgid "Play/Pause Voice Preview"
+msgstr "Putar/Jeda Pratinjau Suara"
+
+msgid "Discard Voice Recording"
+msgstr "Buang Rekaman Suara"
+
+msgid "Send Voice Message"
+msgstr "Kirim Pesan Suara"
+
+msgid "Voice message: back 5 seconds"
+msgstr "Pesan suara: mundur 5 detik"
+
+msgid "Voice message: forward 5 seconds"
+msgstr "Pesan suara: maju 5 detik"
+
+msgid "Voice message: stop"
+msgstr "Pesan suara: berhenti"
+
+msgid "Voice message: slower"
+msgstr "Pesan suara: lebih lambat"
+
+msgid "Voice message: faster"
+msgstr "Pesan suara: lebih cepat"
+
+msgid "Answer Incoming Call"
+msgstr "Jawab Panggilan Masuk"
+
+msgid "Reject Incoming Call"
+msgstr "Tolak Panggilan Masuk"
+
+msgid "Reply"
+msgstr "Balas"
+
+msgid "Edit"
+msgstr "Edit"
+
+msgid "Star or unstar"
+msgstr "Bintangi atau hapus bintang"
+
+msgid "Forward"
+msgstr "Teruskan"
+
+msgid "Vote in poll"
+msgstr "Pilih dalam polling"
+
+msgid "Delete"
+msgstr "Hapus"
+
+msgid "Selection mode on or off"
+msgstr "Mode seleksi aktif atau nonaktif"
+
+msgid "View Message Text"
+msgstr "Lihat Teks Pesan"
+
+msgid "Status: Initializing..."
+msgstr "Status: Memulai..."
+
+msgid "Status: Not logged in"
+msgstr "Status: Belum masuk"
+
+msgid "Status: Connecting..."
+msgstr "Status: Menghubungkan..."
+
+msgid "Status: Connected"
+msgstr "Status: Terhubung"
+
+msgid "Status: Connected (Downloading messages)"
+msgstr "Status: Terhubung (Mengunduh pesan)"
+
+msgid "Status: Connected (Syncing older messages)"
+msgstr "Status: Terhubung (Menyinkronkan pesan lama)"
+
+msgid "Status: Connected (Syncing paused. Open WhatsApp on your phone to continue syncing.)"
+msgstr "Status: Terhubung (Sinkronisasi dijeda. Buka WhatsApp di ponsel Anda untuk melanjutkan.)"
+
+msgid "Connected to WhatsApp."
+msgstr "Terhubung ke WhatsApp."
+
+msgid "&Open"
+msgstr "&Buka"
+
+msgid "&Save as..."
+msgstr "&Simpan sebagai..."
+
+msgid "&Download"
+msgstr "&Unduh"
+
+msgid "Open"
+msgstr "Buka"
+
+msgid "Save as"
+msgstr "Simpan sebagai"
+
+msgid "Save as..."
+msgstr "Simpan sebagai..."
+
+msgid "Download"
+msgstr "Unduh"
+
+msgid "Save"
+msgstr "Simpan"
+
+msgid "Cancel"
+msgstr "Batal"
+
+msgid "Close"
+msgstr "Tutup"
+
+msgid "Send"
+msgstr "Kirim"
+
+msgid "Discard"
+msgstr "Buang"
+
+msgid "Create"
+msgstr "Buat"
+
+msgid "Add"
+msgstr "Tambah"
+
+msgid "Remove"
+msgstr "Hapus"
+
+msgid "Copy"
+msgstr "Salin"
+
+msgid "Star"
+msgstr "Bintangi"
+
+msgid "Keep"
+msgstr "Simpan"
+
+msgid "Mute"
+msgstr "Bisukan"
+
+msgid "Mark as read"
+msgstr "Tandai sudah dibaca"
+
+msgid "Search"
+msgstr "Cari"
+
+msgid "Search unread chats"
+msgstr "Cari chat belum dibaca"
+
+msgid "Search favourite chats"
+msgstr "Cari chat favorit"
+
+msgid "Search group chats"
+msgstr "Cari chat grup"
+
+msgid "Search status updates"
+msgstr "Cari pembaruan status"
+
+msgid "Search starred messages"
+msgstr "Cari pesan berbintang"
+
+msgid "Search or enter phone number to place call"
+msgstr "Cari atau masukkan nomor telepon untuk menelepon"
+
+msgid "Search or start a new chat"
+msgstr "Cari atau mulai chat baru"
+
+msgid "Filters"
+msgstr "Filter"
+
+msgid "All chats"
+msgstr "Semua chat"
+
+msgid "Unread"
+msgstr "Belum dibaca"
+
+msgid "Favorites"
+msgstr "Favorit"
+
+msgid "Groups"
+msgstr "Grup"
+
+msgid "New Chat"
+msgstr "Chat Baru"
+
+msgid "New Group"
+msgstr "Grup Baru"
+
+msgid "Status Updates"
+msgstr "Pembaruan Status"
+
+msgid "Recent Calls"
+msgstr "Panggilan Terbaru"
+
+msgid "Post Status Update..."
+msgstr "Posting Pembaruan Status..."
+
+msgid "Find channels..."
+msgstr "Cari saluran..."
+
+msgid "Create channel..."
+msgstr "Buat saluran..."
+
+msgid "Locked Chats"
+msgstr "Chat Dikunci"
+
+msgid "Hide Locked Chats"
+msgstr "Sembunyikan Chat Dikunci"
+
+msgid "Post Photo/Video Status..."
+msgstr "Posting Status Foto/Video..."
+
+msgid "Status Privacy..."
+msgstr "Privasi Status..."
+
+msgid "Video call"
+msgstr "Panggilan video"
+
+msgid "Conversation data"
+msgstr "Info percakapan"
+
+msgid "Search in conversation"
+msgstr "Cari dalam chat"
+
+msgid "Join call"
+msgstr "Gabung panggilan"
+
+msgid "Incoming call..."
+msgstr "Panggilan masuk..."
+
+msgid "Open call window"
+msgstr "Buka jendela panggilan"
+
+msgid "Answer"
+msgstr "Jawab"
+
+msgid "Decline"
+msgstr "Tolak"
+
+msgid "Close search"
+msgstr "Tutup pencarian"
+
+msgid "Search conversation"
+msgstr "Cari percakapan"
+
+msgid "Messages"
+msgstr "Pesan"
+
+msgid "Play voice message"
+msgstr "Putar pesan suara"
+
+msgid "Read more"
+msgstr "Baca selengkapnya"
+
+msgid "Retry send"
+msgstr "Coba kirim lagi"
+
+msgid "Emoji and stickers"
+msgstr "Emoji dan stiker"
+
+msgid "Type a message"
+msgstr "Ketik pesan"
+
+msgid "You blocked this contact. Click to unblock."
+msgstr "Anda memblokir kontak ini. Klik untuk membuka blokir."
+
+msgid "Add attachment"
+msgstr "Tambah lampiran"
+
+msgid "Cancel edit"
+msgstr "Batalkan edit"
+
+msgid "Remove quote"
+msgstr "Hapus kutipan"
+
+msgid "Send message"
+msgstr "Kirim pesan"
+
+msgid "Record voice message"
+msgstr "Rekam pesan suara"
+
+msgid "Send voice message"
+msgstr "Kirim pesan suara"
+
+msgid "Caption"
+msgstr "Keterangan"
+
+msgid "Add more files"
+msgstr "Tambah file lagi"
+
+msgid "Send attachment"
+msgstr "Kirim lampiran"
+
+msgid "Discard voice message"
+msgstr "Buang pesan suara"
+
+msgid "Pause recording"
+msgstr "Jeda perekaman"
+
+msgid "Play preview"
+msgstr "Putar pratinjau"
+
+msgid "View once"
+msgstr "Sekali lihat"
+
+msgid "&View once"
+msgstr "&Sekali lihat"
+
+msgid "0 selected"
+msgstr "0 dipilih"
+
+msgid "Search name or number"
+msgstr "Cari nama atau nomor"
+
+msgid "New Contact"
+msgstr "Kontak Baru"
+
+msgid "Name"
+msgstr "Nama"
+
+msgid "Surname"
+msgstr "Nama belakang"
+
+msgid "Phone Number"
+msgstr "Nomor Telepon"
+
+msgid "Also save to my phone's WhatsApp contacts"
+msgstr "Simpan juga ke kontak WhatsApp di ponsel saya"
+
+msgid "Message Meta AI"
+msgstr "Kirim pesan ke Meta AI"
+
+msgid "Group name"
+msgstr "Nama grup"
+
+msgid "Contacts"
+msgstr "Kontak"
+
+msgid "Search contacts"
+msgstr "Cari kontak"
+
+msgid "Extra number (optional)"
+msgstr "Nomor tambahan (opsional)"
+
+msgid "Create group"
+msgstr "Buat grup"
+
+msgid "Blocked Contacts"
+msgstr "Kontak Diblokir"
+
+msgid "Blocked contacts"
+msgstr "Kontak diblokir"
+
+msgid "Unblock"
+msgstr "Buka blokir"
+
+msgid "Block a contact..."
+msgstr "Blokir kontak..."
+
+msgid "Blocked contacts will no longer be able to call you or send you messages."
+msgstr "Kontak yang diblokir tidak lagi dapat menelepon atau mengirimi Anda pesan."
+
+msgid "Accounts"
+msgstr "Akun"
+
+msgid "Linked accounts"
+msgstr "Akun terhubung"
+
+msgid "&Switch"
+msgstr "&Beralih"
+
+msgid "&Add Account..."
+msgstr "&Tambah Akun..."
+
+msgid "Re&name..."
+msgstr "Ganti &Nama..."
+
+msgid "N&otifications..."
+msgstr "N&otifikasi..."
+
+msgid "&Remove..."
+msgstr "&Hapus..."
+
+msgid "When a message comes in"
+msgstr "Saat pesan masuk"
+
+msgid "When someone calls"
+msgstr "Saat seseorang menelepon"
+
+msgid "These apply while another account is on screen. Each chat's own notification settings still count, and the account on screen always uses the normal settings."
+msgstr "Ini berlaku saat akun lain sedang aktif di layar. Setelan notifikasi tiap chat tetap berlaku, dan akun di layar selalu memakai setelan normal."
+
+msgid "Notification and sound"
+msgstr "Notifikasi dan suara"
+
+msgid "Notification only, no sound"
+msgstr "Notifikasi saja, tanpa suara"
+
+msgid "Sound only, no notification"
+msgstr "Suara saja, tanpa notifikasi"
+
+msgid "Off"
+msgstr "Mati"
+
+msgid "On"
+msgstr "Nyala"
+
+msgid "Switch to this account and ring"
+msgstr "Beralih ke akun ini dan deringkan"
+
+msgid "Notification only"
+msgstr "Notifikasi saja"
+
+msgid "Question"
+msgstr "Pertanyaan"
+
+msgid "Create poll"
+msgstr "Buat polling"
+
+msgid "Options, one per line (2 to 12)"
+msgstr "Pilihan, satu per baris (2 sampai 12)"
+
+msgid "Allow multiple answers"
+msgstr "Izinkan beberapa jawaban"
+
+msgid "Quiz (one correct answer)"
+msgstr "Kuis (satu jawaban benar)"
+
+msgid "What to share"
+msgstr "Yang ingin dibagikan"
+
+msgid "Share"
+msgstr "Bagikan"
+
+msgid "Search chats and contacts"
+msgstr "Cari chat dan kontak"
+
+msgid "Send to"
+msgstr "Kirim ke"
+
+msgid "Caption (optional)"
+msgstr "Keterangan (opsional)"
+
+msgid "Message"
+msgstr "Pesan"
+
+msgid "Date"
+msgstr "Tanggal"
+
+msgid "Hour"
+msgstr "Jam"
+
+msgid "Minute"
+msgstr "Menit"
+
+msgid "Schedule message"
+msgstr "Jadwalkan pesan"
+
+msgid "Scheduled messages: loading"
+msgstr "Pesan terjadwal: memuat"
+
+msgid "Send now"
+msgstr "Kirim sekarang"
+
+msgid "Copy text"
+msgstr "Salin teks"
+
+msgid "Post &Status"
+msgstr "Posting &Status"
+
+msgid "Selected &file:"
+msgstr "&File yang dipilih:"
+
+msgid "&Caption (optional):"
+msgstr "&Keterangan (opsional):"
+
+msgid "&Type a status update:"
+msgstr "&Ketik pembaruan status:"
+
+msgid "Insert &Emoji..."
+msgstr "Sisipkan &Emoji..."
+
+msgid "Colour:"
+msgstr "Warna:"
+
+msgid "&Next Colour"
+msgstr "Warna &Berikutnya"
+
+msgid "Font:"
+msgstr "Font:"
+
+msgid "Next &Font"
+msgstr "Font &Berikutnya"
+
+msgid "Visible to your configured status audience."
+msgstr "Terlihat oleh penonton status yang Anda tentukan."
+
+msgid "Status &Privacy..."
+msgstr "&Privasi Status..."
+
+msgid "Microphone"
+msgstr "Mikrofon"
+
+msgid "Speaker"
+msgstr "Speaker"
+
+msgid "Camera"
+msgstr "Kamera"
+
+msgid "Accept call"
+msgstr "Terima panggilan"
+
+msgid "Decline call"
+msgstr "Tolak panggilan"
+
+msgid "Dismiss"
+msgstr "Tutup"
+
+msgid "Mute microphone"
+msgstr "Bisukan mikrofon"
+
+msgid "Turn camera on"
+msgstr "Nyalakan kamera"
+
+msgid "Share screen"
+msgstr "Bagikan layar"
+
+msgid "Device settings"
+msgstr "Setelan perangkat"
+
+msgid "Add participant"
+msgstr "Tambah peserta"
+
+msgid "Raise hand"
+msgstr "Angkat tangan"
+
+msgid "React..."
+msgstr "Reaksi..."
+
+msgid "End call"
+msgstr "Akhiri panggilan"
+
+msgid "Call back"
+msgstr "Telepon balik"
+
+msgid "People"
+msgstr "Orang"
+
+msgid "Let in"
+msgstr "Izinkan masuk"
+
+msgid "Don't let in"
+msgstr "Tolak masuk"
+
+msgid "Approve new participants"
+msgstr "Setujui peserta baru"
+
+msgid "Call info"
+msgstr "Info panggilan"
+
+msgid "WhatsApp Login"
+msgstr "Masuk WhatsApp"
+
+msgid "Scan this QR Code with WhatsApp:"
+msgstr "Pindai Kode QR ini dengan WhatsApp:"
+
+msgid "Loading QR Code..."
+msgstr "Memuat Kode QR..."
+
+msgid "Loading new QR Code..."
+msgstr "Memuat Kode QR baru..."
+
+msgid "Reload QR Code"
+msgstr "Muat Ulang Kode QR"
+
+msgid "Country:"
+msgstr "Negara:"
+
+msgid "Enter phone number:"
+msgstr "Masukkan nomor telepon:"
+
+msgid "Continue"
+msgstr "Lanjut"
+
+msgid "Connect with QR Code"
+msgstr "Hubungkan dengan Kode QR"
+
+msgid "Enter this pairing code in WhatsApp on your phone:"
+msgstr "Masukkan kode penautan ini di WhatsApp pada ponsel Anda:"
+
+msgid "Back to Phone Number Login"
+msgstr "Kembali ke Masuk dengan Nomor Telepon"
+
+msgid "Settings"
+msgstr "Setelan"
+
+msgid "General"
+msgstr "Umum"
+
+msgid "Personalization"
+msgstr "Personalisasi"
+
+msgid "Storage & Media"
+msgstr "Penyimpanan & Media"
+
+msgid "Input & Output"
+msgstr "Input & Output"
+
+msgid "Chat Lock"
+msgstr "Kunci Chat"
+
+msgid "Backup and Restore"
+msgstr "Cadangan dan Pemulihan"
+
+msgid "OK"
+msgstr "Oke"
+
+msgid "Startup & Window"
+msgstr "Mulai & Jendela"
+
+msgid "Start whatSnap when Windows starts"
+msgstr "Mulai whatSnap saat Windows dimulai"
+
+msgid "Show an icon in the notification area; closing minimizes to it"
+msgstr "Tampilkan ikon di area notifikasi; menutup jendela akan meminimalkannya ke sana"
+
+msgid "Start maximized"
+msgstr "Mulai dimaksimalkan"
+
+msgid "Accessibility & Announcements"
+msgstr "Aksesibilitas & Pengumuman"
+
+msgid "Announce when someone is typing"
+msgstr "Umumkan saat seseorang sedang mengetik"
+
+msgid "Announce when someone is recording a voice message"
+msgstr "Umumkan saat seseorang sedang merekam pesan suara"
+
+msgid "Show a button to message Meta AI in New Chat"
+msgstr "Tampilkan tombol pesan Meta AI di Chat Baru"
+
+msgid "Updates & Troubleshooting"
+msgstr "Pembaruan & Pemecahan Masalah"
+
+msgid "Check for updates when whatSnap starts"
+msgstr "Periksa pembaruan saat whatSnap dimulai"
+
+msgid "Updates"
+msgstr "Pembaruan"
+
+msgid "Stable releases"
+msgstr "Rilis stabil"
+
+msgid "Development builds"
+msgstr "Build pengembangan"
+
+msgid "Verbose backend logging, for troubleshooting connection issues (takes effect next time whatSnap starts)"
+msgstr "Log backend lengkap untuk mendiagnosis masalah koneksi (berlaku saat whatSnap dimulai ulang)"
+
+msgid "&Keyboard Shortcuts..."
+msgstr "&Pintasan Keyboard..."
+
+msgid "Add whatSnap to the Windows Share Menu..."
+msgstr "Tambahkan whatSnap ke Menu Bagikan Windows..."
+
+msgid "Security Notifications"
+msgstr "Notifikasi Keamanan"
+
+msgid "Show security notifications: say in a chat when a contact's security code changes"
+msgstr "Tampilkan notifikasi keamanan: beri tahu di chat saat kode keamanan kontak berubah"
+
+msgid "WhatsApp protects your conversations with end-to-end encryption. Turn this on to get notified when a contact's security code changes."
+msgstr "WhatsApp melindungi percakapan Anda dengan enkripsi ujung-ke-ujung. Aktifkan ini untuk mendapat notifikasi saat kode keamanan kontak berubah."
+
+msgid "Linked Accounts"
+msgstr "Akun Terhubung"
+
+msgid "whatSnap is linked to WhatsApp on your phone as one of its linked devices. Accounts switches between, adds and removes accounts, and sets how each one alerts you. Log Out unlinks the account on screen from this computer. Both close Settings."
+msgstr "whatSnap terhubung ke WhatsApp di ponsel Anda sebagai perangkat tertaut. Akun untuk beralih, menambah, atau menghapus akun serta mengatur notifikasinya. Keluar akan memutus tautan akun aktif dari komputer ini. Keduanya menutup Setelan."
+
+msgid "Accounts..."
+msgstr "Akun..."
+
+msgid "Log Out..."
+msgstr "Keluar..."
+
+msgid "Messaging & Navigation"
+msgstr "Pesan & Navigasi"
+
+msgid "Enter is send: the Enter key sends your message"
+msgstr "Enter untuk mengirim: tombol Enter mengirim pesan"
+
+msgid "Hide phone numbers in groups: show Unknown member for people with no saved name or profile name"
+msgstr "Sembunyikan nomor telepon di grup: tampilkan Anggota tidak dikenal jika tanpa nama kontak atau profil"
+
+msgid "Typing a letter in the message list starts a message (message shortcuts then need Alt)"
+msgstr "Mengetik huruf di daftar pesan langsung menulis pesan (pintasan pesan perlu Alt)"
+
+msgid "Keep my place in the message list instead of jumping to the newest message"
+msgstr "Pertahankan posisi di daftar pesan daripada langsung melompat ke pesan terbaru"
+
+msgid "Replace text with emoji as you type, like :-) or (y)"
+msgstr "Ganti teks menjadi emoji saat mengetik, seperti :-) atau (y)"
+
+msgid "Replace Text With Emoji: See Help..."
+msgstr "Ganti Teks dengan Emoji: Lihat Bantuan..."
+
+msgid "Spelling"
+msgstr "Ejaan"
+
+msgid "Check spelling in the message box (F7 goes to the next mistake)"
+msgstr "Periksa ejaan di kotak pesan (F7 melompat ke kesalahan berikutnya)"
+
+msgid "Say when a word you type is misspelled"
+msgstr "Bacakan saat kata yang diketik salah eja"
+
+msgid "Spelling Language"
+msgstr "Bahasa Pengecekan Ejaan"
+
+msgid "Windows default"
+msgstr "Default Windows"
+
+msgid "Play next status update automatically"
+msgstr "Putar pembaruan status berikutnya secara otomatis"
+
+msgid "Notifications"
+msgstr "Notifikasi"
+
+msgid "Message notifications: show desktop notifications for new messages"
+msgstr "Notifikasi pesan: tampilkan notifikasi desktop untuk pesan baru"
+
+msgid "Show previews: message text in notifications"
+msgstr "Tampilkan pratinjau: teks pesan dalam notifikasi"
+
+msgid "Reaction notifications: show notifications for reactions to your messages"
+msgstr "Notifikasi reaksi: tampilkan notifikasi untuk reaksi pada pesan Anda"
+
+msgid "Incoming sounds: play a sound for new messages"
+msgstr "Suara masuk: putar suara untuk pesan baru"
+
+msgid "Message notification tone"
+msgstr "Nada notifikasi pesan"
+
+msgid "Outgoing sounds: play sounds for messages you send"
+msgstr "Suara keluar: putar suara untuk pesan terkirim"
+
+msgid "Group notifications: show notifications for new group messages"
+msgstr "Notifikasi grup: tampilkan notifikasi untuk pesan grup baru"
+
+msgid "Group sounds: play sounds for new group messages"
+msgstr "Suara grup: putar suara untuk pesan grup baru"
+
+msgid "Group notification tone"
+msgstr "Nada notifikasi grup"
+
+msgid "Call notifications: show notifications for incoming calls"
+msgstr "Notifikasi panggilan: tampilkan notifikasi untuk panggilan masuk"
+
+msgid "Incoming call sounds: play the ringtone for incoming calls"
+msgstr "Suara panggilan masuk: putar nada dering untuk panggilan masuk"
+
+msgid "Call ringtone"
+msgstr "Nada dering panggilan"
+
+msgid "Group call ringtone"
+msgstr "Nada dering panggilan grup"
+
+msgid "Quiet Hours & Screen Reader"
+msgstr "Jam Tenang & Pembaca Layar"
+
+msgid "No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on"
+msgstr "Tidak ada suara pesan saat Jangan Ganggu Windows, game layar penuh, atau presentasi aktif"
+
+msgid "Read new messages aloud in the open chat (Alt+L turns it on or off for one chat)"
+msgstr "Bacakan pesan baru di chat terbuka (Alt+L menyalakan atau mematikan per chat)"
+
+msgid "Also read your own sent messages aloud"
+msgstr "Bacakan juga pesan yang Anda kirim sendiri"
+
+msgid "Theme"
+msgstr "Tema"
+
+msgid "Choose Theme"
+msgstr "Pilih Tema"
+
+msgid "Light"
+msgstr "Terang"
+
+msgid "Dark"
+msgstr "Gelap"
+
+msgid "System Default follows your Windows system-wide light or dark mode setting. Light and Dark themes provide dedicated color schemes."
+msgstr "Default Sistem mengikuti mode terang atau gelap Windows. Tema Terang dan Gelap menyediakan skema warna khusus."
+
+msgid "App Language"
+msgstr "Bahasa Aplikasi"
+
+msgid "Choose Language"
+msgstr "Pilih Bahasa"
+
+msgid "System Default"
+msgstr "Default Sistem"
+
+msgid "English"
+msgstr "English"
+
+msgid "Bahasa Indonesia"
+msgstr "Bahasa Indonesia"
+
+msgid "Choose the language for whatSnap's interface. Changes take full effect after restarting whatSnap."
+msgstr "Pilih bahasa antarmuka whatSnap. Perubahan berlaku sepenuhnya setelah whatSnap dimulai ulang."
+
+msgid "Profile"
+msgstr "Profil"
+
+msgid "Profile Photo"
+msgstr "Foto Profil"
+
+msgid "Change Profile Photo..."
+msgstr "Ubah Foto Profil..."
+
+msgid "Remove Profile Photo..."
+msgstr "Hapus Foto Profil..."
+
+msgid "This is not your username or phone number. This name will be visible to your WhatsApp contacts."
+msgstr "Ini bukan nama pengguna atau nomor telepon Anda. Nama ini terlihat oleh kontak WhatsApp Anda."
+
+msgid "About"
+msgstr "Tentang"
+
+msgid "Clear About After"
+msgstr "Hapus Info Tentang Setelah"
+
+msgid "Never"
+msgstr "Jangan pernah"
+
+msgid "30 Minutes"
+msgstr "30 Menit"
+
+msgid "1 Hour"
+msgstr "1 Jam"
+
+msgid "2 Hours"
+msgstr "2 Jam"
+
+msgid "4 Hours"
+msgstr "4 Jam"
+
+msgid "8 Hours"
+msgstr "8 Jam"
+
+msgid "24 Hours"
+msgstr "24 Jam"
+
+msgid "7 Days"
+msgstr "7 Hari"
+
+msgid "90 Days"
+msgstr "90 Hari"
+
+msgid "Privacy"
+msgstr "Privasi"
+
+msgid "Disappearing Messages"
+msgstr "Pesan Sementara"
+
+msgid "Default Message Timer for New Chats"
+msgstr "Timer Pesan Default untuk Chat Baru"
+
+msgid "Who Can See My Info"
+msgstr "Siapa yang Dapat Melihat Info Saya"
+
+msgid "Who Can See My Last Seen"
+msgstr "Siapa yang Dapat Melihat Terakhir Dilihat"
+
+msgid "Who Can See When I'm Online"
+msgstr "Siapa yang Dapat Melihat Saat Saya Online"
+
+msgid "Who Can See My Profile Photo"
+msgstr "Siapa yang Dapat Melihat Foto Profil Saya"
+
+msgid "Who Can See My About"
+msgstr "Siapa yang Dapat Melihat Info Tentang Saya"
+
+msgid "Everyone"
+msgstr "Semua orang"
+
+msgid "My Contacts"
+msgstr "Kontak saya"
+
+msgid "My Contacts Except..."
+msgstr "Kontak saya kecuali..."
+
+msgid "Nobody"
+msgstr "Tidak seorang pun"
+
+msgid "Same as Last Seen"
+msgstr "Sama seperti Terakhir Dilihat"
+
+msgid "Choose Contacts Excluded From Last Seen..."
+msgstr "Pilih Kontak Dikecualikan dari Terakhir Dilihat..."
+
+msgid "Choose Contacts Excluded From Profile Photo..."
+msgstr "Pilih Kontak Dikecualikan dari Foto Profil..."
+
+msgid "Choose Contacts Excluded From About..."
+msgstr "Pilih Kontak Dikecualikan dari Info Tentang..."
+
+msgid "Choose Contacts Excluded From Groups..."
+msgstr "Pilih Kontak Dikecualikan dari Grup..."
+
+msgid "Read receipts: if turned off, you won't send or receive read receipts. They're always sent in groups."
+msgstr "Laporan dibaca: jika dimatikan, Anda tidak mengirim atau menerima laporan dibaca. Selalu dikirim di grup."
+
+msgid "Status Privacy"
+msgstr "Privasi Status"
+
+msgid "Choose Who Can See My Status Updates..."
+msgstr "Pilih Siapa yang Dapat Melihat Pembaruan Status..."
+
+msgid "Groups & Calls"
+msgstr "Grup & Panggilan"
+
+msgid "Who Can Add Me to Groups"
+msgstr "Siapa yang Dapat Menambahkan Saya ke Grup"
+
+msgid "Silence Unknown Callers"
+msgstr "Bisukan Penelepon Tidak Dikenal"
+
+msgid "Advanced & Blocked Contacts"
+msgstr "Lanjutan & Kontak Diblokir"
+
+msgid "Turn off link previews: links you send go without a preview, on all your devices"
+msgstr "Matikan pratinjau tautan: tautan yang Anda kirim tidak menampilkan pratinjau di semua perangkat"
+
+msgid "Manage Blocked Contacts..."
+msgstr "Kelola Kontak Diblokir..."
+
+msgid "Media Auto-Download"
+msgstr "Unduh Otomatis Media"
+
+msgid "Download photos automatically"
+msgstr "Unduh foto secara otomatis"
+
+msgid "Download audio automatically"
+msgstr "Unduh audio secara otomatis"
+
+msgid "Download videos automatically"
+msgstr "Unduh video secara otomatis"
+
+msgid "Download documents automatically"
+msgstr "Unduh dokumen secara otomatis"
+
+msgid "Voice messages are always downloaded automatically. Other media downloads by itself only from contacts and chats you've written in."
+msgstr "Pesan suara selalu diunduh otomatis. Media lain hanya diunduh otomatis dari kontak dan chat yang pernah Anda kirim pesan."
+
+msgid "Media Quality"
+msgstr "Kualitas Media"
+
+msgid "Download Quality for Photos and Videos Sent in HD"
+msgstr "Kualitas Unduhan untuk Foto dan Video yang Dikirim dalam HD"
+
+msgid "Media Upload Quality"
+msgstr "Kualitas Unggahan Media"
+
+msgid "Standard Quality"
+msgstr "Kualitas Standar"
+
+msgid "HD Quality"
+msgstr "Kualitas HD"
+
+msgid "Microphone (calls and voice notes)"
+msgstr "Mikrofon (panggilan dan pesan suara)"
+
+msgid "Used for voice/video calls and recording voice messages."
+msgstr "Digunakan untuk panggilan suara/video dan merekam pesan suara."
+
+msgid "Clean up voice messages: reduce background noise and even out the volume"
+msgstr "Bersihkan pesan suara: kurangi kebisingan latar dan ratakan volume"
+
+msgid "Like WhatsApp Web: removes background noise and brings quiet speech up to a steady, loud level. Off sends the raw mic signal."
+msgstr "Seperti WhatsApp Web: menghilangkan bising latar dan menaikkan suara pelan agar stabil. Mati mengirim sinyal mikrofon mentah."
+
+msgid "Speakers"
+msgstr "Speaker"
+
+msgid "Speaker for alerts and voice messages"
+msgstr "Speaker untuk peringatan dan pesan suara"
+
+msgid "Used for notification sounds, message tones and voice message playback."
+msgstr "Digunakan untuk suara notifikasi, nada pesan, dan pemutaran pesan suara."
+
+msgid "Speaker for calls"
+msgstr "Speaker untuk panggilan"
+
+msgid "Mute microphone by default when placing or joining calls"
+msgstr "Bisukan mikrofon secara default saat menelepon atau bergabung ke panggilan"
+
+msgid "When enabled, calls begin with your microphone muted. You can unmute at any time during the call."
+msgstr "Saat diaktifkan, panggilan dimulai dengan mikrofon dibisukan. Anda dapat membunyikannya kapan saja saat panggilan."
+
+msgid "Show frequent contacts in the Calls tab"
+msgstr "Tampilkan kontak yang sering dihubungi di tab Panggilan"
+
+msgid "When enabled, frequently called contacts are displayed at the top of the Calls tab."
+msgstr "Saat diaktifkan, kontak yang sering dihubungi ditampilkan di bagian atas tab Panggilan."
+
+msgid "Screen Sharing"
+msgstr "Berbagi Layar"
+
+msgid "Experimental: keep the camera on while sharing the screen (applies to the next call)"
+msgstr "Eksperimental: biarkan kamera tetap menyala saat berbagi layar (berlaku di panggilan berikutnya)"
+
+msgid "Unlock locked chats with Windows Hello (fingerprint, face or PIN) instead of the secret code"
+msgstr "Buka kunci chat dikunci dengan Windows Hello (sidik jari, wajah, atau PIN) sebagai pengganti kode rahasia"
+
+msgid "Allows unlocking hidden and locked chats using your Windows Hello biometric or PIN credentials."
+msgstr "Memungkinkan membuka chat tersembunyi dan terkunci memakai biometrik atau PIN Windows Hello."
+
+msgid "Backup Settings"
+msgstr "Cadangkan Setelan"
+
+msgid "Export your whatSnap preferences (shortcuts, notifications, audio settings, theme, and chat options) to a JSON file. Your chats, contacts, media, and account sessions are not included."
+msgstr "Ekspor preferensi whatSnap Anda (pintasan, notifikasi, setelan audio, tema, dan opsi chat) ke file JSON. Chat, kontak, media, dan sesi akun tidak disertakan."
+
+msgid "Backup Settings..."
+msgstr "Cadangkan Setelan..."
+
+msgid "Restore Settings"
+msgstr "Pulihkan Setelan"
+
+msgid "Restore your whatSnap preferences from a previously saved JSON backup file. This will update your current settings."
+msgstr "Pulihkan preferensi whatSnap Anda dari file cadangan JSON yang sebelumnya disimpan. Ini akan memperbarui setelan saat ini."
+
+msgid "Restore Settings..."
+msgstr "Pulihkan Setelan..."
+
+msgid "Sounds"
+msgstr "Suara"
+
+msgid "Keyboard Shortcuts"
+msgstr "Pintasan Keyboard"
+
+msgid "Who Can See My Status"
+msgstr "Siapa yang Dapat Melihat Status Saya"
+
+msgid "Read Receipts"
+msgstr "Laporan Dibaca"
+
+msgid "Disappearing Messages Default Timer"
+msgstr "Timer Default Pesan Sementara"
+
+msgid "Default"
+msgstr "Default"
+
+msgid "Alert"
+msgstr "Peringatan"
+
+msgid "Custom sound file"
+msgstr "File suara khusus"
+
+msgid "None"
+msgstr "Tidak ada"
+
+msgid "Choose a sound file"
+msgstr "Pilih file suara"
+
+msgid "Choose Message Tone File..."
+msgstr "Pilih File Nada Pesan..."
+
+msgid "Choose Group Tone File..."
+msgstr "Pilih File Nada Grup..."
+
+msgid "Choose Call Ringtone File..."
+msgstr "Pilih File Nada Dering Panggilan..."
+
+msgid "Choose Group Call Ringtone File..."
+msgstr "Pilih File Nada Dering Panggilan Grup..."
+
+msgid "Choose Notification Tone File..."
+msgstr "Pilih File Nada Notifikasi..."
+
+msgid "Choose Ringtone File..."
+msgstr "Pilih File Nada Dering..."
+
+msgid "Choose Sound File..."
+msgstr "Pilih File Suara..."
+
+msgid "Connecting..."
+msgstr "Menghubungkan..."
+
+msgid "Connected."
+msgstr "Terhubung."
+
+msgid "Reconnecting..."
+msgstr "Menghubungkan ulang..."
+
+msgid "Reconnected."
+msgstr "Terhubung kembali."
+
+msgid "Call connected."
+msgstr "Panggilan terhubung."
+
+msgid "Call ended."
+msgstr "Panggilan berakhir."
+
+msgid "That call has ended."
+msgstr "Panggilan tersebut telah berakhir."
+
+msgid "Joining call..."
+msgstr "Bergabung ke panggilan..."
+
+msgid "You're already in a call."
+msgstr "Anda sudah berada dalam panggilan."
+
+msgid "Failed to start audio stream."
+msgstr "Gagal memulai streaming audio."
+
+msgid "Microphone changed."
+msgstr "Mikrofon diubah."
+
+msgid "Speaker changed."
+msgstr "Speaker diubah."
+
+msgid "Camera changed."
+msgstr "Kamera diubah."
+
+msgid "Audio and video settings opened."
+msgstr "Setelan audio dan video dibuka."
+
+msgid "Audio and video settings closed."
+msgstr "Setelan audio dan video ditutup."
+
+msgid "Stopped"
+msgstr "Berhenti"
+
+msgid "Sending vote..."
+msgstr "Mengirim pilihan..."
+
+msgid "Sending your answer..."
+msgstr "Mengirim jawaban Anda..."
+
+msgid "Sending event..."
+msgstr "Mengirim acara..."
+
+msgid "Sending sticker..."
+msgstr "Mengirim stiker..."
+
+msgid "Added to favorite stickers."
+msgstr "Ditambahkan ke stiker favorit."
+
+msgid "Removed from favorite stickers."
+msgstr "Dihapus dari stiker favorit."
+
+msgid "Exporting chat text..."
+msgstr "Mengekspor teks chat..."
+
+msgid "Posting status update..."
+msgstr "Memposting pembaruan status..."
+
+msgid "Retrying send..."
+msgstr "Mencoba mengirim ulang..."
+
+msgid "Status privacy saved."
+msgstr "Privasi status disimpan."
+
+msgid "Saving who sees your status..."
+msgstr "Menyimpan siapa yang melihat status Anda..."
+
+msgid "Choose at least one contact to share with."
+msgstr "Pilih setidaknya satu kontak untuk berbagi."
+
+msgid "No answer chosen."
+msgstr "Belum ada jawaban yang dipilih."
+
+msgid "Not a poll or event."
+msgstr "Bukan polling atau acara."
+
+msgid "Type a reply"
+msgstr "Ketik balasan"
+
+msgid "  Paused"
+msgstr "  Dijeda"
+
+msgid "  Playing preview"
+msgstr "  Memutar pratinjau"
+
+msgid " (Admin)"
+msgstr " (Admin)"
+
+msgid " (Super Admin)"
+msgstr " (Admin Super)"
+
+msgid " You liked this."
+msgstr " Anda menyukai ini."
+
+msgid "&Add chats..."
+msgstr "&Tambah chat..."
+
+msgid "&Add list..."
+msgstr "&Tambah daftar..."
+
+msgid "&Add to contacts"
+msgstr "&Tambah ke kontak"
+
+msgid "&Audio"
+msgstr "&Audio"
+
+msgid "&Call"
+msgstr "&Telepon"
+
+msgid "&Chats..."
+msgstr "&Chat..."
+
+msgid "&Contact"
+msgstr "&Kontak"
+
+msgid "&Copy"
+msgstr "&Salin"
+
+msgid "&Copy\tCtrl+C"
+msgstr "&Salin\tCtrl+C"
+
+msgid "&Copy Code"
+msgstr "&Salin Kode"
+
+msgid "&Copy Link"
+msgstr "&Salin Tautan"
+
+msgid "&Copy Number"
+msgstr "&Salin Nomor"
+
+msgid "&Copy text\tCtrl+C"
+msgstr "&Salin teks\tCtrl+C"
+
+msgid "&Delete"
+msgstr "&Hapus"
+
+msgid "&Delete Repeated Word"
+msgstr "&Hapus Kata Berulang"
+
+msgid "&Delete call\tDel"
+msgstr "&Hapus panggilan\tDel"
+
+msgid "&Delete channel..."
+msgstr "&Hapus saluran..."
+
+msgid "&Delete..."
+msgstr "&Hapus..."
+
+msgid "&Dismiss as admin"
+msgstr "&Berhentikan sebagai admin"
+
+msgid "&Document"
+msgstr "&Dokumen"
+
+msgid "&Edit"
+msgstr "&Edit"
+
+msgid "&Edit name and description..."
+msgstr "&Edit nama dan deskripsi..."
+
+msgid "&Event"
+msgstr "A&cara"
+
+msgid "&Followers and admins..."
+msgstr "&Pengikut dan admin..."
+
+msgid "&Forward..."
+msgstr "&Teruskan..."
+
+msgid "&Go to message"
+msgstr "&Buka pesan"
+
+msgid "&Insert emoji"
+msgstr "&Sisipkan emoji"
+
+msgid "&Invite admins..."
+msgstr "&Undang admin..."
+
+msgid "&Join call"
+msgstr "&Gabung panggilan"
+
+msgid "&Keep in chat"
+msgstr "&Simpan di chat"
+
+msgid "&Like"
+msgstr "&Suka"
+
+msgid "&Message Number"
+msgstr "&Kirim Pesan ke Nomor"
+
+msgid "&Mute"
+msgstr "&Bisukan"
+
+msgid "&Next"
+msgstr "&Berikutnya"
+
+msgid "&Notify normally"
+msgstr "&Beri tahu secara normal"
+
+msgid "&Open Link"
+msgstr "&Buka Tautan"
+
+msgid "&Open chat"
+msgstr "&Buka chat"
+
+msgid "&Paste"
+msgstr "&Tempel"
+
+msgid "&Photos and videos"
+msgstr "&Foto dan video"
+
+msgid "&Position"
+msgstr "&Posisi"
+
+msgid "&Previous"
+msgstr "&Sebelumnya"
+
+msgid "&React..."
+msgstr "&Reaksi..."
+
+msgid "&Remove"
+msgstr "&Hapus"
+
+msgid "&Remove picture"
+msgstr "&Hapus foto"
+
+msgid "&Rename..."
+msgstr "&Ganti nama..."
+
+msgid "&Reply"
+msgstr "&Balas"
+
+msgid "&Reply..."
+msgstr "&Balas..."
+
+msgid "&Save voice message..."
+msgstr "&Simpan pesan suara..."
+
+msgid "&Schedule message..."
+msgstr "&Jadwalkan pesan..."
+
+msgid "&Send"
+msgstr "&Kirim"
+
+msgid "&Send sticker"
+msgstr "&Kirim stiker"
+
+msgid "&Silent"
+msgstr "&Hening"
+
+msgid "&Star"
+msgstr "&Bintang"
+
+msgid "&Star all"
+msgstr "&Bintangi semua"
+
+msgid "&Sticker"
+msgstr "&Stiker"
+
+msgid "&Undo"
+msgstr "&Urungkan"
+
+msgid "&Unstar"
+msgstr "&Hapus bintang"
+
+msgid "&Unstar\tDel"
+msgstr "&Hapus bintang\tDel"
+
+msgid "&Unstar all"
+msgstr "&Hapus bintang semua"
+
+msgid "&Verify security code"
+msgstr "&Verifikasi kode keamanan"
+
+msgid "&Video call"
+msgstr "&Panggilan video"
+
+msgid "&View status"
+msgstr "&Lihat status"
+
+msgid "&Viewed by"
+msgstr "&Dilihat oleh"
+
+msgid "&Viewed by..."
+msgstr "&Dilihat oleh..."
+
+msgid "&Viewed by: no one yet"
+msgstr "&Dilihat oleh: belum ada"
+
+msgid "&Volume"
+msgstr "&Volume"
+
+msgid "(No spelling suggestions)"
+msgstr "(Tidak ada saran ejaan)"
+
+msgid "(your reaction)"
+msgstr "(reaksi Anda)"
+
+msgid ", 1 mention"
+msgstr ", 1 sebutan"
+
+msgid ", animated"
+msgstr ", animasi"
+
+msgid ", copies a code"
+msgstr ", menyalin kode"
+
+msgid ", kept"
+msgstr ", disimpan"
+
+msgid ", link"
+msgstr ", tautan"
+
+msgid ", not linked yet"
+msgstr ", belum ditautkan"
+
+msgid ", notifications off"
+msgstr ", notifikasi mati"
+
+msgid ", on screen"
+msgstr ", di layar"
+
+msgid ", only works on your phone"
+msgstr ", hanya berfungsi di ponsel Anda"
+
+msgid ", pinned"
+msgstr ", disematkan"
+
+msgid ", starred"
+msgstr ", berbintang"
+
+msgid "1 channel."
+msgstr "1 saluran."
+
+msgid "1 follower"
+msgstr "1 pengikut"
+
+msgid "1 sticker."
+msgstr "1 stiker."
+
+msgid "1 unread message"
+msgstr "1 pesan belum dibaca"
+
+msgid "< Back"
+msgstr "< Kembali"
+
+msgid "A message that isn't on this computer"
+msgstr "Pesan yang tidak ada di komputer ini"
+
+msgid "A poll can have at most 12 options."
+msgstr "Polling maksimal memiliki 12 pilihan."
+
+msgid "A poll needs at least two options, one per line."
+msgstr "Polling membutuhkan setidaknya dua pilihan, satu per baris."
+
+msgid "About this channel"
+msgstr "Tentang saluran ini"
+
+msgid "About/Status"
+msgstr "Info/Status"
+
+msgid "Accept"
+msgstr "Terima"
+
+msgid "Accepting..."
+msgstr "Menerima..."
+
+msgid "Account Already Linked"
+msgstr "Akun Sudah Ditautkan"
+
+msgid "Actions for this message's sender"
+msgstr "Tindakan untuk pengirim pesan ini"
+
+msgid "Add &photo/video status update..."
+msgstr "Tambah pembaruan status &foto/video..."
+
+msgid "Add &text status update..."
+msgstr "Tambah pembaruan status &teks..."
+
+msgid "Add Account"
+msgstr "Tambah Akun"
+
+msgid "Add Contact"
+msgstr "Tambah Kontak"
+
+msgid "Add Existing Group"
+msgstr "Tambah Grup yang Ada"
+
+msgid "Add contact"
+msgstr "Tambah kontak"
+
+msgid "Add existing group..."
+msgstr "Tambah grup yang ada..."
+
+msgid "Add group members"
+msgstr "Tambah anggota grup"
+
+msgid "Add member"
+msgstr "Tambah anggota"
+
+msgid "Add to &favorite stickers"
+msgstr "Tambah ke stiker &favorit"
+
+msgid "Add which group to the community?"
+msgstr "Tambahkan grup mana ke komunitas?"
+
+msgid "Adding to call..."
+msgstr "Menambahkan ke panggilan..."
+
+msgid "Advanced Chat Privacy"
+msgstr "Privasi Chat Lanjutan"
+
+msgid "Advanced chat privacy..."
+msgstr "Privasi chat lanjutan..."
+
+msgid "Alert exactly like an unarchived chat"
+msgstr "Beri tahu persis seperti chat yang tidak diarsipkan"
+
+msgid "Album"
+msgstr "Album"
+
+msgid "All (recommended)"
+msgstr "Semua (disarankan)"
+
+msgid "All contacts"
+msgstr "Semua kontak"
+
+msgid "All files"
+msgstr "Semua file"
+
+msgid "All scheduled messages have been sent or deleted"
+msgstr "Semua pesan terjadwal telah dikirim atau dihapus"
+
+msgid "All starred messages unstarred."
+msgstr "Semua pesan berbintang telah dihapus bintangnya."
+
+msgid "Allow guests"
+msgstr "Izinkan tamu"
+
+msgid "An option is too long. Each option allows up to 100 characters."
+msgstr "Pilihan terlalu panjang. Setiap pilihan maksimal 100 karakter."
+
+msgid "Announcements"
+msgstr "Pengumuman"
+
+msgid "Answer event"
+msgstr "Jawab acara"
+
+msgid "Answer quiz"
+msgstr "Jawab kuis"
+
+msgid "Approve"
+msgstr "Setujui"
+
+msgid "Approve new members"
+msgstr "Setujui anggota baru"
+
+msgid "Archived"
+msgstr "Diarsipkan"
+
+msgid "Archived a&lerts"
+msgstr "Pemberitahuan yang di&arsipkan"
+
+msgid "Ask your phone to send this message again"
+msgstr "Minta telepon Anda untuk mengirim pesan ini lagi"
+
+msgid "At least one contact must be selected."
+msgstr "Minimal satu kontak harus dipilih."
+
+msgid "At least one participant must be selected."
+msgstr "Minimal satu peserta harus dipilih."
+
+msgid "Attach a contact from your WhatsApp contacts"
+msgstr "Lampirkan kontak dari kontak WhatsApp Anda"
+
+msgid "Attach contact"
+msgstr "Lampirkan kontak"
+
+msgid "Audio"
+msgstr "Audio"
+
+msgid "Availability"
+msgstr "Ketersediaan"
+
+msgid "Backup Complete"
+msgstr "Pencadangan Selesai"
+
+msgid "Backup Failed"
+msgstr "Pencadangan Gagal"
+
+msgid "Block contact"
+msgstr "Blokir kontak"
+
+msgid "Block contact..."
+msgstr "Blokir kontak..."
+
+msgid "Blocked contact"
+msgstr "Kontak diblokir"
+
+msgid "Blocked contacts: none"
+msgstr "Kontak yang diblokir: tidak ada"
+
+msgid "Blocked: Yes\n"
+msgstr "Diblokir: Ya\n"
+
+msgid "Blocked: yes"
+msgstr "Diblokir: ya"
+
+msgid "Busy, on another call with"
+msgstr "Sibuk, sedang dalam panggilan lain dengan"
+
+msgid "Busy, on another call."
+msgstr "Sedang sibuk, dalam panggilan lain."
+
+msgid "Buttons"
+msgstr "Tombol"
+
+msgid "C&hannel post"
+msgstr "Postingan sa&luran"
+
+msgid "C&lear call log..."
+msgstr "Be&rsihkan log panggilan..."
+
+msgid "Call Link"
+msgstr "Tautan Panggilan"
+
+msgid "Call cancelled with"
+msgstr "Panggilan dibatalkan dengan"
+
+msgid "Call cancelled."
+msgstr "Panggilan dibatalkan."
+
+msgid "Call declined with"
+msgstr "Panggilan ditolak dengan"
+
+msgid "Call declined."
+msgstr "Panggilan ditolak."
+
+msgid "Call deleted."
+msgstr "Panggilan dihapus."
+
+msgid "Call ended"
+msgstr "Panggilan berakhir"
+
+msgid "Call ended with"
+msgstr "Panggilan berakhir dengan"
+
+msgid "Call with"
+msgstr "Panggilan dengan"
+
+msgid "Call ended. Connection lost with"
+msgstr "Panggilan berakhir. Koneksi terputus dengan"
+
+msgid "Call ended. Connection lost."
+msgstr "Panggilan berakhir. Koneksi terputus."
+
+msgid "Call link:"
+msgstr "Tautan panggilan:"
+
+msgid "Call log cleared."
+msgstr "Log panggilan dibersihkan."
+
+msgid "Calling"
+msgstr "Memanggil"
+
+msgid "Calling..."
+msgstr "Memanggil..."
+
+msgid "Camera must be turned on to share your screen. Turn your camera on first."
+msgstr "Kamera harus menyala untuk berbagi layar. Nyalakan kamera Anda terlebih dahulu."
+
+msgid "Camera off."
+msgstr "Kamera mati."
+
+msgid "Camera off. Screen sharing stopped."
+msgstr "Kamera mati. Berbagi layar dihentikan."
+
+msgid "Camera on."
+msgstr "Kamera nyala."
+
+msgid "Can't connect to WhatsApp."
+msgstr "Tidak dapat terhubung ke WhatsApp."
+
+msgid "Cancel invite"
+msgstr "Batalkan undangan"
+
+msgid "Cancel invite..."
+msgstr "Batalkan undangan..."
+
+msgid "Cancel this upload? The message will be removed from the chat."
+msgstr "Batalkan unggahan ini? Pesan akan dihapus dari chat."
+
+msgid "Cancel upload"
+msgstr "Batalkan unggahan"
+
+msgid "Cancel upload, 0% complete"
+msgstr "Batalkan unggahan, 0% selesai"
+
+msgid "Catalogue"
+msgstr "Katalog"
+
+msgid "Category:"
+msgstr "Kategori:"
+
+msgid "Change &picture..."
+msgstr "Ubah &foto..."
+
+msgid "Change owner"
+msgstr "Ubah pemilik"
+
+msgid "Change the channel's name and description"
+msgstr "Ubah nama dan deskripsi saluran"
+
+msgid "Change the tag shown next to your name in this group"
+msgstr "Ubah label yang ditampilkan di samping nama Anda di grup ini"
+
+msgid "Changing the channel picture..."
+msgstr "Mengubah foto saluran..."
+
+msgid "Channel"
+msgstr "Saluran"
+
+msgid "Channel admin invite"
+msgstr "Undangan admin saluran"
+
+msgid "Channel info"
+msgstr "Info saluran"
+
+msgid "Channel name"
+msgstr "Nama saluran"
+
+msgid "Channels are read-only. Only admins can post updates."
+msgstr "Saluran bersifat hanya-baca. Hanya admin yang dapat memposting pembaruan."
+
+msgid "Channels are read-only. Only admins can post."
+msgstr "Saluran bersifat hanya-baca. Hanya admin yang dapat memposting."
+
+msgid "Channels show vote totals, not who voted. Admins can see voters from the Channel post menu."
+msgstr "Saluran hanya menampilkan total suara, bukan siapa yang memilih. Admin dapat melihat pemilih dari menu kiriman Saluran."
+
+msgid "Chat cleared."
+msgstr "Chat dibersihkan."
+
+msgid "Chat history"
+msgstr "Riwayat chat"
+
+msgid "Chat overview"
+msgstr "Ringkasan chat"
+
+msgid "Check the chats to add"
+msgstr "Centang chat yang ingin ditambahkan"
+
+msgid "Checked contacts won't be able to see it"
+msgstr "Kontak yang dicentang tidak akan dapat melihatnya"
+
+msgid "Checked contacts won't see your status updates"
+msgstr "Kontak yang dicentang tidak akan melihat pembaruan status Anda"
+
+msgid "Choose a folder to save the files into"
+msgstr "Pilih folder untuk menyimpan file"
+
+msgid "Choose a new picture for the channel"
+msgstr "Pilih foto baru untuk saluran"
+
+msgid "Choose a photo or video to post as status"
+msgstr "Pilih foto atau video untuk diposting sebagai status"
+
+msgid "Choose a picture for the channel"
+msgstr "Pilih foto untuk saluran"
+
+msgid "Choose a profile photo"
+msgstr "Pilih foto profil"
+
+msgid "Choose a sticker to send"
+msgstr "Pilih stiker untuk dikirim"
+
+msgid "Choose an emoji to insert:"
+msgstr "Pilih emoji untuk disisipkan:"
+
+msgid "Choose at least one chat to send to."
+msgstr "Pilih setidaknya satu chat tujuan."
+
+msgid "Choose audio files to send"
+msgstr "Pilih file audio untuk dikirim"
+
+msgid "Choose files to send as documents"
+msgstr "Pilih file untuk dikirim sebagai dokumen"
+
+msgid "Choose one answer"
+msgstr "Pilih satu jawaban"
+
+msgid "Choose one or more answers"
+msgstr "Pilih satu jawaban atau lebih"
+
+msgid "Choose photos or videos to send"
+msgstr "Pilih foto atau video untuk dikirim"
+
+msgid "Choose picture (optional)..."
+msgstr "Pilih foto (opsional)..."
+
+msgid "Choose what kind of status update to post:"
+msgstr "Pilih jenis pembaruan status yang akan diposting:"
+
+msgid "Choose who sees your status updates"
+msgstr "Pilih siapa yang dapat melihat pembaruan status Anda"
+
+msgid "Clear"
+msgstr "Bersihkan"
+
+msgid "Clear call log?"
+msgstr "Bersihkan log panggilan?"
+
+msgid "Code copied."
+msgstr "Kode disalin."
+
+msgid "Community"
+msgstr "Komunitas"
+
+msgid "Community deactivated."
+msgstr "Komunitas dinonaktifkan."
+
+msgid "Community name:"
+msgstr "Nama komunitas:"
+
+msgid "Compare the security code with this member to check your chat is end-to-end encrypted"
+msgstr "Bandingkan kode keamanan dengan anggota ini untuk memeriksa apakah chat Anda terenkripsi secara menyeluruh"
+
+msgid "Compose a new text status update"
+msgstr "Tulis pembaruan status teks baru"
+
+msgid "Confirm Clear Chat"
+msgstr "Konfirmasi Bersihkan Chat"
+
+msgid "Confirm Delete"
+msgstr "Konfirmasi Hapus"
+
+msgid "Connected"
+msgstr "Terhubung"
+
+msgid "Contact"
+msgstr "Kontak"
+
+msgid "Contact Details"
+msgstr "Detail Kontak"
+
+msgid "Contact Info"
+msgstr "Info Kontak"
+
+msgid "Contact blocked."
+msgstr "Kontak diblokir."
+
+msgid "Contact deleted."
+msgstr "Kontak dihapus."
+
+msgid "Copied file to clipboard."
+msgstr "File disalin ke papan klip."
+
+msgid "Copied message text to clipboard."
+msgstr "Teks pesan disalin ke papan klip."
+
+msgid "Copied phone number to clipboard."
+msgstr "Nomor telepon disalin ke papan klip."
+
+msgid "Copied voice message to clipboard."
+msgstr "Pesan suara disalin ke papan klip."
+
+msgid "Copy Nu&mber"
+msgstr "Salin No&mor"
+
+msgid "Copy all p&hotos"
+msgstr "Salin semua f&oto"
+
+msgid "Copy all photos to clipboard"
+msgstr "Salin semua foto ke papan klip"
+
+msgid "Copy code"
+msgstr "Salin kode"
+
+msgid "Copy link"
+msgstr "Salin tautan"
+
+msgid "Copy message text or file to clipboard"
+msgstr "Salin teks pesan atau file ke papan klip"
+
+msgid "Copy message text to clipboard"
+msgstr "Salin teks pesan ke papan klip"
+
+msgid "Copy phone number to clipboard"
+msgstr "Salin nomor telepon ke papan klip"
+
+msgid "Could not load voice message"
+msgstr "Tidak dapat memuat pesan suara"
+
+msgid "Could not play voice message"
+msgstr "Tidak dapat memutar pesan suara"
+
+msgid "Couldn't add that person to the call."
+msgstr "Tidak dapat menambahkan orang tersebut ke panggilan."
+
+msgid "Couldn't copy the code."
+msgstr "Tidak dapat menyalin kode."
+
+msgid "Couldn't copy the link."
+msgstr "Tidak dapat menyalin tautan."
+
+msgid "Couldn't copy to clipboard."
+msgstr "Tidak dapat menyalin ke papan klip."
+
+msgid "Couldn't send the message history."
+msgstr "Tidak dapat mengirim riwayat pesan."
+
+msgid "Couldn't share the screen on this call."
+msgstr "Tidak dapat membagikan layar pada panggilan ini."
+
+msgid "Couldn't turn the camera on for this call."
+msgstr "Tidak dapat menyalakan kamera untuk panggilan ini."
+
+msgid "Couldn't work out when this message can be scheduled."
+msgstr "Tidak dapat menentukan kapan pesan ini dapat dijadwalkan."
+
+msgid "Create Call Link"
+msgstr "Buat Tautan Panggilan"
+
+msgid "Create a poll or a quiz"
+msgstr "Buat jajak pendapat atau kuis"
+
+msgid "Create an event people can answer"
+msgstr "Buat acara yang dapat ditanggapi orang lain"
+
+msgid "Create event"
+msgstr "Buat acara"
+
+msgid "Creating channel..."
+msgstr "Membuat saluran..."
+
+msgid "Creating community..."
+msgstr "Membuat komunitas..."
+
+msgid "Cu&t"
+msgstr "Po&tong"
+
+msgid "D&elete"
+msgstr "&Hapus"
+
+msgid "Date to go to, as year-month-day, like 2026-03-27:"
+msgstr "Buka tanggal, format tahun-bulan-hari, contoh 2026-03-27:"
+
+msgid "Date, like 2026-10-05 (optional)"
+msgstr "Tanggal, seperti 2026-10-05 (opsional)"
+
+msgid "Deactivate"
+msgstr "Nonaktifkan"
+
+msgid "Deactivate Community"
+msgstr "Nonaktifkan Komunitas"
+
+msgid "Deactivate community..."
+msgstr "Nonaktifkan komunitas..."
+
+msgid "Delete &contact..."
+msgstr "Hapus &kontak..."
+
+msgid "Delete Contact"
+msgstr "Hapus Kontak"
+
+msgid "Delete List"
+msgstr "Hapus Daftar"
+
+msgid "Delete Status"
+msgstr "Hapus Status"
+
+msgid "Delete channel"
+msgstr "Hapus saluran"
+
+msgid "Delete chat and exit group"
+msgstr "Hapus chat dan keluar grup"
+
+msgid "Delete chat only"
+msgstr "Hapus chat saja"
+
+msgid "Delete contact"
+msgstr "Hapus kontak"
+
+msgid "Delete for everyone"
+msgstr "Hapus untuk semua orang"
+
+msgid "Delete for me"
+msgstr "Hapus untuk saya"
+
+msgid "Delete message"
+msgstr "Hapus pesan"
+
+msgid "Delete message?"
+msgstr "Hapus pesan?"
+
+msgid "Delete messages?"
+msgstr "Hapus pesan?"
+
+msgid "Delete one of your status updates for everyone"
+msgstr "Hapus salah satu pembaruan status Anda untuk semua orang"
+
+msgid "Delete scheduled message?"
+msgstr "Hapus pesan terjadwal?"
+
+msgid "Delete the channel for everyone"
+msgstr "Hapus saluran untuk semua orang"
+
+msgid "Delete the word said twice"
+msgstr "Hapus kata yang berulang"
+
+msgid "Delete this call from your call log"
+msgstr "Hapus panggilan ini dari log panggilan Anda"
+
+msgid "Delete this channel? It will be removed for all its followers, along with all its updates. This can't be undone."
+msgstr "Hapus saluran ini? Saluran akan dihapus untuk semua pengikutnya beserta semua pembaruannya. Tindakan ini tidak dapat dibatalkan."
+
+msgid "Delete this contact from your contacts and your phone's"
+msgstr "Hapus kontak ini dari kontak Anda dan kontak ponsel Anda"
+
+msgid "Delete this status update? It will be deleted for everyone who received it."
+msgstr "Hapus pembaruan status ini? Status akan dihapus untuk semua orang yang menerimanya."
+
+msgid "Delete which status update?"
+msgstr "Hapus pembaruan status yang mana?"
+
+msgid "Deleting channel..."
+msgstr "Menghapus saluran..."
+
+msgid "Deleting contact..."
+msgstr "Menghapus kontak..."
+
+msgid "Deleting scheduled message..."
+msgstr "Menghapus pesan terjadwal..."
+
+msgid "Deleting..."
+msgstr "Menghapus..."
+
+msgid "Delivered"
+msgstr "Tersampaikan"
+
+msgid "Delivered at"
+msgstr "Tersampaikan pukul"
+
+msgid "Delivered to"
+msgstr "Tersampaikan ke"
+
+msgid "Description (optional)"
+msgstr "Deskripsi (opsional)"
+
+msgid "Dismiss admin"
+msgstr "Berhentikan admin"
+
+msgid "Document"
+msgstr "Dokumen"
+
+msgid "Documents"
+msgstr "Dokumen"
+
+msgid "Don't allow messages forwarded many times"
+msgstr "Jangan izinkan pesan yang diteruskan berkali-kali"
+
+msgid "Done"
+msgstr "Selesai"
+
+msgid "Download cancelled"
+msgstr "Unduhan dibatalkan"
+
+msgid "Downloading file before copying to clipboard..."
+msgstr "Mengunduh file sebelum menyalin ke clipboard..."
+
+msgid "Draft: "
+msgstr "Draf: "
+
+msgid "Duration: "
+msgstr "Durasi: "
+
+msgid "Edit Contact"
+msgstr "Edit Kontak"
+
+msgid "Edit contact"
+msgstr "Edit kontak"
+
+msgid "Edit member &tag"
+msgstr "Edit label &anggota"
+
+msgid "Edit message"
+msgstr "Edit pesan"
+
+msgid "Edited "
+msgstr "Diedit "
+
+msgid "Edited at"
+msgstr "Diedit pukul"
+
+msgid "Editing cancelled - message can't be empty."
+msgstr "Edit dibatalkan - pesan tidak boleh kosong."
+
+msgid "Editing cancelled - no changes made."
+msgstr "Edit dibatalkan - tidak ada perubahan."
+
+msgid "Editing cancelled."
+msgstr "Edit dibatalkan."
+
+msgid "Editing message. Press Enter to save, Escape to cancel."
+msgstr "Mengedit pesan. Tekan Enter untuk menyimpan, Escape untuk membatalkan."
+
+msgid "Emoji"
+msgstr "Emoji"
+
+msgid "End"
+msgstr "Akhir"
+
+msgid "End the call before switching accounts."
+msgstr "Akhiri panggilan sebelum beralih akun."
+
+msgid "Enter or paste an emoji:"
+msgstr "Masukkan atau tempel emoji:"
+
+msgid "Enter your WhatsApp Secret Code configured on your phone:"
+msgstr "Masukkan Kode Rahasia WhatsApp yang dikonfigurasi di ponsel Anda:"
+
+msgid "Entire screen"
+msgstr "Seluruh layar"
+
+msgid "Error"
+msgstr "Kesalahan"
+
+msgid "Event"
+msgstr "Acara"
+
+msgid "Event name"
+msgstr "Nama acara"
+
+msgid "Exit fullscreen"
+msgstr "Keluar dari layar penuh"
+
+msgid "Export chat as"
+msgstr "Ekspor chat sebagai"
+
+msgid "Export chat text as"
+msgstr "Ekspor teks chat sebagai"
+
+msgid "Exporting chat, this may take a while for chats with a lot of media..."
+msgstr "Mengekspor chat, ini mungkin perlu waktu untuk chat dengan banyak media..."
+
+msgid "Failed to answer call."
+msgstr "Gagal menjawab panggilan."
+
+msgid "Failed to copy file to clipboard."
+msgstr "Gagal menyalin file ke clipboard."
+
+msgid "Failed to parse settings"
+msgstr "Gagal membaca setelan"
+
+msgid "Failed to place call."
+msgstr "Gagal melakukan panggilan."
+
+msgid "Failed to resume recording."
+msgstr "Gagal melanjutkan perekaman."
+
+msgid "Failed to send"
+msgstr "Gagal mengirim"
+
+msgid "Failed to start microphone recording."
+msgstr "Gagal memulai perekaman mikrofon."
+
+msgid "File"
+msgstr "File"
+
+msgid "Files"
+msgstr "File"
+
+msgid "Files attached"
+msgstr "File dilampirkan"
+
+msgid "Find channels"
+msgstr "Cari saluran"
+
+msgid "Follow"
+msgstr "Ikuti"
+
+msgid "Forward Message"
+msgstr "Teruskan Pesan"
+
+msgid "Forward message to"
+msgstr "Teruskan pesan ke"
+
+msgid "Forward message to another contact"
+msgstr "Teruskan pesan ke kontak lain"
+
+msgid "Forward messages to"
+msgstr "Teruskan pesan ke"
+
+msgid "Forward this message to contacts or groups"
+msgstr "Teruskan pesan ini ke kontak atau grup"
+
+msgid "Frequent contacts"
+msgstr "Kontak yang sering dihubungi"
+
+msgid "Fullscreen"
+msgstr "Layar penuh"
+
+msgid "Getting a fresh copy from the poster's phone. It will show when it arrives."
+msgstr "Mengambil salinan terbaru dari ponsel pengirim. Status akan ditampilkan saat tiba."
+
+msgid "Give the channel a name."
+msgstr "Beri nama saluran."
+
+msgid "Go to Date"
+msgstr "Buka Tanggal"
+
+msgid "Go to a pinned message:"
+msgstr "Buka pesan tersemat:"
+
+msgid "Go to message"
+msgstr "Buka pesan"
+
+msgid "Going on now"
+msgstr "Sedang berlangsung"
+
+msgid "Group"
+msgstr "Grup"
+
+msgid "Group Info"
+msgstr "Info Grup"
+
+msgid "Group Invite"
+msgstr "Undangan Grup"
+
+msgid "Group added to the community."
+msgstr "Grup ditambahkan ke komunitas."
+
+msgid "Group description"
+msgstr "Deskripsi grup"
+
+msgid "Group invite link"
+msgstr "Tautan undangan grup"
+
+msgid "Group name is required."
+msgstr "Nama grup wajib diisi."
+
+msgid "Group removed from the community."
+msgstr "Grup dikeluarkan dari komunitas."
+
+msgid "Group settings updated."
+msgstr "Setelan grup diperbarui."
+
+msgid "Group video call"
+msgstr "Panggilan video grup"
+
+msgid "Group voice call"
+msgstr "Panggilan suara grup"
+
+msgid "Group:"
+msgstr "Grup:"
+
+msgid "Groups in Common"
+msgstr "Grup Bersama"
+
+msgid "Groups in common"
+msgstr "Grup bersama"
+
+msgid "Groups in this community"
+msgstr "Grup dalam komunitas ini"
+
+msgid "Guests you're bringing"
+msgstr "Tamu yang Anda bawa"
+
+msgid "Hide device settings"
+msgstr "Sembunyikan setelan perangkat"
+
+msgid "Hide message content: notifications from this chat don't show what the message says"
+msgstr "Sembunyikan isi pesan: notifikasi dari chat ini tidak akan menampilkan isi pesan"
+
+msgid "How this archived chat alerts you about new messages"
+msgstr "Cara chat yang diarsipkan ini memberi tahu Anda tentang pesan baru"
+
+msgid "How this computer alerts you about this chat, without changing your phone"
+msgstr "Cara komputer ini memberi tahu Anda tentang chat ini, tanpa mengubah setelan di telepon Anda"
+
+msgid "In group call with"
+msgstr "Dalam panggilan grup dengan"
+
+msgid "In group call. No one else is here yet."
+msgstr "Dalam panggilan grup. Belum ada orang lain di sini."
+
+msgid "Incoming call"
+msgstr "Panggilan masuk"
+
+msgid "Incoming call from"
+msgstr "Panggilan masuk dari"
+
+msgid "Incoming group call from"
+msgstr "Panggilan grup masuk dari"
+
+msgid "Incoming group video call from"
+msgstr "Panggilan video grup masuk dari"
+
+msgid "Incoming video call from"
+msgstr "Panggilan video masuk dari"
+
+msgid "Incoming voice call from"
+msgstr "Panggilan suara masuk dari"
+
+msgid "Incorrect Secret Code.\n\nPlease check your secret code and try again."
+msgstr "Kode Rahasia salah.\n\nSilakan periksa kode rahasia Anda lalu coba lagi."
+
+msgid "Insert Emoji"
+msgstr "Sisipkan Emoji"
+
+msgid "Invalid JSON"
+msgstr "JSON tidak valid"
+
+msgid "Invalid Settings File"
+msgstr "File Setelan Tidak Valid"
+
+msgid "Invite admins"
+msgstr "Undang admin"
+
+msgid "Invite link"
+msgstr "Tautan undangan"
+
+msgid "Invite link..."
+msgstr "Tautan undangan..."
+
+msgid "Invite people to be admins of the channel"
+msgstr "Undang orang untuk menjadi admin saluran"
+
+msgid "Item code"
+msgstr "Kode item"
+
+msgid "Items"
+msgstr "Item"
+
+msgid "JSON files (*.json)|*.json|All files (*.*)|*.*"
+msgstr "File JSON (*.json)|*.json|Semua file (*.*)|*.*"
+
+msgid "Join Call Link"
+msgstr "Gabung Tautan Panggilan"
+
+msgid "Join Request"
+msgstr "Permintaan Bergabung"
+
+msgid "Join Requests"
+msgstr "Permintaan Bergabung"
+
+msgid "Join group"
+msgstr "Gabung grup"
+
+msgid "Join requests..."
+msgstr "Permintaan bergabung..."
+
+msgid "Join this group call"
+msgstr "Gabung panggilan grup ini"
+
+msgid "Joining group..."
+msgstr "Bergabung ke grup..."
+
+msgid "Keep this message from disappearing, for everyone"
+msgstr "Cegah pesan ini hilang, untuk semua orang"
+
+msgid "Keep this message pinned for:"
+msgstr "Biarkan pesan ini disematkan selama:"
+
+msgid "Keep this sticker in your favorites to send it again"
+msgstr "Simpan stiker ini di favorit Anda untuk dikirim lagi"
+
+msgid "Leave Group"
+msgstr "Keluar dari Grup"
+
+msgid "Leave call"
+msgstr "Tinggalkan panggilan"
+
+msgid "Let this member change group info and settings and manage members"
+msgstr "Izinkan anggota ini mengubah info serta setelan grup dan mengelola anggota"
+
+msgid "Let this message disappear like the others"
+msgstr "Biarkan pesan ini hilang seperti yang lainnya"
+
+msgid "Like removed."
+msgstr "Suka dihapus."
+
+msgid "Liked."
+msgstr "Disukai."
+
+msgid "Link copied."
+msgstr "Tautan disalin."
+
+msgid "Linked groups"
+msgstr "Grup tertaut"
+
+msgid "Links"
+msgstr "Tautan"
+
+msgid "List name:"
+msgstr "Nama daftar:"
+
+msgid "Lists"
+msgstr "Daftar"
+
+msgid "Live location"
+msgstr "Lokasi terkini"
+
+msgid "Loading catalogue..."
+msgstr "Memuat katalog..."
+
+msgid "Loading followers..."
+msgstr "Memuat pengikut..."
+
+msgid "Loading pending admin invites..."
+msgstr "Memuat undangan admin yang tertunda..."
+
+msgid "Loading status privacy settings..."
+msgstr "Memuat setelan privasi status..."
+
+msgid "Loading voice message..."
+msgstr "Memuat pesan suara..."
+
+msgid "Loading..."
+msgstr "Memuat..."
+
+msgid "Location"
+msgstr "Lokasi"
+
+msgid "Location (optional)"
+msgstr "Lokasi (opsional)"
+
+msgid "Lock this chat"
+msgstr "Kunci chat ini"
+
+msgid "Locked"
+msgstr "Dikunci"
+
+msgid "Locked chats hidden."
+msgstr "Chat dikunci disembunyikan."
+
+msgid "Locked chats shown."
+msgstr "Chat dikunci ditampilkan."
+
+msgid "Log Out"
+msgstr "Keluar"
+
+msgid "Log out of WhatsApp on this computer? You'll need to scan a QR code or re-enter your phone number to use whatSnap again."
+msgstr "Keluar dari WhatsApp di komputer ini? Anda harus memindai kode QR atau memasukkan ulang nomor telepon Anda untuk menggunakan whatSnap lagi."
+
+msgid "Logged Out"
+msgstr "Keluar Akun"
+
+msgid "Looking for chats, contacts or messages…"
+msgstr "Mencari chat, kontak, atau pesan…"
+
+msgid "Lower hand"
+msgstr "Turunkan tangan"
+
+msgid "Make Group Admin"
+msgstr "Jadikan Admin Grup"
+
+msgid "Make admin"
+msgstr "Jadikan admin"
+
+msgid "Make admin..."
+msgstr "Jadikan admin..."
+
+msgid "Make group &admin"
+msgstr "Jadikan &admin grup"
+
+msgid "Make group admin"
+msgstr "Jadikan admin grup"
+
+msgid "Make owner..."
+msgstr "Jadikan pemilik..."
+
+msgid "Make this admin an ordinary member again"
+msgstr "Jadikan admin ini sebagai anggota biasa kembali"
+
+msgid "Manage Lists"
+msgstr "Kelola Daftar"
+
+msgid "Manage channel..."
+msgstr "Kelola saluran..."
+
+msgid "Markdown file (*.md)|*.md"
+msgstr "File Markdown (*.md)|*.md"
+
+msgid "Media"
+msgstr "Media"
+
+msgid "Member changes"
+msgstr "Perubahan anggota"
+
+msgid "Member changes, newest first"
+msgstr "Perubahan anggota, terbaru lebih dahulu"
+
+msgid "Members"
+msgstr "Anggota"
+
+msgid "Members can report messages to admins"
+msgstr "Anggota dapat melaporkan pesan ke admin"
+
+msgid "Members who join after you schedule a message will not receive it."
+msgstr "Anggota yang bergabung setelah Anda menjadwalkan pesan tidak akan menerimanya."
+
+msgid "Message &Info"
+msgstr "&Info Pesan"
+
+msgid "Message Info"
+msgstr "Info Pesan"
+
+msgid "Message Num&ber"
+msgstr "Kirim Pesan ke No&mor"
+
+msgid "Message Text"
+msgstr "Teks Pesan"
+
+msgid "Message buttons"
+msgstr "Tombol pesan"
+
+msgid "Message can't be edited."
+msgstr "Pesan tidak dapat diedit."
+
+msgid "Message can't be starred."
+msgstr "Pesan tidak dapat dibintangi."
+
+msgid "Message deleted."
+msgstr "Pesan dihapus."
+
+msgid "Message edited."
+msgstr "Pesan diedit."
+
+msgid "Message forwarded."
+msgstr "Pesan diteruskan."
+
+msgid "Message kept."
+msgstr "Pesan disimpan."
+
+msgid "Message pinned."
+msgstr "Pesan disematkan."
+
+msgid "Message starred."
+msgstr "Pesan dibintangi."
+
+msgid "Message text copied to clipboard."
+msgstr "Teks pesan disalin ke papan klip."
+
+msgid "Message unkept."
+msgstr "Penyimpanan pesan dibatalkan."
+
+msgid "Message unpinned."
+msgstr "Sematan pesan dilepas."
+
+msgid "Message unstarred."
+msgstr "Bintang pesan dihapus."
+
+msgid "Messages can only be scheduled in one-on-one chats and groups."
+msgstr "Pesan hanya dapat dijadwalkan di chat pribadi dan grup."
+
+msgid "Messages members reported to the admins"
+msgstr "Pesan yang dilaporkan anggota ke admin"
+
+msgid "More channels"
+msgstr "Saluran lainnya"
+
+msgid "Mute notifications from this chat"
+msgstr "Bisukan notifikasi dari chat ini"
+
+msgid "Muted"
+msgstr "Dibisukan"
+
+msgid "Muted status updates are listed last"
+msgstr "Pembaruan status yang dibisukan ditampilkan paling bawah"
+
+msgid "Muted updates"
+msgstr "Pembaruan yang dibisukan"
+
+msgid "My status"
+msgstr "Status saya"
+
+msgid "My status: No updates. Click or press Enter to add"
+msgstr "Status saya: Tidak ada pembaruan. Klik atau tekan Enter untuk menambahkan"
+
+msgid "Name for this account in whatSnap (leave empty to use its WhatsApp name):"
+msgstr "Nama untuk akun ini di whatSnap (biarkan kosong untuk memakai nama WhatsApp):"
+
+msgid "Name is required."
+msgstr "Nama wajib diisi."
+
+msgid "Never mark this word again"
+msgstr "Jangan tandai kata ini lagi"
+
+msgid "New"
+msgstr "Baru"
+
+msgid "New Community"
+msgstr "Komunitas Baru"
+
+msgid "New List"
+msgstr "Daftar Baru"
+
+msgid "New List..."
+msgstr "Daftar Baru..."
+
+msgid "New account"
+msgstr "Akun baru"
+
+msgid "New message"
+msgstr "Pesan baru"
+
+msgid "New reaction"
+msgstr "Reaksi baru"
+
+msgid "New, muted"
+msgstr "Baru, dibisukan"
+
+msgid "No Secret Code configured.\n\nTo lock or unlock chats on linked devices, you must first create a Secret Code in WhatsApp on your primary phone:\n\n1. Open WhatsApp on your phone\n2. Go to Settings > Privacy > Chat Lock\n3. Tap 'Secret Code' and set a code.\n\nOnce set, it will sync to this device automatically."
+msgstr "Tidak ada Kode Rahasia yang dikonfigurasikan.\n\nUntuk mengunci atau membuka kunci chat di perangkat tertaut, Anda harus membuat Kode Rahasia terlebih dahulu di WhatsApp pada ponsel utama Anda:\n\n1. Buka WhatsApp di ponsel Anda\n2. Buka Pengaturan > Privasi > Kunci Chat\n3. Ketuk 'Kode Rahasia' dan atur sebuah kode.\n\nSetelah diatur, kode akan disinkronkan ke perangkat ini secara otomatis."
+
+msgid "No active call."
+msgstr "Tidak ada panggilan aktif."
+
+msgid "No answer with"
+msgstr "Tidak ada jawaban dari"
+
+msgid "No answer."
+msgstr "Tidak ada jawaban."
+
+msgid "No archived chats"
+msgstr "Tidak ada chat yang diarsipkan"
+
+msgid "No channels"
+msgstr "Tidak ada saluran"
+
+msgid "No channels in this category."
+msgstr "Tidak ada saluran dalam kategori ini."
+
+msgid "No chat open."
+msgstr "Tidak ada chat yang terbuka."
+
+msgid "No chats, contacts or messages found"
+msgstr "Tidak ada chat, kontak, atau pesan yang ditemukan"
+
+msgid "No emoji found."
+msgstr "Tidak ada emoji yang ditemukan."
+
+msgid "No favorite stickers yet."
+msgstr "Belum ada stiker favorit."
+
+msgid "No favourite chats"
+msgstr "Tidak ada chat favorit"
+
+msgid "No groups found"
+msgstr "Tidak ada grup yang ditemukan"
+
+msgid "No groups in common"
+msgstr "Tidak ada grup bersama"
+
+msgid "No locked chats found"
+msgstr "Tidak ada chat dikunci yang ditemukan"
+
+msgid "No messages are pinned in this chat."
+msgstr "Tidak ada pesan yang disematkan di chat ini."
+
+msgid "No messages have been reported to the admins."
+msgstr "Tidak ada pesan yang dilaporkan ke admin."
+
+msgid "No more channels."
+msgstr "Tidak ada saluran lagi."
+
+msgid "No one else is here yet."
+msgstr "Belum ada orang lain di sini."
+
+msgid "No one has joined, left or been added or removed."
+msgstr "Tidak ada yang bergabung, keluar, ditambahkan, atau dikeluarkan."
+
+msgid "No one has seen this status update yet."
+msgstr "Belum ada yang melihat pembaruan status ini."
+
+msgid "No one is asking to join."
+msgstr "Tidak ada yang meminta untuk bergabung."
+
+msgid "No receipt information available."
+msgstr "Tidak ada informasi tanda terima yang tersedia."
+
+msgid "No recent stickers."
+msgstr "Tidak ada stiker terkini."
+
+msgid "No recent updates from contacts"
+msgstr "Tidak ada pembaruan terkini dari kontak"
+
+msgid "No recommended channels."
+msgstr "Tidak ada rekomendasi saluran."
+
+msgid "No response - the call could not be answered."
+msgstr "Tidak ada respons - panggilan tidak dapat dijawab."
+
+msgid "No results"
+msgstr "Tidak ada hasil"
+
+msgid "No results found"
+msgstr "Tidak ada hasil yang ditemukan"
+
+msgid "No similar channels found."
+msgstr "Tidak ada saluran serupa yang ditemukan."
+
+msgid "No sound and no notification for this chat"
+msgstr "Tanpa suara dan tanpa notifikasi untuk chat ini"
+
+msgid "No sound is reaching you from the call. Check your internet connection."
+msgstr "Tidak ada suara dari panggilan yang sampai ke Anda. Periksa koneksi internet Anda."
+
+msgid "No spelling errors"
+msgstr "Tidak ada kesalahan ejaan"
+
+msgid "No starred messages"
+msgstr "Tidak ada pesan berbintang"
+
+msgid "No text to copy."
+msgstr "Tidak ada teks untuk disalin."
+
+msgid "No unread chats"
+msgstr "Tidak ada chat yang belum dibaca"
+
+msgid "No votes yet."
+msgstr "Belum ada suara."
+
+msgid "Not available"
+msgstr "Tidak tersedia"
+
+msgid "Not set"
+msgstr "Belum diatur"
+
+msgid "Notification se&ttings..."
+msgstr "Se&telan notifikasi..."
+
+msgid "Notification tone"
+msgstr "Nada notifikasi"
+
+msgid "Only admins can add members"
+msgstr "Hanya admin yang dapat menambah anggota"
+
+msgid "Only admins can edit group info"
+msgstr "Hanya admin yang dapat mengedit info grup"
+
+msgid "Only admins can send messages"
+msgstr "Hanya admin yang dapat mengirim pesan"
+
+msgid "Only admins can send messages to this group"
+msgstr "Hanya admin yang dapat mengirim pesan ke grup ini"
+
+msgid "Only admins can send messages to this group."
+msgstr "Hanya admin yang dapat mengirim pesan ke grup ini."
+
+msgid "Only checked contacts will see your status updates"
+msgstr "Hanya kontak yang dicentang yang akan melihat pembaruan status Anda"
+
+msgid "Only contacts can be blocked."
+msgstr "Hanya kontak yang dapat diblokir."
+
+msgid "Open &Website"
+msgstr "Buka &Situs Web"
+
+msgid "Open Chat"
+msgstr "Buka Chat"
+
+msgid "Open Link"
+msgstr "Buka Tautan"
+
+msgid "Open a one-on-one chat with this message's sender"
+msgstr "Buka chat pribadi dengan pengirim pesan ini"
+
+msgid "Open album"
+msgstr "Buka album"
+
+msgid "Open c&hat"
+msgstr "Buka c&hat"
+
+msgid "Open channel"
+msgstr "Buka saluran"
+
+msgid "Open group"
+msgstr "Buka grup"
+
+msgid "Open in &another app"
+msgstr "Buka di aplikasi &lain"
+
+msgid "Open the chat at this message"
+msgstr "Buka chat pada pesan ini"
+
+msgid "Open the conversation with this contact"
+msgstr "Buka percakapan dengan kontak ini"
+
+msgid "Open the group this call is in"
+msgstr "Buka grup tempat panggilan ini berlangsung"
+
+msgid "Open your chat with this member"
+msgstr "Buka chat Anda dengan anggota ini"
+
+msgid "Order"
+msgstr "Pesanan"
+
+msgid "Order details"
+msgstr "Detail pesanan"
+
+msgid "Other emoji..."
+msgstr "Emoji lainnya..."
+
+msgid "Outgoing call to"
+msgstr "Panggilan keluar ke"
+
+msgid "Outgoing group call in"
+msgstr "Panggilan grup keluar di"
+
+msgid "Outgoing group video call in"
+msgstr "Panggilan video grup keluar di"
+
+msgid "Outgoing video call to"
+msgstr "Panggilan video keluar ke"
+
+msgid "Overview"
+msgstr "Ringkasan"
+
+msgid "P&oll"
+msgstr "&Jajak Pendapat"
+
+msgid "Pa&use"
+msgstr "&Jeda"
+
+msgid "Pasted files"
+msgstr "File yang ditempel"
+
+msgid "Pause"
+msgstr "Jeda"
+
+msgid "Pause preview"
+msgstr "Jeda pratinjau"
+
+msgid "Pause voice message"
+msgstr "Jeda pesan suara"
+
+msgid "Paused"
+msgstr "Dijeda"
+
+msgid "Pe&nding admin invites..."
+msgstr "Undangan admin ter&tunda..."
+
+msgid "Pending"
+msgstr "Tertunda"
+
+msgid "Permanently delete your whole call history"
+msgstr "Hapus seluruh riwayat panggilan Anda secara permanen"
+
+msgid "Phone number must have at least 7 digits."
+msgstr "Nomor telepon harus memiliki minimal 7 digit."
+
+msgid "Photo"
+msgstr "Foto"
+
+msgid "Photo or video status update..."
+msgstr "Pembaruan status foto atau video..."
+
+msgid "Photos"
+msgstr "Foto"
+
+msgid "Photos and videos"
+msgstr "Foto dan video"
+
+msgid "Pi&n..."
+msgstr "Se&matkan..."
+
+msgid "Pick a chat on the left to start messaging."
+msgstr "Pilih chat di sebelah kiri untuk mulai berkirim pesan."
+
+msgid "Pick a date and time for this message to be sent"
+msgstr "Pilih tanggal dan waktu pengiriman pesan ini"
+
+msgid "Pictures|*.jpg;*.jpeg;*.png;*.gif"
+msgstr "Gambar|*.jpg;*.jpeg;*.png;*.gif"
+
+msgid "Pin Message"
+msgstr "Sematkan Pesan"
+
+msgid "Pin or unpin this post at the top of the channel"
+msgstr "Sematkan atau lepas sematan postingan ini di bagian atas saluran"
+
+msgid "Pin this message at the top of the chat for everyone"
+msgstr "Sematkan pesan ini di bagian atas chat untuk semua orang"
+
+msgid "Pin this post, or see who reacted or voted"
+msgstr "Sematkan postingan ini, atau lihat siapa yang bereaksi atau memilih"
+
+msgid "Pinned"
+msgstr "Disematkan"
+
+msgid "Pinned Messages"
+msgstr "Pesan Tersemat"
+
+msgid "Place a video call"
+msgstr "Lakukan panggilan video"
+
+msgid "Place a voice call"
+msgstr "Lakukan panggilan suara"
+
+msgid "Placing call..."
+msgstr "Memanggil..."
+
+msgid "Placing group call..."
+msgstr "Memulai panggilan grup..."
+
+msgid "Placing video call..."
+msgstr "Memulai panggilan video..."
+
+msgid "Play"
+msgstr "Putar"
+
+msgid "Play next update &automatically"
+msgstr "Putar pembaruan berikutnya secara &otomatis"
+
+msgid "Play the message sound but show no notification"
+msgstr "Putar suara pesan tetapi jangan tampilkan notifikasi"
+
+msgid "Played"
+msgstr "Diputar"
+
+msgid "Played at"
+msgstr "Diputar pukul"
+
+msgid "Played by"
+msgstr "Diputar oleh"
+
+msgid "Playing"
+msgstr "Memutar"
+
+msgid "Playing voice preview."
+msgstr "Memutar pratinjau suara."
+
+msgid "Poll"
+msgstr "Polling"
+
+msgid "Post &photo/video status update..."
+msgstr "Posting pembaruan status &foto/video..."
+
+msgid "Post &text status update..."
+msgstr "Posting pembaruan status &teks..."
+
+msgid "Post Status"
+msgstr "Posting Status"
+
+msgid "Post Text Status"
+msgstr "Posting Status Teks"
+
+msgid "Post text status. Type your status update, press Next Colour or Next Font to style, or Ctrl+Enter to post."
+msgstr "Posting status teks. Ketik pembaruan status Anda, tekan Warna Berikutnya atau Font Berikutnya untuk mengubah gaya, atau tekan Ctrl+Enter untuk memposting."
+
+msgid "Preview"
+msgstr "Pratinjau"
+
+msgid "Price"
+msgstr "Harga"
+
+msgid "Product details"
+msgstr "Detail produk"
+
+msgid "Product link is in the message box. Add your question and send."
+msgstr "Tautan produk berada di kotak pesan. Tambahkan pertanyaan Anda lalu kirim."
+
+msgid "Put Link in &Message Box"
+msgstr "Masukkan Tautan di Kolom &Pesan"
+
+msgid "QR Code expired. Click Reload to get a new code:"
+msgstr "Kode QR kedaluwarsa. Klik Muat Ulang untuk mendapatkan kode baru:"
+
+msgid "QR code expired. Click Reload QR Code to try again."
+msgstr "Kode QR kedaluwarsa. Klik Muat Ulang Kode QR untuk mencoba lagi."
+
+msgid "QR code updated"
+msgstr "Kode QR diperbarui"
+
+msgid "Quiz"
+msgstr "Kuis"
+
+msgid "Quiz, choose one answer; you can't change it afterwards"
+msgstr "Kuis, pilih satu jawaban; Anda tidak dapat mengubahnya setelahnya"
+
+msgid "Quoted message removed."
+msgstr "Pesan kutipan dihapus."
+
+msgid "Re&quest again"
+msgstr "Minta &ulang"
+
+msgid "Rea&ct..."
+msgstr "Rea&ksi..."
+
+msgid "React"
+msgstr "Reaksi"
+
+msgid "React to Status"
+msgstr "Reaksi ke Status"
+
+msgid "React to message"
+msgstr "Reaksi terhadap pesan"
+
+msgid "React to their latest status update"
+msgstr "Beri reaksi pada pembaruan status terbaru mereka"
+
+msgid "React with Emoji"
+msgstr "Beri Reaksi dengan Emoji"
+
+msgid "React with:"
+msgstr "Beri reaksi dengan:"
+
+msgid "React:"
+msgstr "Reaksi:"
+
+msgid "Reaction removed."
+msgstr "Reaksi dihapus."
+
+msgid "Read"
+msgstr "Dibaca"
+
+msgid "Read at"
+msgstr "Dibaca pukul"
+
+msgid "Read by"
+msgstr "Dibaca oleh"
+
+msgid "Read new messages aloud while this chat is open (Alt+L)"
+msgstr "Bacakan pesan baru dengan suara saat chat ini terbuka (Alt+L)"
+
+msgid "Recent"
+msgstr "Terkini"
+
+msgid "Recent calls"
+msgstr "Panggilan terbaru"
+
+msgid "Recent updates"
+msgstr "Pembaruan terkini"
+
+msgid "Recently used"
+msgstr "Baru saja digunakan"
+
+msgid "Recording voice message..."
+msgstr "Merekam pesan suara..."
+
+msgid "Reject"
+msgstr "Tolak"
+
+msgid "Remove Account"
+msgstr "Hapus Akun"
+
+msgid "Remove Group"
+msgstr "Hapus Grup"
+
+msgid "Remove Member"
+msgstr "Keluarkan Anggota"
+
+msgid "Remove admin"
+msgstr "Hapus admin"
+
+msgid "Remove all messages from starred messages"
+msgstr "Hapus semua pesan dari pesan berbintang"
+
+msgid "Remove as admin"
+msgstr "Hapus sebagai admin"
+
+msgid "Remove from &favorite stickers"
+msgstr "Hapus dari stiker &favorit"
+
+msgid "Remove from community..."
+msgstr "Hapus dari komunitas..."
+
+msgid "Remove reaction"
+msgstr "Hapus reaksi"
+
+msgid "Remove the channel's picture"
+msgstr "Hapus foto saluran"
+
+msgid "Remove this member from the group"
+msgstr "Keluarkan anggota ini dari grup"
+
+msgid "Remove your profile photo?"
+msgstr "Hapus foto profil Anda?"
+
+msgid "Removing your tag..."
+msgstr "Menghapus label Anda..."
+
+msgid "Rename Account"
+msgstr "Ganti Nama Akun"
+
+msgid "Rename List"
+msgstr "Ganti Nama Daftar"
+
+msgid "Replace Text With Emoji"
+msgstr "Ganti Teks Dengan Emoji"
+
+msgid "Reply to message"
+msgstr "Balas pesan"
+
+msgid "Reply to their latest status update in a chat with them"
+msgstr "Balas pembaruan status terbaru mereka di chat bersama mereka"
+
+msgid "Report"
+msgstr "Laporkan"
+
+msgid "Report and exit group"
+msgstr "Laporkan dan keluar dari grup"
+
+msgid "Report this message to WhatsApp"
+msgstr "Laporkan pesan ini ke WhatsApp"
+
+msgid "Report to group &admins"
+msgstr "Laporkan ke &admin grup"
+
+msgid "Report to group admins"
+msgstr "Laporkan ke admin grup"
+
+msgid "Reported messages"
+msgstr "Pesan yang dilaporkan"
+
+msgid "Reported messages..."
+msgstr "Pesan yang dilaporkan..."
+
+msgid "Reported."
+msgstr "Dilaporkan."
+
+msgid "Reporting..."
+msgstr "Melaporkan..."
+
+msgid "Requested this message from your phone"
+msgstr "Meminta pesan ini dari ponsel Anda"
+
+msgid "Requests"
+msgstr "Permintaan"
+
+msgid "Res&ume"
+msgstr "&Lanjutkan"
+
+msgid "Reset link"
+msgstr "Atur ulang tautan"
+
+msgid "Reset this group's invite link? The current link will stop working, and anyone who has it won't be able to join with it."
+msgstr "Atur ulang tautan undangan grup ini? Tautan saat ini tidak akan berfungsi lagi, dan siapa pun yang memilikinya tidak akan dapat bergabung menggunakannya."
+
+msgid "Restart Required"
+msgstr "Perlu Mulai Ulang"
+
+msgid "Restore Complete"
+msgstr "Pemulihan Selesai"
+
+msgid "Restore Failed"
+msgstr "Pemulihan Gagal"
+
+msgid "Restoring settings will overwrite your current settings. Do you want to continue?"
+msgstr "Memulihkan setelan akan menimpa setelan Anda saat ini. Anda ingin melanjutkan?"
+
+msgid "Restricted Chat"
+msgstr "Chat Dibatasi"
+
+msgid "Restricted chat (changed on your phone)"
+msgstr "Chat dibatasi (diubah di ponsel Anda)"
+
+msgid "Resume recording"
+msgstr "Lanjutkan rekaman"
+
+msgid "Retry &send"
+msgstr "Coba lagi &kirim"
+
+msgid "Retry sending this message"
+msgstr "Coba kirim ulang pesan ini"
+
+msgid "Ringing"
+msgstr "Menderingkan"
+
+msgid "Ringing..."
+msgstr "Berdering..."
+
+msgid "Ringtone"
+msgstr "Nada dering"
+
+msgid "Sale price"
+msgstr "Harga diskon"
+
+msgid "Save all media"
+msgstr "Simpan semua media"
+
+msgid "Save all photos"
+msgstr "Simpan semua foto"
+
+msgid "Save all videos"
+msgstr "Simpan semua video"
+
+msgid "Save file as"
+msgstr "Simpan file sebagai"
+
+msgid "Save name and description"
+msgstr "Simpan nama dan deskripsi"
+
+msgid "Save settings"
+msgstr "Simpan setelan"
+
+msgid "Save this member as a contact"
+msgstr "Simpan anggota ini sebagai kontak"
+
+msgid "Save voice message to device"
+msgstr "Simpan pesan suara ke perangkat"
+
+msgid "Saving..."
+msgstr "Menyimpan..."
+
+msgid "Scheduled messages"
+msgstr "Pesan terjadwal"
+
+msgid "Scheduled messages: none"
+msgstr "Pesan terjadwal: tidak ada"
+
+msgid "Scheduling message..."
+msgstr "Menjadwalkan pesan..."
+
+msgid "Screen"
+msgstr "Layar"
+
+msgid "Screen sharing isn't ready yet - wait for the call to connect."
+msgstr "Berbagi layar belum siap, tunggu panggilan terhubung."
+
+msgid "Search a contact to add to the call, then press Enter"
+msgstr "Cari kontak untuk ditambahkan ke panggilan, lalu tekan Enter"
+
+msgid "Search a contact to block, then press Enter"
+msgstr "Cari kontak untuk diblokir, lalu tekan Enter"
+
+msgid "Search channels, then press Enter"
+msgstr "Cari saluran, lalu tekan Enter"
+
+msgid "Search contacts or chats:"
+msgstr "Cari kontak atau chat:"
+
+msgid "Search emoji"
+msgstr "Cari emoji"
+
+msgid "Search members"
+msgstr "Cari anggota"
+
+msgid "Searching..."
+msgstr "Mencari..."
+
+msgid "Secret Code Required"
+msgstr "Kode Rahasia Diperlukan"
+
+msgid "See and cancel admin invites not accepted yet"
+msgstr "Lihat dan batalkan undangan admin yang belum diterima"
+
+msgid "See member changes"
+msgstr "Lihat perubahan anggota"
+
+msgid "See this member's info, call them, or save them as a contact"
+msgstr "Lihat info anggota ini, telepon mereka, atau simpan sebagai kontak"
+
+msgid "See who follows the channel, and manage its admins"
+msgstr "Lihat siapa yang mengikuti saluran, dan kelola adminnya"
+
+msgid "See who has seen one of your status updates, and their reactions"
+msgstr "Lihat siapa yang telah melihat salah satu pembaruan status Anda beserta reaksinya"
+
+msgid "See who has seen:"
+msgstr "Lihat siapa yang telah melihat:"
+
+msgid "See who reacted to this post"
+msgstr "Lihat siapa yang bereaksi terhadap postingan ini"
+
+msgid "See who voted for each option"
+msgstr "Lihat siapa yang memilih tiap pilihan"
+
+msgid "Select A&ll"
+msgstr "Pilih &Semua"
+
+msgid "Select all"
+msgstr "Pilih semua"
+
+msgid "Select a contact or call from the list first."
+msgstr "Pilih kontak atau panggilan dari daftar terlebih dahulu."
+
+msgid "Select a link to open:"
+msgstr "Pilih tautan untuk dibuka:"
+
+msgid "Select a reaction emoji:"
+msgstr "Pilih emoji reaksi:"
+
+msgid "Select folder to save all media into"
+msgstr "Pilih folder untuk menyimpan semua media"
+
+msgid "Select folder to save all photos into"
+msgstr "Pilih folder untuk menyimpan semua foto"
+
+msgid "Select folder to save all videos into"
+msgstr "Pilih folder untuk menyimpan semua video"
+
+msgid "Select messages"
+msgstr "Pilih pesan"
+
+msgid "Select someone in the call first."
+msgstr "Pilih seseorang dalam panggilan terlebih dahulu."
+
+msgid "Select someone who wants to join first."
+msgstr "Pilih seseorang yang ingin bergabung terlebih dahulu."
+
+msgid "Selection mode off."
+msgstr "Mode seleksi nonaktif."
+
+msgid "Selection mode. Press Space to select a message. 0 messages selected."
+msgstr "Mode seleksi. Tekan Spasi untuk memilih pesan. 0 pesan dipilih."
+
+msgid "Send Message History"
+msgstr "Kirim Riwayat Pesan"
+
+msgid "Send Pasted Files"
+msgstr "Kirim File yang Ditempel"
+
+msgid "Send a favorite, recent or WhatsApp sticker, or a sticker file"
+msgstr "Kirim stiker favorit, terbaru, stiker WhatsApp, atau file stiker"
+
+msgid "Send a sticker &file (.webp)..."
+msgstr "Kirim &file stiker (.webp)..."
+
+msgid "Send any file as a document, photos at full quality"
+msgstr "Kirim file apa pun sebagai dokumen, foto dalam kualitas penuh"
+
+msgid "Send as:"
+msgstr "Kirim sebagai:"
+
+msgid "Send audio files to play in the chat"
+msgstr "Kirim file audio untuk diputar di chat"
+
+msgid "Send call link"
+msgstr "Kirim tautan panggilan"
+
+msgid "Send invite link"
+msgstr "Kirim tautan undangan"
+
+msgid "Send link..."
+msgstr "Kirim tautan..."
+
+msgid "Send message &history"
+msgstr "Kirim &riwayat pesan"
+
+msgid "Send or cancel the voice message before switching accounts."
+msgstr "Kirim atau batalkan pesan suara sebelum beralih akun."
+
+msgid "Send photos and videos"
+msgstr "Kirim foto dan video"
+
+msgid "Send reply"
+msgstr "Kirim balasan"
+
+msgid "Send this message now? It won't be sent again at the scheduled time."
+msgstr "Kirim pesan ini sekarang? Pesan tidak akan dikirim lagi pada waktu yang dijadwalkan."
+
+msgid "Send this message to the group's admins to review"
+msgstr "Kirim pesan ini ke admin grup untuk ditinjau"
+
+msgid "Send this message to the group's admins to review? The sender won't be told who reported it."
+msgstr "Kirim pesan ini ke admin grup untuk ditinjau? Pengirim tidak akan diberi tahu siapa yang melaporkannya."
+
+msgid "Send this new member recent messages from before they joined"
+msgstr "Kirim pesan terbaru sebelum anggota baru ini bergabung"
+
+msgid "Sending admin invites..."
+msgstr "Mengirim undangan admin..."
+
+msgid "Sending poll..."
+msgstr "Mengirim polling..."
+
+msgid "Sending quiz..."
+msgstr "Mengirim kuis..."
+
+msgid "Sending to the admins..."
+msgstr "Mengirim ke admin..."
+
+msgid "Sending..."
+msgstr "Mengirim..."
+
+msgid "Sent"
+msgstr "Terkirim"
+
+msgid "Sent at"
+msgstr "Dikirim pukul"
+
+msgid "Sent to"
+msgstr "Dikirim ke"
+
+msgid "Sent to the group's admins."
+msgstr "Terkirim ke admin grup."
+
+msgid "Set tag"
+msgstr "Atur label"
+
+msgid "Setting your tag..."
+msgstr "Mengatur label Anda..."
+
+msgid "Settings backup must be a JSON object"
+msgstr "Cadangan setelan harus berupa objek JSON"
+
+msgid "Share recent messages with people added"
+msgstr "Bagikan pesan terbaru dengan orang yang baru ditambahkan"
+
+msgid "Share screen and sound"
+msgstr "Bagikan layar dan suara"
+
+msgid "Share screen only"
+msgstr "Bagikan layar saja"
+
+msgid "Sharing"
+msgstr "Berbagi"
+
+msgid "Similar channels..."
+msgstr "Saluran serupa..."
+
+msgid "Someone"
+msgstr "Seseorang"
+
+msgid "Someone in the call muted you."
+msgstr "Seseorang dalam panggilan membisukan Anda."
+
+msgid "Something went wrong."
+msgstr "Terjadi kesalahan."
+
+msgid "Sound &only"
+msgstr "Suara &saja"
+
+msgid "Sound from the call isn't getting through."
+msgstr "Suara dari panggilan tidak terdengar."
+
+msgid "Sound on"
+msgstr "Suara aktif"
+
+msgid "Speed 1x"
+msgstr "Kecepatan 1x"
+
+msgid "Spell check is off. Turn it on in Settings, on the Chats tab."
+msgstr "Pemeriksa ejaan nonaktif. Aktifkan di Setelan, pada tab Chat."
+
+msgid "Star or unstar this message"
+msgstr "Bintangi atau hapus bintang pesan ini"
+
+msgid "Starred"
+msgstr "Berbintang"
+
+msgid "Starred messages"
+msgstr "Pesan berbintang"
+
+msgid "Start a call with this message's sender"
+msgstr "Mulai panggilan dengan pengirim pesan ini"
+
+msgid "Start a chat with this phone number"
+msgstr "Mulai chat dengan nomor telepon ini"
+
+msgid "Start time, like 18:30 (optional)"
+msgstr "Waktu mulai, seperti 18:30 (opsional)"
+
+msgid "Status &privacy..."
+msgstr "&Privasi status..."
+
+msgid "Status &update"
+msgstr "&Pembaruan status"
+
+msgid "Status update cannot be empty."
+msgstr "Pembaruan status tidak boleh kosong."
+
+msgid "Status update deleted."
+msgstr "Pembaruan status dihapus."
+
+msgid "Status: Connected (Syncing...)"
+msgstr "Status: Terhubung (Menyinkronkan...)"
+
+msgid "Status: My Contacts Except..."
+msgstr "Status: Kontak Saya Kecuali..."
+
+msgid "Status: Only Share With..."
+msgstr "Status: Hanya Bagikan Dengan..."
+
+msgid "Sticker"
+msgstr "Stiker"
+
+msgid "Stickers"
+msgstr "Stiker"
+
+msgid "Stickers (*.webp)|*.webp"
+msgstr "Stiker (*.webp)|*.webp"
+
+msgid "Stickers from:"
+msgstr "Stiker dari:"
+
+msgid "Stop marking this word until whatSnap restarts"
+msgstr "Jangan tandai kata ini sampai whatSnap dimulai ulang"
+
+msgid "Stop sharing screen"
+msgstr "Hentikan berbagi layar"
+
+msgid "Stopped sharing your screen."
+msgstr "Berhenti membagikan layar."
+
+msgid "Switch Account"
+msgstr "Beralih Akun"
+
+msgid "Take this message off your starred messages"
+msgstr "Hapus pesan ini dari pesan berbintang Anda"
+
+msgid "Take this sticker off your favorites"
+msgstr "Hapus stiker ini dari favorit Anda"
+
+msgid "Text"
+msgstr "Teks"
+
+msgid "Text status update..."
+msgstr "Pembaruan status teks..."
+
+msgid "Text that turns into emoji"
+msgstr "Teks yang berubah menjadi emoji"
+
+msgid "That is not a date. Use year-month-day, like 2026-03-27."
+msgstr "Itu bukan format tanggal. Gunakan tahun-bulan-hari, contoh 2026-03-27."
+
+msgid "That isn't a WhatsApp call link."
+msgstr "Tautan tersebut bukan tautan panggilan WhatsApp."
+
+msgid "That message isn't on this computer, so it can't be shown."
+msgstr "Pesan tersebut tidak ada di komputer ini, sehingga tidak dapat ditampilkan."
+
+msgid "The camera isn't ready yet - wait for the call to connect."
+msgstr "Kamera belum siap, tunggu panggilan terhubung."
+
+msgid "The channel"
+msgstr "Saluran"
+
+msgid "The file does not appear to contain whatSnap settings"
+msgstr "File ini tampaknya tidak memuat setelan whatSnap"
+
+msgid "The interface language was changed. Restart whatSnap now so the change takes full effect?"
+msgstr "Bahasa antarmuka telah diubah. Mulai ulang whatSnap sekarang agar perubahan langsung diterapkan sepenuhnya?"
+
+msgid "The message is empty."
+msgstr "Pesan kosong."
+
+msgid "The notification tone is shared with WhatsApp on your other computers, unless it is a custom sound file; the rest only change this computer. To mute this chat on all your devices, use Mute in its menu."
+msgstr "Nada notifikasi disinkronkan dengan WhatsApp di komputer Anda yang lain, kecuali jika berupa file audio kustom; setelan lainnya hanya berlaku untuk komputer ini. Untuk membisukan chat ini di semua perangkat, gunakan menu Bisukan."
+
+msgid "The other person"
+msgstr "Lawan bicara"
+
+msgid "The question is too long. Polls allow up to 255 characters."
+msgstr "Pertanyaan terlalu panjang. Polling maksimal 255 karakter."
+
+msgid "The video couldn't be decoded. The file may be damaged."
+msgstr "Video tidak dapat didekode. File mungkin rusak."
+
+msgid "The video couldn't be played."
+msgstr "Video tidak dapat diputar."
+
+msgid "This button only works in WhatsApp on your phone."
+msgstr "Tombol ini hanya berfungsi di WhatsApp pada ponsel Anda."
+
+msgid "This channel is suspended"
+msgstr "Saluran ini ditangguhkan"
+
+msgid "This chat has no message box."
+msgstr "Chat ini tidak memiliki kotak pesan."
+
+msgid "This chat has no scheduled messages."
+msgstr "Chat ini tidak memiliki pesan terjadwal."
+
+msgid "This group"
+msgstr "Grup ini"
+
+msgid "This is the first status update."
+msgstr "Ini adalah pembaruan status pertama."
+
+msgid "This is the only account in whatSnap. To unlink it, use Account, Log Out."
+msgstr "Ini satu-satunya akun di whatSnap. Untuk memutus tautan, gunakan Akun, Keluar."
+
+msgid "This is the start of the chat."
+msgstr "Ini adalah awal chat."
+
+msgid "This message was deleted"
+msgstr "Pesan ini telah dihapus"
+
+msgid "This message will not be sent. This action cannot be undone."
+msgstr "Pesan ini tidak akan dikirim. Tindakan ini tidak dapat dibatalkan."
+
+msgid "This pack has no stickers."
+msgstr "Paket ini tidak memiliki stiker."
+
+msgid "This photo couldn't be shown."
+msgstr "Foto ini tidak dapat ditampilkan."
+
+msgid "This video's format can't be played here."
+msgstr "Format video ini tidak dapat diputar di sini."
+
+msgid "Today"
+msgstr "Hari ini"
+
+msgid "Turn camera off"
+msgstr "Matikan kamera"
+
+msgid "Turn off"
+msgstr "Matikan"
+
+msgid "Turn on"
+msgstr "Nyalakan"
+
+msgid "Two options are the same. Each option must be different."
+msgstr "Dua pilihan bernilai sama. Setiap pilihan harus berbeda."
+
+msgid "Type a message to schedule."
+msgstr "Ketik pesan yang akan dijadwalkan."
+
+msgid "Type a name for the event."
+msgstr "Ketik nama untuk acara tersebut."
+
+msgid "Type a question for the poll."
+msgstr "Ketik pertanyaan untuk polling."
+
+msgid "Type a reply first."
+msgstr "Ketik balasan terlebih dahulu."
+
+msgid "Type an update"
+msgstr "Ketik pembaruan"
+
+msgid "Un&keep"
+msgstr "Batalkan &simpan"
+
+msgid "Un&like"
+msgstr "&Batal suka"
+
+msgid "Unblock contact"
+msgstr "Buka blokir kontak"
+
+msgid "Unfollow"
+msgstr "Batal mengikuti"
+
+msgid "Unfollow channel"
+msgstr "Batal mengikuti saluran"
+
+msgid "Unfollow this channel? Its posts will be removed from whatSnap."
+msgstr "Batal mengikuti saluran ini? Postingannya akan dihapus dari whatSnap."
+
+msgid "Unkeep"
+msgstr "Batalkan simpan"
+
+msgid "Unknown"
+msgstr "Tidak dikenal"
+
+msgid "Unknown contact"
+msgstr "Kontak tidak dikenal"
+
+msgid "Unknown error"
+msgstr "Kesalahan tidak dikenal"
+
+msgid "Unknown member"
+msgstr "Anggota tidak dikenal"
+
+msgid "Unlock Failed"
+msgstr "Gagal Membuka Kunci"
+
+msgid "Unlock Locked Chats"
+msgstr "Buka Kunci Chat Dikunci"
+
+msgid "Unlock Your Chats Faster"
+msgstr "Buka Kunci Chat Anda Lebih Cepat"
+
+msgid "Unlock your locked chats in whatSnap"
+msgstr "Buka kunci chat dikunci Anda di whatSnap"
+
+msgid "Unmute"
+msgstr "Bunyikan"
+
+msgid "Unmute microphone"
+msgstr "Bunyikan mikrofon"
+
+msgid "Unnamed channel"
+msgstr "Saluran tanpa nama"
+
+msgid "Unnamed product"
+msgstr "Produk tanpa nama"
+
+msgid "Unpi&n"
+msgstr "Lepas &sematan"
+
+msgid "Unpin this message for everyone in the chat"
+msgstr "Lepas sematan pesan ini untuk semua orang di chat"
+
+msgid "Unstar &all..."
+msgstr "Hapus &semua bintang..."
+
+msgid "Unstar All Messages"
+msgstr "Hapus Bintang Semua Pesan"
+
+msgid "Unstar message"
+msgstr "Hapus bintang pesan"
+
+msgid "Unstar messages"
+msgstr "Hapus bintang pesan"
+
+msgid "Upload cancelled."
+msgstr "Unggahan dibatalkan."
+
+msgid "Upload progress"
+msgstr "Kemajuan unggahan"
+
+msgid "Uploading"
+msgstr "Mengunggah"
+
+msgid "Use this spelling"
+msgstr "Gunakan ejaan ini"
+
+msgid "Verified channel"
+msgstr "Saluran terverifikasi"
+
+msgid "Verify Security Code"
+msgstr "Verifikasi Kode Keamanan"
+
+msgid "Video"
+msgstr "Video"
+
+msgid "Video call connected. Your camera is off."
+msgstr "Panggilan video terhubung. Kamera Anda mati."
+
+msgid "Video call with"
+msgstr "Panggilan video dengan"
+
+msgid "Video you sent"
+msgstr "Video yang Anda kirim"
+
+msgid "Videos"
+msgstr "Video"
+
+msgid "View channel..."
+msgstr "Lihat saluran..."
+
+msgid "View delivery info, or a poll's votes"
+msgstr "Lihat info pengiriman, atau suara jajak pendapat"
+
+msgid "View once voice message sent."
+msgstr "Pesan suara sekali lihat terkirim."
+
+msgid "View their status updates"
+msgstr "Lihat pembaruan status mereka"
+
+msgid "View your status updates"
+msgstr "Lihat pembaruan status Anda"
+
+msgid "Viewed"
+msgstr "Sudah dilihat"
+
+msgid "Viewed By"
+msgstr "Dilihat Oleh"
+
+msgid "Viewed updates"
+msgstr "Pembaruan yang telah dilihat"
+
+msgid "Viewed, muted"
+msgstr "Sudah dilihat, dibisukan"
+
+msgid "Voice call"
+msgstr "Panggilan suara"
+
+msgid "Voice call with"
+msgstr "Panggilan suara dengan"
+
+msgid "Voice message"
+msgstr "Pesan suara"
+
+msgid "Voice message sent."
+msgstr "Pesan suara terkirim."
+
+msgid "Voice note"
+msgstr "Pesan suara"
+
+msgid "Voice note status."
+msgstr "Status pesan suara."
+
+msgid "Voice preview finished."
+msgstr "Pratinjau pesan suara selesai."
+
+msgid "Voice preview paused."
+msgstr "Pratinjau suara dijeda."
+
+msgid "Voice recording discarded."
+msgstr "Rekaman suara dibuang."
+
+msgid "Voice recording paused. Preview available."
+msgstr "Perekaman suara dijeda. Pratinjau tersedia."
+
+msgid "Voice recording resumed."
+msgstr "Perekaman suara dilanjutkan."
+
+msgid "Voice recording stopped. Ready to send."
+msgstr "Perekaman suara dihentikan. Siap dikirim."
+
+msgid "Vote"
+msgstr "Beri Suara"
+
+msgid "Vote removed."
+msgstr "Pilihan dihapus."
+
+msgid "Voted."
+msgstr "Pilihan dikirim."
+
+msgid "Votes"
+msgstr "Pilihan"
+
+msgid "Waiting for someone in the call to let you in."
+msgstr "Menunggu seseorang dalam panggilan untuk mengizinkan Anda masuk."
+
+msgid "Waiting for someone in the call to let you in..."
+msgstr "Menunggu seseorang dalam panggilan untuk mengizinkan Anda masuk..."
+
+msgid "Website"
+msgstr "Situs web"
+
+msgid "What kind of call?"
+msgstr "Jenis panggilan apa?"
+
+msgid "What's this community for? (You can leave this empty.)"
+msgstr "Untuk apa komunitas ini? (Anda dapat mengosongkannya.)"
+
+msgid "WhatsApp Login - Pairing Code"
+msgstr "Login WhatsApp - Kode Penautan"
+
+msgid "WhatsApp Login - QR Code"
+msgstr "Login WhatsApp - Kode QR"
+
+msgid "WhatsApp Name"
+msgstr "Nama WhatsApp"
+
+msgid "WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact."
+msgstr "WhatsApp belum membagikan nomor telepon orang ini, sehingga tidak dapat disimpan sebagai kontak."
+
+msgid "WhatsApp hasn't turned on scheduling messages for your account yet."
+msgstr "WhatsApp belum mengaktifkan penjadwalan pesan untuk akun Anda."
+
+msgid "WhatsApp hasn't turned on scheduling messages for your account."
+msgstr "WhatsApp belum mengaktifkan penjadwalan pesan untuk akun Anda."
+
+msgid "WhatsApp sends these at the time shown, even when this computer is off."
+msgstr "WhatsApp akan mengirimkan pesan ini pada waktu yang ditentukan, meskipun komputer ini mati."
+
+msgid "Which answer is correct?"
+msgstr "Jawaban mana yang benar?"
+
+msgid "Who &reacted..."
+msgstr "Siapa yang &bereaksi..."
+
+msgid "Who &voted..."
+msgstr "Siapa yang &memilih..."
+
+msgid "Who can see your status updates:"
+msgstr "Siapa yang dapat melihat pembaruan status Anda:"
+
+msgid "Window"
+msgstr "Jendela"
+
+msgid "Yesterday"
+msgstr "Kemarin"
+
+msgid "You"
+msgstr "Anda"
+
+msgid "You are already on a call. End the current call before placing a new one."
+msgstr "Anda sudah berada dalam panggilan. Akhiri panggilan saat ini sebelum melakukan panggilan baru."
+
+msgid "You can't send messages to this group because you're no longer a member"
+msgstr "Anda tidak dapat mengirim pesan ke grup ini karena Anda bukan anggota lagi"
+
+msgid "You can't send messages to this group because you're no longer a member."
+msgstr "Anda tidak dapat mengirim pesan ke grup ini karena Anda bukan anggota lagi."
+
+msgid "You cannot send messages to this chat."
+msgstr "Anda tidak dapat mengirim pesan ke chat ini."
+
+msgid "You deleted this message"
+msgstr "Anda menghapus pesan ini"
+
+msgid "You don't follow this channel"
+msgstr "Anda tidak mengikuti saluran ini"
+
+msgid "You follow this channel"
+msgstr "Anda mengikuti saluran ini"
+
+msgid "You have no locked chats"
+msgstr "Anda tidak memiliki chat yang dikunci"
+
+msgid "You left the group."
+msgstr "Anda keluar dari grup."
+
+msgid "You own this channel"
+msgstr "Anda adalah pemilik saluran ini"
+
+msgid "You're all caught up."
+msgstr "Semua pesan sudah dibaca."
+
+msgid "You're an admin of this channel"
+msgstr "Anda adalah admin saluran ini"
+
+msgid "You're sharing a window:"
+msgstr "Anda sedang membagikan jendela:"
+
+msgid "You're sharing your screen."
+msgstr "Anda sedang membagikan layar."
+
+msgid "You: "
+msgstr "Anda: "
+
+msgid "Your answer"
+msgstr "Jawaban Anda"
+
+msgid "Your call history will be permanently deleted."
+msgstr "Riwayat panggilan Anda akan dihapus secara permanen."
+
+msgid "Your personal messages are end-to-end encrypted."
+msgstr "Pesan pribadi Anda terenkripsi secara end-to-end."
+
+msgid "Your phone didn't share any message history with whatSnap. New messages will still arrive."
+msgstr "Ponsel Anda tidak membagikan riwayat pesan dengan whatSnap. Pesan baru akan tetap masuk."
+
+msgid "Your phone shared only your recent messages with whatSnap, not your full chat history. Older messages load from your phone when you scroll to the top of a chat."
+msgstr "Ponsel Anda hanya membagikan pesan terkini dengan whatSnap, bukan seluruh riwayat chat. Pesan yang lebih lama akan dimuat dari ponsel Anda saat Anda menggulir ke bagian atas chat."
+
+msgid "Your profile photo was changed."
+msgstr "Foto profil Anda telah diubah."
+
+msgid "Your profile photo was removed."
+msgstr "Foto profil Anda telah dihapus."
+
+msgid "Your status update can't exceed 700 characters or 10 lines."
+msgstr "Pembaruan status Anda tidak boleh melebihi 700 karakter atau 10 baris."
+
+msgid "Your tag in this group"
+msgstr "Label Anda di grup ini"
+
+msgid "Your tag was removed."
+msgstr "Label Anda telah dihapus."
+
+msgid "Your whatSnap settings were successfully backed up."
+msgstr "Setelan whatSnap Anda berhasil dicadangkan."
+
+msgid "Your whatSnap settings were successfully restored."
+msgstr "Setelan whatSnap Anda berhasil dipulihkan."
+
+msgid "Your whatSnap settings were successfully restored. The interface language was changed. Restart whatSnap now so the change takes full effect?"
+msgstr "Setelan whatSnap Anda berhasil dipulihkan. Bahasa antarmuka telah diubah. Mulai ulang whatSnap sekarang agar perubahan langsung diterapkan sepenuhnya?"
+
+msgid "Zip archive (*.zip)|*.zip"
+msgstr "Arsip zip (*.zip)|*.zip"
+
+msgid "\n\nAccept? As an admin you can post updates and change the channel's details."
+msgstr "\n\nTerima? Sebagai admin Anda dapat memposting pembaruan dan mengubah detail saluran."
+
+msgid "a channel"
+msgstr "suatu saluran"
+
+msgid "admin"
+msgstr "admin"
+
+msgid "as set in Settings"
+msgstr "seperti yang diatur di Setelan"
+
+msgid "channel"
+msgstr "saluran"
+
+msgid "couldn't allocate a surface for the window"
+msgstr "tidak dapat mengalokasikan permukaan untuk jendela"
+
+msgid "couldn't allocate the capture bitmap"
+msgstr "tidak dapat mengalokasikan bitmap tangkapan layar"
+
+msgid "couldn't create a capture surface"
+msgstr "tidak dapat membuat permukaan tangkapan layar"
+
+msgid "couldn't open the screen for capture"
+msgstr "tidak dapat membuka layar untuk perekaman"
+
+msgid "declined"
+msgstr "menolak"
+
+msgid "declined the call."
+msgstr "menolak panggilan."
+
+msgid "delivered"
+msgstr "tersampaikan"
+
+msgid "didn't answer."
+msgstr "tidak menjawab."
+
+msgid "following"
+msgstr "mengikuti"
+
+msgid "group video call from"
+msgstr "panggilan video grup dari"
+
+msgid "group voice call from"
+msgstr "panggilan suara grup dari"
+
+msgid "in"
+msgstr "di"
+
+msgid "in the call"
+msgstr "dalam panggilan"
+
+msgid "invited"
+msgstr "diundang"
+
+msgid "joined the call."
+msgstr "bergabung ke panggilan."
+
+msgid "joining"
+msgstr "bergabung"
+
+msgid "left the call."
+msgstr "meninggalkan panggilan."
+
+msgid "muted"
+msgstr "dibisukan"
+
+msgid "no"
+msgstr "tidak"
+
+msgid "no one"
+msgstr "tidak ada"
+
+msgid "notification and sound"
+msgstr "notifikasi dan suara"
+
+msgid "notification only, no sound"
+msgstr "notifikasi saja, tanpa suara"
+
+msgid "notify normally"
+msgstr "beritahu seperti biasa"
+
+msgid "off on this computer"
+msgstr "mati di komputer ini"
+
+msgid "on"
+msgstr "aktif"
+
+msgid "owner"
+msgstr "pemilik"
+
+msgid "played"
+msgstr "diputar"
+
+msgid "quoted message"
+msgstr "pesan yang dikutip"
+
+msgid "read"
+msgstr "dibaca"
+
+msgid "recording audio..."
+msgstr "sedang merekam audio..."
+
+msgid "recording audio…"
+msgstr "merekam audio…"
+
+msgid "ringing"
+msgstr "berdering"
+
+msgid "silent"
+msgstr "senyap"
+
+msgid "sound only"
+msgstr "hanya suara"
+
+msgid "sound only, no notification"
+msgstr "suara saja, tanpa notifikasi"
+
+msgid "started sharing their screen."
+msgstr "mulai membagikan layarnya."
+
+msgid "stopped sharing their screen."
+msgstr "berhenti membagikan layarnya."
+
+msgid "the channel"
+msgstr "saluran"
+
+msgid "the group"
+msgstr "grup"
+
+msgid "the screen couldn't be read"
+msgstr "layar tidak dapat dibaca"
+
+msgid "the window can't be read right now"
+msgstr "jendela tidak dapat dibaca saat ini"
+
+msgid "the window couldn't be read"
+msgstr "jendela tidak dapat dibaca"
+
+msgid "the window to share is gone"
+msgstr "jendela yang dibagikan sudah ditutup"
+
+msgid "them"
+msgstr "mereka"
+
+msgid "this group"
+msgstr "grup ini"
+
+msgid "turned their camera off."
+msgstr "mematikan kameranya."
+
+msgid "turned their camera on."
+msgstr "menyalakan kameranya."
+
+msgid "typing..."
+msgstr "sedang mengetik..."
+
+msgid "typing…"
+msgstr "mengetik…"
+
+msgid "unknown error"
+msgstr "kesalahan tidak dikenal"
+
+msgid "verified"
+msgstr "terverifikasi"
+
+msgid "video call from"
+msgstr "panggilan video dari"
+
+msgid "voice call from"
+msgstr "panggilan suara dari"
+
+msgid "wants to switch to video. Turn on your camera (Ctrl+Shift+V) to switch to video."
+msgstr "ingin beralih ke video. Nyalakan kamera Anda (Ctrl+Shift+V) untuk beralih ke video."
+
+msgid "whatSnap for Windows"
+msgstr "whatSnap untuk Windows"
+
+msgid "yes"
+msgstr "ya"
+
+msgid "&8 hours"
+msgstr "&8 jam"
+
+msgid "&Always"
+msgstr "&Selalu"
+
+msgid "&Pin post"
+msgstr "&Sematkan postingan"
+
+msgid "&Unpin post"
+msgstr "&Lepas sematan postingan"
+
+msgid "1 &week"
+msgstr "1 &minggu"
+
+msgid "24 hours"
+msgstr "24 jam"
+
+msgid "30 days"
+msgstr "30 hari"
+
+msgid "7 days"
+msgstr "7 hari"
+
+msgid "90 days"
+msgstr "90 hari"
+
+msgid "Activities"
+msgstr "Aktivitas"
+
+msgid "Advanced chat privacy is off in this chat. When it's on, people in this chat can't export it, media isn't saved to their devices automatically, and messages can't be used with AI features. Turn it on?"
+msgstr "Privasi chat lanjutan nonaktif di chat ini. Saat aktif, peserta chat tidak dapat mengekspor chat, media tidak disimpan otomatis ke perangkat mereka, dan pesan tidak dapat digunakan dengan fitur AI. Aktifkan?"
+
+msgid "Advanced chat privacy is on in this chat. When it's on, people in this chat can't export it, media isn't saved to their devices automatically, and messages can't be used with AI features. Turn it off?"
+msgstr "Privasi chat lanjutan aktif di chat ini. Saat aktif, peserta chat tidak dapat mengekspor chat, media tidak disimpan otomatis ke perangkat mereka, dan pesan tidak dapat digunakan dengan fitur AI. Matikan?"
+
+msgid "Animals & Nature"
+msgstr "Hewan & Alam"
+
+msgid "Anyone with the link can now join straight away."
+msgstr "Siapa saja yang memiliki tautan kini dapat langsung bergabung."
+
+msgid "As set in Settings"
+msgstr "Seperti diatur di Setelan"
+
+msgid "Birthday Cake"
+msgstr "Kue Ulang Tahun"
+
+msgid "Business"
+msgstr "Bisnis"
+
+msgid "Channel updated."
+msgstr "Saluran diperbarui."
+
+msgid "Channels are public: anyone can find and follow yours, and followers can't see your phone number. By creating a channel you agree to WhatsApp's Channels Guidelines."
+msgstr "Saluran bersifat publik: siapa saja dapat menemukan dan mengikuti saluran Anda, dan pengikut tidak dapat melihat nomor telepon Anda. Dengan membuat saluran, Anda menyetujui Pedoman Saluran WhatsApp."
+
+msgid "Choose at least one contact to exclude."
+msgstr "Pilih minimal satu kontak untuk dikecualikan."
+
+msgid "Clapping Hands"
+msgstr "Tepuk Tangan"
+
+msgid "Clear chat..."
+msgstr "Bersihkan chat..."
+
+msgid "Colour 1"
+msgstr "Warna 1"
+
+msgid "Colour 10"
+msgstr "Warna 10"
+
+msgid "Colour 11"
+msgstr "Warna 11"
+
+msgid "Colour 12"
+msgstr "Warna 12"
+
+msgid "Colour 13"
+msgstr "Warna 13"
+
+msgid "Colour 14"
+msgstr "Warna 14"
+
+msgid "Colour 15"
+msgstr "Warna 15"
+
+msgid "Colour 16"
+msgstr "Warna 16"
+
+msgid "Colour 17"
+msgstr "Warna 17"
+
+msgid "Colour 18"
+msgstr "Warna 18"
+
+msgid "Colour 19"
+msgstr "Warna 19"
+
+msgid "Colour 2"
+msgstr "Warna 2"
+
+msgid "Colour 20"
+msgstr "Warna 20"
+
+msgid "Colour 21"
+msgstr "Warna 21"
+
+msgid "Colour 3"
+msgstr "Warna 3"
+
+msgid "Colour 4"
+msgstr "Warna 4"
+
+msgid "Colour 5"
+msgstr "Warna 5"
+
+msgid "Colour 6"
+msgstr "Warna 6"
+
+msgid "Colour 7"
+msgstr "Warna 7"
+
+msgid "Colour 8"
+msgstr "Warna 8"
+
+msgid "Colour 9"
+msgstr "Warna 9"
+
+msgid "Contact details..."
+msgstr "Detail kontak..."
+
+msgid "Create channel"
+msgstr "Buat saluran"
+
+msgid "Delete chat..."
+msgstr "Hapus chat..."
+
+msgid "Disappearing messages..."
+msgstr "Pesan sementara..."
+
+msgid "Edit channel"
+msgstr "Edit saluran"
+
+msgid "Entertainment"
+msgstr "Hiburan"
+
+msgid "Export chat..."
+msgstr "Ekspor chat..."
+
+msgid "Face with Tears of Joy"
+msgstr "Wajah Tertawa Bahagia"
+
+msgid "Fire"
+msgstr "Api"
+
+msgid "Flags"
+msgstr "Bendera"
+
+msgid "Folded Hands"
+msgstr "Tangan Terlipat"
+
+msgid "Food & Drink"
+msgstr "Makanan & Minuman"
+
+msgid "Going"
+msgstr "Hadir"
+
+msgid "Heart Eyes"
+msgstr "Mata Hati"
+
+msgid "Hot Beverage"
+msgstr "Minuman Panas"
+
+msgid "Hundred Points"
+msgstr "Seratus Poin"
+
+msgid "In group call"
+msgstr "Dalam panggilan grup"
+
+msgid "Last Seen"
+msgstr "Terakhir Dilihat"
+
+msgid "Lifestyle"
+msgstr "Gaya Hidup"
+
+msgid "Maybe"
+msgstr "Mungkin"
+
+msgid "Microphone muted."
+msgstr "Mikrofon dibisukan."
+
+msgid "Microphone unmuted."
+msgstr "Mikrofon dibunyikan."
+
+msgid "My contacts"
+msgstr "Kontak saya"
+
+msgid "My contacts except..."
+msgstr "Kontak saya kecuali..."
+
+msgid "New messages in this chat will be read aloud."
+msgstr "Pesan baru di chat ini akan dibacakan."
+
+msgid "New messages in this chat won't be read aloud."
+msgstr "Pesan baru di chat ini tidak akan dibacakan."
+
+msgid "New people now wait for you to let them in."
+msgstr "Peserta baru kini menunggu persetujuan Anda untuk masuk."
+
+msgid "News & Information"
+msgstr "Berita & Informasi"
+
+msgid "Not going"
+msgstr "Tidak hadir"
+
+msgid "Notification settings..."
+msgstr "Setelan notifikasi..."
+
+msgid "Objects"
+msgstr "Objek"
+
+msgid "Off on this computer"
+msgstr "Mati di komputer ini"
+
+msgid "Online"
+msgstr "Online"
+
+msgid "Only share with..."
+msgstr "Hanya bagikan dengan..."
+
+msgid "Organizations"
+msgstr "Organisasi"
+
+msgid "Party Popper"
+msgstr "Terompet Pesta"
+
+msgid "People & Body"
+msgstr "Orang & Tubuh"
+
+msgid "Pick someone on the left, then call them."
+msgstr "Pilih seseorang di sebelah kiri, lalu telepon mereka."
+
+msgid "Pictures (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif"
+msgstr "Gambar (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif"
+
+msgid "Post Photo Status"
+msgstr "Posting Status Foto"
+
+msgid "Post Video Status"
+msgstr "Posting Status Video"
+
+msgid "Quoted message"
+msgstr "Pesan dikutip"
+
+msgid "Reactions"
+msgstr "Reaksi"
+
+msgid "Red Heart"
+msgstr "Hati Merah"
+
+msgid "Report this message to WhatsApp? WhatsApp receives this message. The sender and the group won't be notified."
+msgstr "Laporkan pesan ini ke WhatsApp? WhatsApp akan menerima pesan ini. Pengirim dan grup tidak akan diberi tahu."
+
+msgid "Report..."
+msgstr "Laporkan..."
+
+msgid "Sans-Serif (Default)"
+msgstr "Sans-Serif (Bawaan)"
+
+msgid "Script"
+msgstr "Skrip"
+
+msgid "Serif"
+msgstr "Serif"
+
+msgid "Smileys & Emotion"
+msgstr "Smiley & Emosi"
+
+msgid "Smiling Face"
+msgstr "Wajah Tersenyum"
+
+msgid "Sparkles"
+msgstr "Kilauan"
+
+msgid "Sports"
+msgstr "Olahraga"
+
+msgid "Sunglasses"
+msgstr "Kacamata Hitam"
+
+msgid "Symbols"
+msgstr "Simbol"
+
+msgid "They won't be let in."
+msgstr "Mereka tidak diizinkan masuk."
+
+msgid "They're being let in."
+msgstr "Mereka diizinkan masuk."
+
+msgid "This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again."
+msgstr "Salinan whatSnap ini tidak menyertakan komponen bantu menu Bagikan. Instal ulang whatSnap lalu coba lagi."
+
+msgid "This message can no longer be edited - the 15 minute edit window has passed."
+msgstr "Pesan ini tidak dapat diedit lagi karena batas waktu edit 15 menit telah lewat."
+
+msgid "This message can no longer be edited - the 30 day edit window has passed."
+msgstr "Pesan ini tidak dapat diedit lagi karena batas waktu edit 30 hari telah lewat."
+
+msgid "Thumbs Up"
+msgstr "Jempol ke Atas"
+
+msgid "Travel & Places"
+msgstr "Perjalanan & Tempat"
+
+msgid "Unlock your chats faster. Next time, use Windows Hello, with your fingerprint, face or PIN, instead of typing the secret code. You can change this in Settings, Chats.\n\nTurn on Windows Hello for locked chats?"
+msgstr "Buka kunci chat Anda lebih cepat. Lain kali, gunakan Windows Hello dengan sidik jari, wajah, atau PIN Anda daripada mengetik kode rahasia. Anda dapat mengubah ini di Setelan, Chat.\n\nAktifkan Windows Hello untuk chat dikunci?"
+
+msgid "You aren't an admin of any group that could be added. A group can be in one community at a time."
+msgstr "Anda bukan admin di grup mana pun yang dapat ditambahkan. Satu grup hanya bisa berada di satu komunitas."
+
+msgid "You lowered your hand."
+msgstr "Anda menurunkan tangan."
+
+msgid "Your computer's sound is shared too, screen reader speech included. Muting your microphone mutes it as well."
+msgstr "Suara komputer Anda juga dibagikan, termasuk suara pembaca layar. Membisukan mikrofon juga akan membisukannya."
+
+msgid "Your hand is raised."
+msgstr "Tangan Anda diangkat."
+
+msgid "Your screen is being shared as a black picture. If your screen reader's screen curtain is on, turn it off so the others can see your screen."
+msgstr "Layar Anda dibagikan sebagai gambar hitam. Jika tirai layar pembaca layar Anda aktif, matikan agar peserta lain dapat melihat layar Anda."
+
+msgid "Your screen is visible to the others now."
+msgstr "Layar Anda kini terlihat oleh peserta lain."
+
+msgid "beaming face with smiling eyes"
+msgstr "wajah berseri dengan mata tersenyum"
+
+msgid "confused face"
+msgstr "wajah bingung"
+
+msgid "contact"
+msgstr "kontak"
+
+msgid "contacts"
+msgstr "kontak"
+
+msgid "crying face"
+msgstr "wajah menangis"
+
+msgid "excluded"
+msgstr "dikecualikan"
+
+msgid "face blowing a kiss"
+msgstr "wajah memberi ciuman"
+
+msgid "face with open mouth"
+msgstr "wajah mulut terbuka"
+
+msgid "face with tongue"
+msgstr "wajah menjulurkan lidah"
+
+msgid "grinning face"
+msgstr "wajah menyeringai"
+
+msgid "grinning squinting face"
+msgstr "wajah menyeringai mata menyipit"
+
+msgid "neutral face"
+msgstr "wajah netral"
+
+msgid "not available for your postcode"
+msgstr "tidak tersedia untuk kode pos Anda"
+
+msgid "not excluded"
+msgstr "tidak dikecualikan"
+
+msgid "out of stock"
+msgstr "stok habis"
+
+msgid "red heart"
+msgstr "hati merah"
+
+msgid "slightly frowning face"
+msgstr "wajah cemberut tipis"
+
+msgid "slightly smiling face"
+msgstr "wajah tersenyum tipis"
+
+msgid "thumbs down"
+msgstr "jempol ke bawah"
+
+msgid "thumbs up"
+msgstr "jempol ke atas"
+
+msgid "whatSnap couldn't be added to the Share menu. Try again, or reinstall whatSnap."
+msgstr "whatSnap tidak dapat ditambahkan ke menu Bagikan. Coba lagi, atau instal ulang whatSnap."
+
+msgid "whatSnap is already running, but this copy can't reach it. It may have been started as administrator. Close whatSnap in Task Manager, then start it again."
+msgstr "whatSnap sudah berjalan, tetapi salinan ini tidak dapat menghubunginya. Aplikasi mungkin dijalankan sebagai administrator. Tutup whatSnap di Task Manager, lalu jalankan ulang."
+
+msgid "winking face"
+msgstr "wajah mengedip"
+
+msgid "{}'s battery is low."
+msgstr "Baterai {} lemah."
+
+msgid "{} is on a phone call and can't hear you right now."
+msgstr "{} sedang menerima panggilan telepon lain dan tidak dapat mendengar Anda sekarang."
+
+msgid "{} is back on the call."
+msgstr "{} kembali ke panggilan."
+
+msgid "Ringing {}."
+msgstr "Memanggil {}."
+
+msgid "Missed call from {}."
+msgstr "Panggilan tak terjawab dari {}."
+
+msgid "Call ended with {}\r\nDuration: {}"
+msgstr "Panggilan berakhir dengan {}\r\nDurasi: {}"
+
+msgid "Call ended with {}"
+msgstr "Panggilan berakhir dengan {}"
+
+msgid "Could not register the call key {}; another program is using it"
+msgstr "Tidak dapat mendaftarkan tombol panggilan {}; program lain sedang menggunakannya"
+
+msgid "In {}"
+msgstr "Di {}"
+
+msgid "{} unread messages"
+msgstr "{} pesan belum dibaca"
+
+msgid "{} reacted with {} to: {}"
+msgstr "{} bereaksi {} ke: {}"
+
+msgid "Parse error: {} for json: {}"
+msgstr "Kesalahan penguraian: {} untuk json: {}"
+
+msgid "Message from {}"
+msgstr "Pesan dari {}"
+
+msgid "Couldn't mark {} as read. Check your connection and try again."
+msgstr "Tidak dapat menandai {} sebagai sudah dibaca. Periksa koneksi Anda lalu coba lagi."
+
+msgid "Status: Exporting chat... {}/{}"
+msgstr "Status: Mengekspor chat... {}/{}"
+
+msgid "Chat text exported to {}. {} messages."
+msgstr "Teks chat diekspor ke {}. {} pesan."
+
+msgid "Chat exported to {}. {} media files included, {} could not be downloaded and were skipped."
+msgstr "Chat diekspor ke {}. {} file media disertakan, {} tidak dapat diunduh dan dilewati."
+
+msgid "Chat exported to {}. {} media files included."
+msgstr "Chat diekspor ke {}. {} file media disertakan."
+
+msgid "{} is recording audio..."
+msgstr "{} sedang merekam audio..."
+
+msgid "{} is typing..."
+msgstr "{} sedang mengetik..."
+
+msgid "{} (last seen {})"
+msgstr "{} (terakhir dilihat {})"
+
+msgid "{}, last seen {}"
+msgstr "{}, terakhir dilihat {}"
+
+msgid "{} is now online"
+msgstr "{} sekarang online"
+
+msgid "Sent: {}"
+msgstr "Terkirim: {}"
+
+msgid "Message edited: {}"
+msgstr "Pesan diedit: {}"
+
+msgid "Reaction removed by {}"
+msgstr "Reaksi dihapus oleh {}"
+
+msgid "{} reacted with {}"
+msgstr "{} bereaksi dengan {}"
+
+msgid "Reacted {} to \"{}\""
+msgstr "Bereaksi {} ke \"{}\""
+
+msgid "Reacted {}"
+msgstr "Bereaksi {}"
+
+msgid "Copied {} files to clipboard."
+msgstr "Menyalin {} file ke papan klip."
+
+msgid "{} downloaded"
+msgstr "{} diunduh"
+
+msgid "Download {}%"
+msgstr "Mengunduh {}%"
+
+msgid "Download failed: {}"
+msgstr "Unduhan gagal: {}"
+
+msgid "File saved to {}"
+msgstr "File disimpan ke {}"
+
+msgid "%b %e, %Y"
+msgstr "%e %b %Y"
+
+msgid "{}, tag: {}"
+msgstr "{}, label: {}"
+
+msgid "Groups in {}"
+msgstr "Grup di {}"
+
+msgid "Your tag is now {}."
+msgstr "Label Anda sekarang {}."
+
+msgid "Joined {}."
+msgstr "Bergabung ke {}."
+
+msgid "{}\n{} member(s)"
+msgstr "{}\n{} anggota"
+
+msgid "Following {}. It's in the Channels tab, Alt+6."
+msgstr "Mengikuti {}. Saluran ini ada di tab Saluran, Alt+6."
+
+msgid "Unfollowed {}."
+msgstr "Berhenti mengikuti {}."
+
+msgid "Name: {}\nPhone: {}\n"
+msgstr "Nama: {}\nTelepon: {}\n"
+
+msgid "Conversation data loaded for {}"
+msgstr "Data percakapan dimuat untuk {}"
+
+msgid "whatSnap was logged out of WhatsApp: {}"
+msgstr "whatSnap dikeluarkan dari WhatsApp: {}"
+
+msgid "Pairing code updated: {}"
+msgstr "Kode penautan diperbarui: {}"
+
+msgid "Status: {} Reconnecting..."
+msgstr "Status: {} Menghubungkan ulang..."
+
+msgid "Status: Offline. {} Retrying in {} seconds."
+msgstr "Status: Offline. {} Mencoba lagi dalam {} detik."
+
+msgid "Status: Offline. {} Retrying in {} minutes."
+msgstr "Status: Offline. {} Mencoba lagi dalam {} menit."
+
+msgid "Status: Offline. {} Retrying in {} hours."
+msgstr "Status: Offline. {} Mencoba lagi dalam {} jam."
+
+msgid "Status: Offline. {} Retrying automatically."
+msgstr "Status: Offline. {} Mencoba lagi secara otomatis."
+
+msgid "{} whatSnap will keep trying to reconnect."
+msgstr "{} whatSnap akan terus mencoba menghubungkan kembali."
+
+msgid "Status: Connected (Syncing older messages, {}% complete: {} messages, {} chats so far)"
+msgstr "Status: Terhubung (Menyinkronkan pesan lama, {}% selesai: {} pesan, {} chat sejauh ini)"
+
+msgid "Status: Connected (Syncing history... {} messages, {} chats so far)"
+msgstr "Status: Terhubung (Menyinkronkan riwayat... {} pesan, {} chat sejauh ini)"
+
+msgid "{}: deleted this message, received at {}"
+msgstr "{}: menghapus pesan ini, diterima pukul {}"
+
+msgid "{}: deleted this message"
+msgstr "{}: menghapus pesan ini"
+
+msgid ", replied to quoted message: \"{}\""
+msgstr ", membalas pesan yang dikutip: \"{}\""
+
+msgid ", replied to quoted message from {}: \"{}\""
+msgstr ", membalas pesan yang dikutip dari {}: \"{}\""
+
+msgid ", edited"
+msgstr ", diedit"
+
+msgid "{}: {}{}{} received at {}{}{}{}"
+msgstr "{}: {}{}{} diterima pukul {}{}{}{}"
+
+msgid "Album: {} photos"
+msgstr "Album: {} foto"
+
+msgid "Album: {} videos"
+msgstr "Album: {} video"
+
+msgid "Album: {} media items"
+msgstr "Album: {} media"
+
+msgid "{} photos"
+msgstr "{} foto"
+
+msgid "{} videos"
+msgstr "{} video"
+
+msgid "{} media items"
+msgstr "{} media"
+
+msgid "{}: [Album: {}], received at {}{}"
+msgstr "{}: [Album: {}], diterima pukul {}{}"
+
+msgid "{}: [Album: {}]{}"
+msgstr "{}: [Album: {}]{}"
+
+msgid "Delete all messages in the chat with {}? The chat itself will stay in your list."
+msgstr "Hapus semua pesan di chat dengan {}? Chat ini akan tetap ada di daftar Anda."
+
+msgid "Delete chat with {}?"
+msgstr "Hapus chat dengan {}?"
+
+msgid "Are you sure you want to delete chat with {}?"
+msgstr "Yakin ingin menghapus chat dengan {}?"
+
+msgid "Notifications for {}"
+msgstr "Setelan notifikasi untuk {}"
+
+msgid "Blocked contacts ({})"
+msgstr "Kontak diblokir ({})"
+
+msgid "Unblocking {}..."
+msgstr "Membuka blokir {}..."
+
+msgid "Picture: {} (change...)"
+msgstr "Foto: {} (ubah...)"
+
+msgid "Picture chosen: {}."
+msgstr "Foto dipilih: {}."
+
+msgid "Followers of {}"
+msgstr "Pengikut {}"
+
+msgid "Invite {} to be an admin of this channel? They'll get the invite in your chat with them, and become an admin once they accept it."
+msgstr "Undang {} menjadi admin saluran ini? Mereka akan menerima undangan di chat Anda dengan mereka, dan menjadi admin setelah menerimanya."
+
+msgid "Remove {} as an admin of this channel?"
+msgstr "Hapus {} sebagai admin saluran ini?"
+
+msgid "Make {} the owner of this channel? You'll become an admin, and only the new owner can undo this."
+msgstr "Jadikan {} pemilik saluran ini? Anda akan menjadi admin, dan hanya pemilik baru yang dapat membatalkannya."
+
+msgid "Pending admin invites for {}"
+msgstr "Undangan admin tertunda untuk {}"
+
+msgid "Cancel the invite for {} to be an admin of this channel?"
+msgstr "Batalkan undangan untuk {} agar menjadi admin saluran ini?"
+
+msgid "{} followers"
+msgstr "{} pengikut"
+
+msgid " in {}"
+msgstr " di {}"
+
+msgid "Loading recommended channels{}..."
+msgstr "Memuat saluran rekomendasi{}..."
+
+msgid "No channels found for {}."
+msgstr "Tidak ada saluran untuk {}."
+
+msgid "{} more channels."
+msgstr "{} saluran tambahan."
+
+msgid "{} channels."
+msgstr "{} saluran."
+
+msgid "Notification settings for {}"
+msgstr "Setelan notifikasi untuk {}"
+
+msgid "{}: My Contacts Except..."
+msgstr "{}: Kontak Saya Kecuali..."
+
+msgid "{} shown. {}"
+msgstr "{} ditampilkan. {}"
+
+msgid "Scheduled for {}: {}"
+msgstr "Dijadwalkan untuk {}: {}"
+
+msgid "Did not send, {}: {}"
+msgstr "Tidak terkirim, {}: {}"
+
+msgid "Couldn't be scheduled, {}: {}"
+msgstr "Tidak dapat dijadwalkan, {}: {}"
+
+msgid "Scheduled messages ({}, {} of {} waiting)"
+msgstr "Pesan terjadwal ({}, {} dari {} menunggu)"
+
+msgid "Scheduled messages for {}"
+msgstr "Pesan terjadwal untuk {}"
+
+msgid "Sending: {}"
+msgstr "Mengirim: {}"
+
+msgid "Send to (up to {})"
+msgstr "Kirim ke (maksimal {})"
+
+msgid "You can only send to {} chats at once. {} not selected."
+msgstr "Anda hanya dapat mengirim ke {} chat sekaligus. {} tidak dipilih."
+
+msgid "{}: selected. {}"
+msgstr "{}: dipilih. {}"
+
+msgid "{}: not selected. {}"
+msgstr "{}: tidak dipilih. {}"
+
+msgid "{} / 700 characters"
+msgstr "{} / 700 karakter"
+
+msgid "Background colour: {}"
+msgstr "Warna latar: {}"
+
+msgid "Font style: {}"
+msgstr "Gaya font: {}"
+
+msgid "Inserted {}"
+msgstr "{} disisipkan"
+
+msgid "1 emoji: {}"
+msgstr "1 emoji: {}"
+
+msgid "{} emoji."
+msgstr "{} emoji."
+
+msgid "{}, by {}"
+msgstr "{}, oleh {}"
+
+msgid "Loading {}..."
+msgstr "Memuat {}..."
+
+msgid "{} stickers."
+msgstr "{} stiker."
+
+msgid "0:00 of 0:00"
+msgstr "0:00 dari 0:00"
+
+msgid "Speed {}x"
+msgstr "Kecepatan {}x"
+
+msgid "{} of {}"
+msgstr "{} dari {}"
+
+msgid "{} | Draft: {}"
+msgstr "{} | Draf: {}"
+
+msgid "No {} chats"
+msgstr "Tidak ada chat di {}"
+
+msgid "Cancel download ({}%)"
+msgstr "Batalkan unduhan ({}%)"
+
+msgid "Downloading album ({} items remaining)"
+msgstr "Mengunduh album ({} item tersisa)"
+
+msgid "Download album ({} items remaining, {})"
+msgstr "Unduh album ({} item tersisa, {})"
+
+msgid "Download album ({} items remaining)"
+msgstr "Unduh album ({} item tersisa)"
+
+msgid "Cancel upload, {}% complete"
+msgstr "Batalkan unggahan, {}% selesai"
+
+msgid "Misspelled: {}"
+msgstr "Salah eja: {}"
+
+msgid " You reacted {}."
+msgstr " Anda bereaksi {}."
+
+msgid "{}, {} of {}, {}"
+msgstr "{}, {} dari {}, {}"
+
+msgid "Reply sent to {}."
+msgstr "Balasan dikirim ke {}."
+
+msgid "Reacted {}."
+msgstr "Bereaksi {}."
+
+msgid "{}, status {} of {}, posted {}. {}"
+msgstr "{}, status {} dari {}, dikirim {}. {}"
+
+msgid "Un&mute {}"
+msgstr "&Bunyikan {}"
+
+msgid "&Mute {}"
+msgstr "&Bisukan {}"
+
+msgid "You reacted {}."
+msgstr "Anda bereaksi {}."
+
+msgid "Couldn't save the file: {}"
+msgstr "Tidak dapat menyimpan file: {}"
+
+msgid "&Message {}"
+msgstr "&Kirim pesan ke {}"
+
+msgid "Failed to write backup file:\n{}"
+msgstr "Gagal menulis file cadangan:\n{}"
+
+msgid "Failed to format settings:\n{}"
+msgstr "Gagal memformat setelan:\n{}"
+
+msgid "Failed to read backup file:\n{}"
+msgstr "Gagal membaca file cadangan:\n{}"
+
+msgid "The selected file could not be restored:\n{}"
+msgstr "File yang dipilih tidak dapat dipulihkan:\n{}"
+
+msgid "Choose the contacts excluded from {} first, with the button under it."
+msgstr "Pilih terlebih dahulu kontak yang dikecualikan dari {}, dengan tombol di bawahnya."
+
+msgid "Are you sure you want to leave {}?"
+msgstr "Anda yakin ingin keluar dari {}?"
+
+msgid "&Call {}"
+msgstr "&Telepon {}"
+
+msgid "&User actions for {}"
+msgstr "Tindakan &pengguna untuk {}"
+
+msgid "Replying to {}: {}"
+msgstr "Membalas {}: {}"
+
+msgid "Replying to {}: {}. Type your reply and press Enter."
+msgstr "Membalas {}: {}. Ketik balasan Anda lalu tekan Enter."
+
+msgid "Log {} out of WhatsApp on this computer? You'll need to scan a QR code or enter its phone number to use it in whatSnap again."
+msgstr "Keluarkan {} dari WhatsApp di komputer ini? Anda harus memindai kode QR atau memasukkan nomor teleponnya untuk menggunakannya di whatSnap lagi."
+
+msgid "This phone number is already linked in whatSnap as {}, so the new link is being removed."
+msgstr "Nomor telepon ini sudah ditautkan di whatSnap sebagai {}, sehingga tautan baru ini dihapus."
+
+msgid "{} was logged out of WhatsApp: {}"
+msgstr "{} keluar dari WhatsApp: {}"
+
+msgid "{} is calling {}."
+msgstr "{} menelepon {}."
+
+msgid "Switched to {}."
+msgstr "Beralih ke {}."
+
+msgid "Couldn't add an account: {}"
+msgstr "Tidak dapat menambahkan akun: {}"
+
+msgid "Remove {} from whatSnap?\n\nThis logs it out of WhatsApp on this computer and deletes its messages and media saved here. Your phone keeps its chats."
+msgstr "Hapus {} dari whatSnap?\n\nTindakan ini akan mengeluarkan akun dari WhatsApp di komputer ini serta menghapus pesan dan media yang tersimpan di sini. Chat di ponsel Anda tetap aman."
+
+msgid "Remove {} from whatSnap?"
+msgstr "Hapus {} dari whatSnap?"
+
+msgid "Removed {}."
+msgstr "Akun {} dihapus."
+
+msgid "Downloading {}"
+msgstr "Mengunduh {}"
+
+msgid "Downloading album of {} files..."
+msgstr "Mengunduh album berisi {} file..."
+
+msgid "Video from {}"
+msgstr "Video dari {}"
+
+msgid "Block {}? They won't be able to call you or send you messages. They won't be told."
+msgstr "Blokir {}? Mereka tidak akan dapat menelepon atau mengirimi Anda pesan. Mereka tidak akan diberi tahu."
+
+msgid "Blocking {}..."
+msgstr "Memblokir {}..."
+
+msgid "{} is already blocked."
+msgstr "{} sudah diblokir."
+
+msgid "You blocked {}. Unblock them to message or call them?"
+msgstr "Anda memblokir {}. Buka blokir mereka untuk mengirim pesan atau menelepon?"
+
+msgid "Sending {}..."
+msgstr "Mengirim {}..."
+
+msgid "{}'s catalogue"
+msgstr "Katalog {}"
+
+msgid "{}, wants to join"
+msgstr "{}, ingin bergabung"
+
+msgid "{} muted you."
+msgstr "{} membisukan Anda."
+
+msgid "{} reacted {}."
+msgstr "{} memberi reaksi {}."
+
+msgid "Starting group call in {}"
+msgstr "Memulai panggilan grup di {}"
+
+msgid "Incoming call from {}"
+msgstr "Panggilan masuk dari {}"
+
+msgid "Couldn't share your computer's sound: {}"
+msgstr "Tidak dapat membagikan suara komputer Anda: {}"
+
+msgid "Couldn't share the screen: {}"
+msgstr "Tidak dapat membagikan layar: {}"
+
+msgid "Couldn't start the camera: {}"
+msgstr "Tidak dapat menyalakan kamera: {}"
+
+msgid "Delete {} from your contacts? They'll be removed from your phone's contacts too."
+msgstr "Hapus {} dari kontak Anda? Kontak ini juga akan dihapus dari kontak ponsel Anda."
+
+msgid "You invited {} to be an admin of {}. Cancel this invite?"
+msgstr "Anda mengundang {} menjadi admin di {}. Batalkan undangan ini?"
+
+msgid "This invite to be an admin of {} has expired."
+msgstr "Undangan untuk menjadi admin di {} ini telah kedaluwarsa."
+
+msgid "{} invited you to be an admin of the channel {}."
+msgstr "{} mengundang Anda menjadi admin saluran {}."
+
+msgid "Channel {} created."
+msgstr "Saluran {} dibuat."
+
+msgid "{} was deleted."
+msgstr "{} telah dihapus."
+
+msgid "Inviting {} to be an admin..."
+msgstr "Mengundang {} menjadi admin..."
+
+msgid "Removing {} as admin..."
+msgstr "Menghapus {} sebagai admin..."
+
+msgid "Making {} the owner..."
+msgstr "Menjadikan {} pemilik saluran..."
+
+msgid "Cancelling the invite for {}..."
+msgstr "Membatalkan undangan untuk {}..."
+
+msgid "Going to {}."
+msgstr "Membuka tanggal {}."
+
+msgid "Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading..."
+msgstr "Nama: {}\nTelepon: {}\n{}Nama WhatsApp: Memuat...\nInfo/Status: Memuat..."
+
+msgid "Make new messages in {} disappear after:"
+msgstr "Buat pesan baru di {} menghilang setelah:"
+
+msgid "Archived alerts for {} set to {}."
+msgstr "Peringatan arsip untuk {} diatur ke {}."
+
+msgid "Chat {} deleted."
+msgstr "Chat {} dihapus."
+
+msgid "Left and deleted chat {}."
+msgstr "Keluar dan menghapus chat {}."
+
+msgid "Chat {} cleared."
+msgstr "Chat {} dibersihkan."
+
+msgid "Lists {} is in"
+msgstr "Daftar yang berisi {}"
+
+msgid "Name a new list for {}:"
+msgstr "Beri nama daftar baru untuk {}:"
+
+msgid "Chats in {}"
+msgstr "Chat di {}"
+
+msgid "Delete the list {}? The chats in it stay as they are."
+msgstr "Hapus daftar {}? Chat di dalamnya tetap ada seperti biasa."
+
+msgid "Add Chats to {}"
+msgstr "Tambahkan Chat ke {}"
+
+msgid "created"
+msgstr "dibuat"
+
+msgid "renamed"
+msgstr "diganti namanya"
+
+msgid "List {} {}."
+msgstr "Daftar {} {}."
+
+msgid "List {} deleted."
+msgstr "Daftar {} dihapus."
+
+msgid "Make {} an admin for \"{}\" group?"
+msgstr "Jadikan {} sebagai admin untuk grup \"{}\"?"
+
+msgid "Remove {} from \"{}\" group?"
+msgstr "Keluarkan {} dari grup \"{}\"?"
+
+msgid "Left group {}."
+msgstr "Keluar dari grup {}."
+
+msgid "Remove {} from the community? It stays a group of its own, and its members leave the community."
+msgstr "Keluarkan {} dari komunitas? Grup ini tetap ada sebagai grup mandiri, dan anggotanya keluar dari komunitas."
+
+msgid "Community {} created."
+msgstr "Komunitas {} dibuat."
+
+msgid "{}, asked {}"
+msgstr "{}, meminta pada {}"
+
+msgid "Your reply to {} wasn't sent because you blocked them."
+msgstr "Balasan Anda kepada {} tidak terkirim karena Anda memblokirnya."
+
+msgid "Your reply to {} wasn't sent. {}."
+msgstr "Balasan Anda kepada {} tidak terkirim. {}."
+
+msgid "Send {}"
+msgstr "Kirim {}"
+
+msgid "Send {} files"
+msgstr "Kirim {} file"
+
+msgid "Sending to {}."
+msgstr "Mengirim ke {}."
+
+msgid "Sent to {}."
+msgstr "Terkirim ke {}."
+
+msgid "Anyone with this link can join {}."
+msgstr "Siapa saja yang memiliki tautan ini dapat bergabung ke {}."
+
+msgid "Follow this link to join my WhatsApp group: {}"
+msgstr "Ikuti tautan ini untuk bergabung ke grup WhatsApp saya: {}"
+
+msgid "Couldn't get the security code with {}. {}"
+msgstr "Tidak dapat mengambil kode keamanan dengan {}. {}"
+
+msgid "Security code with {}"
+msgstr "Kode keamanan dengan {}"
+
+msgid "To check that your messages and calls with {} are end-to-end encrypted, compare these 60 numbers with the ones on their phone, or let them scan the QR code with their phone. The code is the same on all your devices."
+msgstr "Untuk memastikan pesan dan panggilan Anda dengan {} terenkripsi ujung-ke-ujung, bandingkan 60 angka ini dengan yang ada di ponselnya, atau minta ia memindai kode QR dengan ponselnya. Kode ini sama di semua perangkat Anda."
+
+msgid "{}, {} of {}"
+msgstr "{}, {} dari {}"
+
+msgid "Mention suggestions. {}"
+msgstr "Saran sebutan. {}"
+
+msgid "{} mentioned"
+msgstr "{} disebut"
+
+msgid "Couldn't restart whatSnap automatically:\n{}\n\nPlease close and reopen the app manually."
+msgstr "Gagal memulai ulang whatSnap secara otomatis:\n{}\n\nSilakan tutup lalu buka ulang aplikasi secara manual."
+
+msgid "You've already answered this quiz: {}."
+msgstr "Anda sudah menjawab kuis ini: {}."
+
+msgid "Report this message to WhatsApp? WhatsApp receives this message. {} won't be notified."
+msgstr "Laporkan pesan ini ke WhatsApp? WhatsApp akan menerima pesan ini. {} tidak akan diberi tahu."
+
+msgid "Report {} to WhatsApp? WhatsApp receives the last message they sent you. They won't be notified."
+msgstr "Laporkan {} ke WhatsApp? WhatsApp akan menerima pesan terakhir yang dikirimnya kepada Anda. Ia tidak akan diberi tahu."
+
+msgid "Report {} to WhatsApp? WhatsApp receives the most recent message someone else sent here. The group won't be notified."
+msgstr "Laporkan {} ke WhatsApp? WhatsApp akan menerima pesan terbaru yang dikirim orang lain di sini. Grup tidak akan diberi tahu."
+
+msgid "Report and block {}"
+msgstr "Laporkan dan blokir {}"
+
+msgid "{}{}. Reported by {}"
+msgstr "{}{}. Dilaporkan oleh {}"
+
+msgid "Delete message from {}?"
+msgstr "Hapus pesan dari {}?"
+
+msgid "As an admin, you are deleting {}'s message for everyone in this chat. They will see that you deleted the message."
+msgstr "Sebagai admin, Anda menghapus pesan {} untuk semua orang di chat ini. Mereka akan melihat bahwa Anda menghapus pesan ini."
+
+msgid "Message forwarded to {}."
+msgstr "Pesan diteruskan ke {}."
+
+msgid "Are you sure you want to unstar all {} starred messages?"
+msgstr "Yakin ingin menghapus bintang dari semua {} pesan berbintang?"
+
+msgid "Un&mute {}'s status updates"
+msgstr "&Bunyikan pembaruan status {}"
+
+msgid "&Mute {}'s status updates"
+msgstr "&Bisukan pembaruan status {}"
+
+msgid "Remove my reaction ({})"
+msgstr "Hapus reaksi saya ({})"
+
+msgid "Replying to {}'s status: {}"
+msgstr "Membalas status {}: {}"
+
+msgid "{}. Type your reply and press Enter."
+msgstr "{}. Ketik balasan Anda lalu tekan Enter."
+
+msgid "{} reacted {} to your status."
+msgstr "{} memberi reaksi {} pada status Anda."
+
+msgid "Open chat with {}?"
+msgstr "Buka chat dengan {}?"
+
+msgid "Volume {}%"
+msgstr "Volume {}%"
+
+msgid "Channels like {}"
+msgstr "Saluran serupa {}"
+
+msgid "Loading channels like {}..."
+msgstr "Memuat saluran serupa {}..."
+
+msgid "Mute {}"
+msgstr "Bisukan {}"
+
+msgid "Remove {}"
+msgstr "Keluarkan {}"
+
+msgid "Removing {} from the call."
+msgstr "Mengeluarkan {} dari panggilan."
+
+msgid "Asking {} to mute."
+msgstr "Meminta {} untuk membisukan."
+
+msgid "&Open chat with {}"
+msgstr "&Buka chat dengan {}"
+
+msgid "&Reply to {}"
+msgstr "&Balas {}"
+
+msgid ", reacted {}"
+msgstr ", bereaksi {}"
+
+msgid "{} updates"
+msgstr "{} pembaruan"
+
+msgid "{} new"
+msgstr "{} baru"
+
+msgid "My status: {}"
+msgstr "Status saya: {}"
+
+msgid "you reacted {}"
+msgstr "Anda bereaksi {}"
+
+msgid "{} message selected"
+msgstr "{} pesan dipilih"
+
+msgid "{} messages selected"
+msgstr "{} pesan dipilih"
+
+msgid "{} shown. {} contact selected."
+msgstr "{} ditampilkan. {} kontak dipilih."
+
+msgid "{} shown. {} contacts selected."
+msgstr "{} ditampilkan. {} kontak dipilih."
+
+msgid "{}: {}. {} contact selected."
+msgstr "{}: {}. {} kontak dipilih."
+
+msgid "{}: {}. {} contacts selected."
+msgstr "{}: {}. {} kontak dipilih."
+
+msgid "selected"
+msgstr "dipilih"
+
+msgid "not selected"
+msgstr "tidak dipilih"
+
+msgid " {} couldn't be saved."
+msgstr " {} tidak dapat disimpan."
+
+msgid " Downloading {} more."
+msgstr " Mengunduh {} lainnya."
+
+msgid "Saved {} to {}."
+msgstr "{} disimpan ke {}."
+
+msgid "{} forwarded to {}."
+msgstr "{} diteruskan ke {}."
+
+msgid "{} deleted."
+msgstr "{} dihapus."
+
+msgid "{} kept."
+msgstr "{} disimpan."
+
+msgid "{} unkept."
+msgstr "Penyimpanan {} dibatalkan."
+
+msgid "{} starred."
+msgstr "{} dibintangi."
+
+msgid "{} unstarred."
+msgstr "Bintang {} dihapus."
+
+msgid "Copied {} to clipboard."
+msgstr "{} disalin ke papan klip."
+
+msgid "message"
+msgstr "pesan"
+
+msgid "messages"
+msgstr "pesan"
+
+msgid "file"
+msgstr "file"
+
+msgid "files"
+msgstr "file"
+
+msgid "Chat {} marked as read."
+msgstr "Chat {} ditandai sudah dibaca."
+
+msgid "Chat {} marked as unread."
+msgstr "Chat {} ditandai belum dibaca."
+
+msgid "Notifications from {} muted{}."
+msgstr "Notifikasi dari {} dibisukan{}."
+
+msgid "Notifications from {} unmuted."
+msgstr "Notifikasi dari {} dibunyikan."
+
+msgid " for 8 hours"
+msgstr " selama 8 jam"
+
+msgid " for 1 week"
+msgstr " selama 1 minggu"
+
+msgid ", message content hidden"
+msgstr ", isi pesan disembunyikan"
+
+msgid "Notifications for {}: {}{}."
+msgstr "Notifikasi untuk {}: {}{}."
+
+msgid "Call {}"
+msgstr "Telepon {}"
+
+msgid "Video call {}"
+msgstr "Panggilan video {}"
+
+msgid "Chat {} archived."
+msgstr "Chat {} diarsipkan."
+
+msgid "Chat {} unarchived."
+msgstr "Arsip chat {} dibatalkan."
+
+msgid "Chat {} pinned."
+msgstr "Chat {} disematkan."
+
+msgid "Chat {} unpinned."
+msgstr "Sematan chat {} dilepas."
+
+msgid "Locked chat {}."
+msgstr "Chat {} dikunci."
+
+msgid "Unlocked chat {}."
+msgstr "Kunci chat {} dibuka."
+
+msgid "Disappearing messages turned off for {}."
+msgstr "Pesan sementara dimatikan untuk {}."
+
+msgid "Disappearing messages set to {} for {}."
+msgstr "Pesan sementara diatur ke {} untuk {}."
+
+msgid "Join my WhatsApp {} call: {}"
+msgstr "Gabung ke panggilan {} WhatsApp saya: {}"
+
+msgid "voice"
+msgstr "suara"
+
+msgid "video"
+msgstr "video"
+
+msgid "Anyone with WhatsApp can use this link to join your {} call."
+msgstr "Siapa saja yang memiliki WhatsApp dapat menggunakan tautan ini untuk bergabung ke panggilan {} Anda."
+
+msgid "{} wants to join the call. Choose Let in or Don't let in under People."
+msgstr "{} ingin bergabung ke panggilan. Pilih Izinkan masuk atau Tolak masuk di bagian Orang."
+
+msgid "{} want to join the call. Choose Let in or Don't let in under People."
+msgstr "{} ingin bergabung ke panggilan. Pilih Izinkan masuk atau Tolak masuk di bagian Orang."
+
+msgid "{} raised their hand."
+msgstr "{} mengangkat tangan."
+
+msgid "{} lowered their hand."
+msgstr "{} menurunkan tangan."
+
+msgid "{} asking to join:"
+msgstr "{} meminta bergabung:"
+
+msgid "person"
+msgstr "orang"
+
+msgid "people"
+msgstr "orang"
+
+msgid "Approve everyone ({})"
+msgstr "Setujui semua ({})"
+
+msgid "Reject everyone ({})"
+msgstr "Tolak semua ({})"
+
+msgid "Approved {}."
+msgstr "Disetujui {}."
+
+msgid "Rejected {}."
+msgstr "Ditolak {}."
+
+msgid " {} couldn't be."
+msgstr " {} tidak dapat diproses."
+
+msgid " started by {}"
+msgstr " dimulai oleh {}"
+
+msgid ", 1 person in it"
+msgstr ", 1 orang bergabung"
+
+msgid ", {} people in it"
+msgstr ", {} orang bergabung"
+
+msgid "Send message history to {}?\n\n{} will get {} from this group."
+msgstr "Kirim riwayat pesan ke {}?\n\n{} akan menerima {} dari grup ini."
+
+msgid "recent message"
+msgstr "pesan terbaru"
+
+msgid "recent messages"
+msgstr "pesan terbaru"
+
+msgid "Message history sent to {}: {}."
+msgstr "Riwayat pesan dikirim ke {}: {}."
+
+msgid ", {} unread chat"
+msgstr ", {} chat belum dibaca"
+
+msgid ", {} unread chats"
+msgstr ", {} chat belum dibaca"
+
+msgid " You can send up to {} files at once; {} file weren't sent."
+msgstr " Anda dapat mengirim maksimal {} file sekaligus; {} file tidak dikirim."
+
+msgid " You can send up to {} files at once; {} files weren't sent."
+msgstr " Anda dapat mengirim maksimal {} file sekaligus; {} file tidak dikirim."
+
+msgid "Couldn't block {}: {}"
+msgstr "Tidak dapat memblokir {}: {}"
+
+msgid "Couldn't unblock {}: {}"
+msgstr "Tidak dapat membuka blokir {}: {}"
+
+msgid "{} blocked."
+msgstr "{} diblokir."
+
+msgid "{} unblocked."
+msgstr "Blokir {} dibuka."
+
+msgid "{} {} of {}{}"
+msgstr "{} {} dari {}{}"
+
+msgid ", not downloaded"
+msgstr ", belum diunduh"
+
+msgid "Saved {} {} to folder."
+msgstr "{} {} disimpan ke folder."
+
+msgid "Sending {} contact..."
+msgstr "Mengirim {} kontak..."
+
+msgid "Sending {} contacts..."
+msgstr "Mengirim {} kontak..."
+
+msgid "You can send up to {} files at once; {} file weren't added."
+msgstr "Anda dapat mengirim maksimal {} file sekaligus; {} file tidak ditambahkan."
+
+msgid "You can send up to {} files at once; {} files weren't added."
+msgstr "Anda dapat mengirim maksimal {} file sekaligus; {} file tidak ditambahkan."
+
+msgid "1 group in common"
+msgstr "1 grup bersama"
+
+msgid "{} groups in common"
+msgstr "{} grup bersama"
+
+msgid "Chats in {}: none yet"
+msgstr "Chat di {}: belum ada"
+
+msgid "Chats in {} ({})"
+msgstr "Chat di {} ({})"
+
+msgid "Your lists: none yet"
+msgstr "Daftar Anda: belum ada"
+
+msgid "Your lists ({})"
+msgstr "Daftar Anda ({})"
+
+msgid "{} added to {}."
+msgstr "{} ditambahkan ke {}."
+
+msgid "{} removed from {}."
+msgstr "{} dihapus dari {}."
+
+msgid "{} added to favorites."
+msgstr "{} ditambahkan ke favorit."
+
+msgid "{} removed from favorites."
+msgstr "{} dihapus dari favorit."
+
+msgid "1 chat"
+msgstr "1 chat"
+
+msgid "{} chats"
+msgstr "{} chat"
+
+msgid "Viewed by {} {}"
+msgstr "Dilihat oleh {} {}"
+
+msgid "{}'s status updates muted."
+msgstr "Pembaruan status {} dibisukan."
+
+msgid "{}'s status updates unmuted."
+msgstr "Pembaruan status {} dibunyikan."
+
+msgid "1 view"
+msgstr "1 dilihat"
+
+msgid "{} views"
+msgstr "{} dilihat"
+
+msgid "photos"
+msgstr "foto"
+
+msgid "videos"
+msgstr "video"
+
+msgid "media files"
+msgstr "file media"
+
+msgid "Products (first {})"
+msgstr "Produk ({} pertama)"
+
+msgid "Products ({})"
+msgstr "Produk ({})"
+
+msgid " to "
+msgstr " sampai "
+
+msgid ", {} on sale"
+msgstr ", {} diskon"
+
+msgid ", was {}"
+msgstr ", sebelumnya {}"
+
+msgid "{} copied: {}"
+msgstr "{} disalin: {}"
+
+msgid "Number"
+msgstr "Nomor"
+
+msgid "Code"
+msgstr "Kode"
+
+msgid "1 option"
+msgstr "1 pilihan"
+
+msgid "{} options"
+msgstr "{} pilihan"
+
+msgid ", phone number {}"
+msgstr ", nomor telepon {}"
+
+msgid "Votes: {}"
+msgstr "Suara: {}"
+
+msgid "No one has voted in this poll yet."
+msgstr "Belum ada yang memilih di polling ini."
+
+msgid "1 vote"
+msgstr "1 suara"
+
+msgid "{} votes"
+msgstr "{} suara"
+
+msgid "No one has reacted to this post yet."
+msgstr "Belum ada yang bereaksi ke postingan ini."
+
+msgid "1 reaction"
+msgstr "1 reaksi"
+
+msgid "{} reactions"
+msgstr "{} reaksi"
+
+msgid "No admin invites are waiting to be accepted."
+msgstr "Tidak ada undangan admin yang menunggu diterima."
+
+msgid "1 invite waiting to be accepted"
+msgstr "1 undangan menunggu diterima"
+
+msgid "{} invites waiting to be accepted"
+msgstr "{} undangan menunggu diterima"
+
+msgid "no admins besides the owner"
+msgstr "tidak ada admin selain pemilik"
+
+msgid "1 admin"
+msgstr "1 admin"
+
+msgid "{} admins"
+msgstr "{} admin"
+
+msgid "{} shown, {}"
+msgstr "{} ditampilkan, {}"
+
+msgid "Loading {} channels{}..."
+msgstr "Memuat saluran {}{}..."
+
+msgid "Post {} status. Selected file: {}. Type optional caption, or press Ctrl+Enter to post."
+msgstr "Posting status {}. File yang dipilih: {}. Ketik keterangan opsional, atau tekan Ctrl+Enter untuk memposting."
+
+msgid "photo"
+msgstr "foto"
+
+msgid "&Viewed by {} {}"
+msgstr "&Dilihat oleh {} {}"
+
+msgid "&Add \"{}\" to Dictionary"
+msgstr "&Tambahkan \"{}\" ke Kamus"
+
+msgid "&Ignore \"{}\""
+msgstr "&Abaikan \"{}\""
+
+msgid "No chats selected."
+msgstr "Belum ada chat yang dipilih."
+
+msgid "1 chat selected."
+msgstr "1 chat dipilih."
+
+msgid "{} chats selected."
+msgstr "{} chat dipilih."
+
+msgid "{} view"
+msgstr "{} tayangan"
+
+msgid "Still loading who's excluded from {}. Try again in a moment."
+msgstr "Masih memuat siapa yang dikecualikan dari {}. Coba lagi sebentar lagi."
+
+msgid "Couldn't load who's excluded from {} right now, so it can't be changed. Try again later. ({})"
+msgstr "Tidak dapat memuat siapa yang dikecualikan dari {} saat ini, sehingga tidak dapat diubah. Coba lagi nanti. ({})"
+
+msgid "Replace text with emoji turns these into emoji as soon as you type their last character. Press Backspace straight after to get the text back. You can turn it off on the Chats tab of Settings."
+msgstr "Ganti teks menjadi emoji akan langsung mengubah karakter berikut menjadi emoji begitu huruf terakhirnya diketik. Tekan Backspace tepat setelahnya untuk mengembalikan teks. Anda bisa menonaktifkannya di tab Chat pada Setelan."
+
+msgid "Type {} for {} {}. Example: \"{}\" becomes \"{}\"."
+msgstr "Ketik {} untuk {} {}. Contoh: \"{}\" menjadi \"{}\"."
+
+msgid "Answer sent. {}"
+msgstr "Jawaban terkirim. {}"
+
+msgid "  {} voted {}"
+msgstr "  {} memilih {}"
+
+msgid " and "
+msgstr " dan "
+
+msgid "1 new message"
+msgstr "1 pesan baru"
+
+msgid "{} new messages"
+msgstr "{} pesan baru"
+
+msgid ", {} mentions"
+msgstr ", {} sebutan"
+
+msgid "{}: [Album: {}], sent at {}{}"
+msgstr "{}: [Album: {}], dikirim pukul {}{}"
+
+msgid "{}: {}{}{} sent at {}, {}{}{}{}"
+msgstr "{}: {}{}{} dikirim pukul {}, {}{}{}{}"
+
+msgid "{}: deleted this message, sent at {}"
+msgstr "{}: menghapus pesan ini, dikirim pukul {}"
+

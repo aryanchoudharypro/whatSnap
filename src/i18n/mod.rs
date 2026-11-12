@@ -1,6 +1,6 @@
 pub mod backend;
 pub mod countries;
-pub mod locales;
+pub mod po;
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -95,7 +95,7 @@ fn is_system_indonesian() -> bool {
 #[inline]
 pub fn tr(text: &'static str) -> &'static str {
 	if is_indonesian()
-		&& let Some(translated) = locales::id::translate(text)
+		&& let Some(translated) = po::translate_id(text)
 	{
 		return translated;
 	}
@@ -105,7 +105,7 @@ pub fn tr(text: &'static str) -> &'static str {
 #[inline]
 pub fn tr_str(text: &str) -> String {
 	if is_indonesian()
-		&& let Some(translated) = locales::id::translate(text)
+		&& let Some(translated) = po::translate_id(text)
 	{
 		return translated.to_string();
 	}
@@ -157,11 +157,11 @@ mod tests {
 
 	#[test]
 	fn indonesian_locale_translates_core_strings() {
-		assert_eq!(locales::id::translate("Chats"), Some("Chat"));
-		assert_eq!(locales::id::translate("&Settings..."), Some("&Setelan..."));
-		assert_eq!(locales::id::translate("App Language"), Some("Bahasa Aplikasi"));
-		assert_eq!(locales::id::translate("Mark as read"), Some("Tandai sudah dibaca"));
-		assert_eq!(locales::id::translate("Send voice message"), Some("Kirim pesan suara"));
-		assert_eq!(locales::id::translate("__untranslated_key__"), None);
+		assert_eq!(po::translate_id("Chats"), Some("Chat"));
+		assert_eq!(po::translate_id("&Settings..."), Some("&Setelan..."));
+		assert_eq!(po::translate_id("App Language"), Some("Bahasa Aplikasi"));
+		assert_eq!(po::translate_id("Mark as read"), Some("Tandai sudah dibaca"));
+		assert_eq!(po::translate_id("Send voice message"), Some("Kirim pesan suara"));
+		assert_eq!(po::translate_id("__untranslated_key__"), None);
 	}
 }

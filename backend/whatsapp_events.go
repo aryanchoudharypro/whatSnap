@@ -3220,13 +3220,15 @@ func (acc *Account) populateChatsFromStoreOnce() {
 
 		if name == "" {
 			rank = 0
-			if targetJID.Server != "g.us" && targetJID.Server != "lid" {
+			if isPSAJID(targetJID) {
+				name, rank = "WhatsApp", 1
+			} else if targetJID.Server != "g.us" && targetJID.Server != "lid" {
 				name = "+" + targetJID.User
 			}
 		}
 
 		phone := ""
-		if targetJID.Server != "g.us" && targetJID.Server != "lid" {
+		if targetJID.Server != "g.us" && targetJID.Server != "lid" && !isPSAJID(targetJID) {
 			phone = targetJID.User
 		}
 
