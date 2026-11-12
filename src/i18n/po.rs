@@ -1,12 +1,24 @@
 use std::{collections::HashMap, sync::OnceLock};
 
-const ID_PO: &str = include_str!("../../po/id.po");
+include!(concat!(env!("OUT_DIR"), "/languages.rs"));
 
-static ID_CATALOG: OnceLock<HashMap<String, String>> = OnceLock::new();
+static CATALOGS: [OnceLock<HashMap<String, String>>; LANGUAGE_SOURCES.len()] =
+	[const { OnceLock::new() }; LANGUAGE_SOURCES.len()];
 
-/// Looks `text` up in the Indonesian catalog (`po/id.po`), parsed on first use.
+/// Index into [`LANGUAGE_SOURCES`] of the catalog for `code`.
+pub fn catalog_index(code: &str) -> Option<usize> {
+	LANGUAGE_SOURCES.iter().position(|(c, _, _)| *c == code)
+}
+
+/// Looks `text` up in catalog `index` (a `po/<code>.po` file), parsed on first use.
+pub fn translate(index: usize, text: &str) -> Option<&'static str> {
+	let (_, _, source) = LANGUAGE_SOURCES.get(index)?;
+	CATALOGS[index].get_or_init(|| parse(source)).get(text).map(String::as_str)
+}
+
+/// Looks `text` up in the Indonesian catalog.
 pub fn translate_id(text: &str) -> Option<&'static str> {
-	ID_CATALOG.get_or_init(|| parse(ID_PO)).get(text).map(String::as_str)
+	translate(catalog_index("id")?, text)
 }
 
 fn parse(source: &str) -> HashMap<String, String> {

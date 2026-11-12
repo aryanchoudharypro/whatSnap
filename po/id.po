@@ -2,6 +2,7 @@ msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language: id\n"
+"X-Language-Name: Bahasa Indonesia\n"
 
 msgid "Chats"
 msgstr "Chat"
@@ -6218,4 +6219,148 @@ msgstr "{}: {}{}{} dikirim pukul {}, {}{}{}{}"
 
 msgid "{}: deleted this message, sent at {}"
 msgstr "{}: menghapus pesan ini, dikirim pukul {}"
+
+msgid "&Add to Group"
+msgstr "&Tambahkan ke Grup"
+
+msgid "&Edit Contact"
+msgstr "&Ubah Kontak"
+
+msgid "&Message"
+msgstr "&Pesan"
+
+msgid "&Message Contact"
+msgstr "&Kirim Pesan ke Kontak"
+
+msgid "&Record"
+msgstr "&Rekam"
+
+msgid "&Record again"
+msgstr "&Rekam ulang"
+
+msgid "&Save Contact"
+msgstr "&Simpan Kontak"
+
+msgid "&Stop"
+msgstr "&Berhenti"
+
+msgid "&View Contact..."
+msgstr "&Lihat Kontak..."
+
+msgid "1 contact"
+msgstr "1 kontak"
+
+msgid "30 seconds reached. Recording stopped."
+msgstr "Mencapai 30 detik. Perekaman dihentikan."
+
+msgid "Add to group"
+msgstr "Tambahkan ke grup"
+
+msgid "Add {} to \"{}\" group?"
+msgstr "Tambahkan {} ke grup \"{}\"?"
+
+msgid "Adding {}..."
+msgstr "Menambahkan {}..."
+
+msgid "Background &colour:"
+msgstr "&Warna latar:"
+
+msgid "Choose a phone number"
+msgstr "Pilih nomor telepon"
+
+msgid "Contact cards (*.vcf)|*.vcf|All files (*.*)|*.*"
+msgstr "Kartu kontak (*.vcf)|*.vcf|Semua file (*.*)|*.*"
+
+msgid "Contact saved."
+msgstr "Kontak disimpan."
+
+msgid "Copied: {}"
+msgstr "Disalin: {}"
+
+msgid "Couldn't save the contact: {}"
+msgstr "Tidak dapat menyimpan kontak: {}"
+
+msgid "Do&wnload Contact..."
+msgstr "Un&duh Kontak..."
+
+msgid "Download contact"
+msgstr "Unduh kontak"
+
+msgid "Download contact?"
+msgstr "Unduh kontak?"
+
+msgid "Group video call in"
+msgstr "Panggilan video grup di"
+
+msgid "Group voice call in"
+msgstr "Panggilan suara grup di"
+
+msgid "Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen."
+msgstr "Panggilan masuk diminimalkan dan dibisukan. Spanduk di bagian atas jendela tersedia untuk menjawab, menolak, atau membukanya kembali."
+
+msgid "Open a chat with the person in this contact card"
+msgstr "Buka chat dengan orang di kartu kontak ini"
+
+msgid "Open in &Maps"
+msgstr "Buka di &Peta"
+
+msgid "Post Voice Status"
+msgstr "Posting Status Suara"
+
+msgid "Post voice status. Press Record to start, then Stop, then Post Status or Ctrl+Enter."
+msgstr "Posting status suara. Tekan Rekam untuk mulai, lalu Berhenti, lalu Posting Status atau Ctrl+Enter."
+
+msgid "Posting voice status..."
+msgstr "Memposting status suara..."
+
+msgid "Press Record and speak. A voice status can be up to 30 seconds."
+msgstr "Tekan Rekam lalu bicara. Status suara bisa sampai 30 detik."
+
+msgid "Record something first."
+msgstr "Rekam sesuatu dulu."
+
+msgid "Recorded {}."
+msgstr "Terekam {}."
+
+msgid "Recorded {}. Press Post Status to post it."
+msgstr "Terekam {}. Tekan Posting Status untuk memostingnya."
+
+msgid "Recording {}"
+msgstr "Merekam {}"
+
+msgid "Recording..."
+msgstr "Merekam..."
+
+msgid "Save the contact card as a .vcf file"
+msgstr "Simpan kartu kontak sebagai file .vcf"
+
+msgid "See the contact card's numbers and details, and save it"
+msgstr "Lihat nomor dan detail di kartu kontak, lalu simpan"
+
+msgid "Send &Email"
+msgstr "Kirim &Email"
+
+msgid "This contact can't be displayed in whatSnap. Download it to open it with another app on your computer?"
+msgstr "Kontak ini tidak dapat ditampilkan di whatSnap. Unduh untuk membukanya dengan aplikasi lain di komputer Anda?"
+
+msgid "View &Business"
+msgstr "Lihat &Bisnis"
+
+msgid "View contact"
+msgstr "Lihat kontak"
+
+msgid "Voice status update..."
+msgstr "Pembaruan status suara..."
+
+msgid "{} ({} of {})"
+msgstr "{} ({} dari {})"
+
+msgid "{} contacts"
+msgstr "{} kontak"
+
+msgid "{}, {}, on WhatsApp"
+msgstr "{}, {}, di WhatsApp"
+
+msgid "{}, {}, {}, on WhatsApp"
+msgstr "{}, {}, {}, di WhatsApp"
 

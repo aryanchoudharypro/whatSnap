@@ -2,7 +2,10 @@ pub mod backend;
 pub mod countries;
 pub mod po;
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{
+	OnceLock,
+	atomic::{AtomicUsize, Ordering},
+};
 
 pub use backend::{
 	translate_backend_message, translate_call_kind_text, translate_rich_message_text, translate_system_message,
@@ -19,83 +22,112 @@ patois::inventory::submit! {
 	}
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LanguageChoice {
-	#[default]
-	System,
-	En,
-	Id,
-}
+/// The language picked in Settings: `"system"`, `"en"`, or the code of a `po/<code>.po` catalog.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LanguageChoice(&'static str);
 
 impl LanguageChoice {
+	pub const SYSTEM: Self = Self("system");
+	pub const EN: Self = Self("en");
+
 	pub fn as_str(&self) -> &'static str {
-		match self {
-			Self::System => "system",
-			Self::En => "en",
-			Self::Id => "id",
-		}
+		self.0
 	}
 
 	pub fn from_code(s: &str) -> Self {
-		match s {
-			"en" => Self::En,
-			"id" => Self::Id,
-			_ => Self::System,
+		if s == "en" {
+			return Self::EN;
 		}
+		po::LANGUAGE_SOURCES.iter().find(|(code, _, _)| *code == s).map_or(Self::SYSTEM, |(code, _, _)| Self(code))
 	}
 }
 
-pub const LANGUAGE_CHOICES: &[(&str, &str)] =
-	&[("System Default", "system"), ("English", "en"), ("Bahasa Indonesia", "id")];
+impl Default for LanguageChoice {
+	fn default() -> Self {
+		Self::SYSTEM
+	}
+}
 
-static ACTIVE_LANG: AtomicU8 = AtomicU8::new(0);
+impl serde::Serialize for LanguageChoice {
+	fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+		serializer.serialize_str(self.0)
+	}
+}
+
+impl<'de> serde::Deserialize<'de> for LanguageChoice {
+	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+		let code = String::deserialize(deserializer)?;
+		Ok(Self::from_code(&code))
+	}
+}
+
+/// The Settings choices as (label, value): System Default, English, then one per catalog.
+pub fn language_choices() -> &'static [(&'static str, &'static str)] {
+	static CHOICES: OnceLock<Vec<(&'static str, &'static str)>> = OnceLock::new();
+	CHOICES.get_or_init(|| {
+		let mut choices = vec![("System Default", "system"), ("English", "en")];
+		choices.extend(po::LANGUAGE_SOURCES.iter().map(|(code, name, _)| (*name, *code)));
+		choices
+	})
+}
+
+/// Index of the active catalog in `po::LANGUAGE_SOURCES` plus one; 0 is English.
+static ACTIVE_LANG: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_language(choice: LanguageChoice) {
-	let is_id = match choice {
-		LanguageChoice::Id => true,
-		LanguageChoice::En => false,
-		LanguageChoice::System => is_system_indonesian(),
-	};
-	ACTIVE_LANG.store(if is_id { 1 } else { 0 }, Ordering::Relaxed);
+	let code = if choice == LanguageChoice::SYSTEM { system_language_code() } else { choice.0.to_string() };
+	let index = po::catalog_index(&code).map_or(0, |i| i + 1);
+	ACTIVE_LANG.store(index, Ordering::Relaxed);
 	patois::set_default_domain("whatsnap");
-	patois::set_locale(if is_id { "id" } else { "en" });
+	patois::set_locale(if index > 0 && code == "id" { "id" } else { "en" });
 }
 
 pub fn is_indonesian() -> bool {
-	ACTIVE_LANG.load(Ordering::Relaxed) == 1
+	active_index().is_some_and(|i| po::LANGUAGE_SOURCES[i].0 == "id")
 }
 
 pub fn current_language() -> LanguageChoice {
-	if is_indonesian() { LanguageChoice::Id } else { LanguageChoice::En }
+	active_index().map_or(LanguageChoice::EN, |i| LanguageChoice(po::LANGUAGE_SOURCES[i].0))
 }
 
-fn is_system_indonesian() -> bool {
+fn active_index() -> Option<usize> {
+	ACTIVE_LANG.load(Ordering::Relaxed).checked_sub(1)
+}
+
+/// The language code of the system, such as "id" or "en".
+fn system_language_code() -> String {
 	#[cfg(windows)]
 	{
-		let lang_id = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
-		// Primary language ID 0x21 is Indonesian (LANG_INDONESIAN).
-		if (lang_id & 0x03ff) == 0x21 {
-			return true;
+		use windows::Win32::Globalization::{GetUserDefaultUILanguage, LCIDToLocaleName};
+		let lang_id = unsafe { GetUserDefaultUILanguage() };
+		let mut buf = [0u16; 85];
+		let len = unsafe { LCIDToLocaleName(u32::from(lang_id), Some(&mut buf), 0) };
+		if len > 1 {
+			let name = String::from_utf16_lossy(&buf[..len as usize - 1]);
+			return primary_subtag(&name);
 		}
 	}
 
 	for var in ["LC_ALL", "LC_MESSAGES", "LANG"] {
-		if let Ok(val) = std::env::var(var) {
-			let lower = val.to_ascii_lowercase();
-			if lower.starts_with("id") || lower.starts_with("in_") {
-				return true;
-			}
+		if let Ok(val) = std::env::var(var)
+			&& !val.is_empty()
+		{
+			return primary_subtag(&val);
 		}
 	}
+	"en".to_string()
+}
 
-	false
+fn primary_subtag(locale: &str) -> String {
+	let tag = locale.split(['-', '_', '.']).next().unwrap_or("").to_ascii_lowercase();
+	// Windows and POSIX once used "in" for Indonesian.
+	if tag == "in" { "id".to_string() } else { tag }
 }
 
 #[inline]
 pub fn tr(text: &'static str) -> &'static str {
-	if is_indonesian()
-		&& let Some(translated) = po::translate_id(text)
+	if let Some(index) = active_index()
+		&& let Some(translated) = po::translate(index, text)
 	{
 		return translated;
 	}
@@ -104,8 +136,8 @@ pub fn tr(text: &'static str) -> &'static str {
 
 #[inline]
 pub fn tr_str(text: &str) -> String {
-	if is_indonesian()
-		&& let Some(translated) = po::translate_id(text)
+	if let Some(index) = active_index()
+		&& let Some(translated) = po::translate(index, text)
 	{
 		return translated.to_string();
 	}
@@ -141,13 +173,18 @@ mod tests {
 
 	#[test]
 	fn language_choice_round_trips_codes() {
-		assert_eq!(LanguageChoice::from_code("en"), LanguageChoice::En);
-		assert_eq!(LanguageChoice::from_code("id"), LanguageChoice::Id);
-		assert_eq!(LanguageChoice::from_code("system"), LanguageChoice::System);
-		assert_eq!(LanguageChoice::from_code("unknown"), LanguageChoice::System);
-		assert_eq!(LanguageChoice::System.as_str(), "system");
-		assert_eq!(LanguageChoice::En.as_str(), "en");
-		assert_eq!(LanguageChoice::Id.as_str(), "id");
+		assert_eq!(LanguageChoice::from_code("en"), LanguageChoice::EN);
+		assert_eq!(LanguageChoice::from_code("id").as_str(), "id");
+		assert_eq!(LanguageChoice::from_code("system"), LanguageChoice::SYSTEM);
+		assert_eq!(LanguageChoice::from_code("unknown"), LanguageChoice::SYSTEM);
+		assert!(language_choices().iter().any(|(_, code)| *code == "id"));
+	}
+
+	#[test]
+	fn primary_subtag_handles_windows_and_posix_names() {
+		assert_eq!(primary_subtag("id-ID"), "id");
+		assert_eq!(primary_subtag("in_ID.UTF-8"), "id");
+		assert_eq!(primary_subtag("en_US"), "en");
 	}
 
 	#[test]

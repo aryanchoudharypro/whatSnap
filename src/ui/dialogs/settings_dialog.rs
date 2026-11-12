@@ -412,7 +412,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		&personalization_panel,
 		&personalization_sizer,
 		"Choose Language",
-		crate::i18n::LANGUAGE_CHOICES,
+		crate::i18n::language_choices(),
 	);
 	setting_note(
 		&personalization_panel,
@@ -1000,7 +1000,7 @@ impl SettingsDialogParts {
 		self.spell_language_combo.set_selection(index.map_or(0, |i| i as u32 + 1));
 		let theme = serde_json::to_value(settings.theme).ok();
 		set_combo_from_value(&self.theme_combo, THEME_CHOICES, theme.as_ref().and_then(|v| v.as_str()).unwrap_or(""));
-		set_combo_from_value(&self.language_combo, crate::i18n::LANGUAGE_CHOICES, settings.language.as_str());
+		set_combo_from_value(&self.language_combo, crate::i18n::language_choices(), settings.language.as_str());
 	}
 
 	pub fn read_chat_settings(&self, settings: &mut crate::settings::Settings) {
@@ -1037,7 +1037,7 @@ impl SettingsDialogParts {
 			.unwrap_or_default();
 		let theme = combo_value(&self.theme_combo, THEME_CHOICES);
 		settings.theme = serde_json::from_value(serde_json::Value::String(theme)).unwrap_or_default();
-		let lang_str = combo_value(&self.language_combo, crate::i18n::LANGUAGE_CHOICES);
+		let lang_str = combo_value(&self.language_combo, crate::i18n::language_choices());
 		let language = crate::i18n::LanguageChoice::from_code(&lang_str);
 		settings.language = language;
 		crate::i18n::set_language(language);

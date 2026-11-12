@@ -14,6 +14,7 @@ fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-changed=backend");
 	println!("cargo:rerun-if-changed=doc");
+	println!("cargo:rerun-if-changed=po");
 	println!("cargo:rerun-if-changed=assets/icon.ico");
 	let commit = embed_commit_info("WHATSNAP");
 
@@ -22,6 +23,7 @@ fn main() {
 		Path::new(&root).join("target").join(env::var("PROFILE").unwrap_or_default())
 	});
 	build_mo_catalogs();
+	build_language_table();
 	build_backend(&target_dir);
 	build_docs(&target_dir);
 	let root = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -314,4 +316,34 @@ fn deflate_stored(data: &[u8]) -> Vec<u8> {
 		out.extend_from_slice(chunk);
 	}
 	out
+}
+
+/// Lists every `po/<code>.po` so a new language needs no Rust change: the file
+/// stem is the language code and its `X-Language-Name` header the menu label.
+fn build_language_table() {
+	let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string()));
+	let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+	let mut entries: Vec<(String, String, PathBuf)> = Vec::new();
+	if let Ok(dir) = std::fs::read_dir(root.join("po")) {
+		for entry in dir.flatten() {
+			let path = entry.path();
+			if path.extension().and_then(|e| e.to_str()) != Some("po") {
+				continue;
+			}
+			let Some(code) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else { continue };
+			let text = std::fs::read_to_string(&path).unwrap_or_default();
+			let name = text
+				.lines()
+				.find_map(|l| l.trim().strip_prefix("\"X-Language-Name:").map(|r| r.trim().trim_end_matches("\\n\"").trim().to_string()))
+				.unwrap_or_else(|| code.clone());
+			entries.push((code, name, path));
+		}
+	}
+	entries.sort();
+	let mut out = String::from("pub(crate) static LANGUAGE_SOURCES: &[(&str, &str, &str)] = &[\n");
+	for (code, name, path) in &entries {
+		out.push_str(&format!("\t({code:?}, {name:?}, include_str!({:?})),\n", path.to_string_lossy()));
+	}
+	out.push_str("];\n");
+	std::fs::write(out_dir.join("languages.rs"), out).expect("write languages.rs");
 }
