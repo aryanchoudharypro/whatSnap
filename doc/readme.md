@@ -2,7 +2,7 @@
 
 [whatSnap](https://github.com/aryanchoudharypro/whatSnap) is a native, keyboard-first WhatsApp client for Windows, made for screen reader users. It links to the WhatsApp account on your phone, as WhatsApp Web and WhatsApp for Windows do. It does not use a browser.
 
-whatSnap is in development. Most features are tested with a real WhatsApp account, but some are not yet. See [Features Not Yet Tested](#features-not-yet-tested).
+whatSnap is in development. The features are tested with a real WhatsApp account.
 
 ## Disclaimer
 whatSnap is an unofficial client. It is not made, supported, or endorsed by WhatsApp or Meta, and it is not affiliated with them.
@@ -579,15 +579,3 @@ whatSnap opens `whatsapp://` links, such as the "Share on WhatsApp" buttons on w
 - The logs are in the `logs` folder. whatSnap keeps the logs of this session and of the previous session. If you report a problem, send these logs before you start whatSnap again.
 
 When you uninstall whatSnap, the uninstaller asks if you want to delete your data. It deletes only the files that whatSnap made. Files that you saved to other folders, such as Downloads, stay.
-
-## Features Not Yet Tested
-These features are built, but nobody has tested them with a real WhatsApp account yet. They can have problems:
-
-- The automatic download settings, `Download Quality for Photos and Videos Sent in HD`, and `Media Upload Quality`.
-- `Turn off link previews`.
-- `Hide phone numbers in groups`.
-- Buttons and menus in messages from businesses, and `Business Catalogue...`.
-- Several accounts: adding, switching, removing, and the notifications and calls of the accounts that aren't on screen.
-- Contact cards: the `View contact` dialog, messaging, saving, and downloading a received contact.
-
-If you test one of these, please tell us if it works.
