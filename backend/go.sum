@@ -10,6 +10,8 @@ github.com/aryanchoudharypro/meowcaller v0.0.0-20261112054738-99cb666453cf h1:6S
 github.com/aryanchoudharypro/meowcaller v0.0.0-20261112054738-99cb666453cf/go.mod h1:ej/lRFTqThVKmMexmVXwh54/J38jPWcxVXorbObggko=
 github.com/aryanchoudharypro/whatsmeow v0.0.0-20261112024659-68b7aec5517f h1:RBLfUnHlNhOIXU0fSo7NWI7zcu1tiptnmZc4XdQOFHM=
 github.com/aryanchoudharypro/whatsmeow v0.0.0-20261112024659-68b7aec5517f/go.mod h1:iY4lm61nTLWsNiIE1EmHUZwhKGBeoV4dhnVE2uMtNoQ=
+github.com/aryanchoudharypro/whatsmeow v0.0.0-20261112073829-45bd5dd9baca h1:vFJcy+4aRy42Z8UnJ582EWmEXrgHi7XW+WWE4mpIXFM=
+github.com/aryanchoudharypro/whatsmeow v0.0.0-20261112073829-45bd5dd9baca/go.mod h1:iY4lm61nTLWsNiIE1EmHUZwhKGBeoV4dhnVE2uMtNoQ=
 github.com/beeper/argo-go v1.1.2 h1:UQI2G8F+NLfGTOmTUI0254pGKx/HUU/etbUGTJv91Fs=
 github.com/beeper/argo-go v1.1.2/go.mod h1:M+LJAnyowKVQ6Rdj6XYGEn+qcVFkb3R/MUpqkGR0hM4=
 github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=

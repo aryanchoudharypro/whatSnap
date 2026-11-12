@@ -37,3 +37,26 @@ func TestPeopleFromListShowsPhoneJID(t *testing.T) {
 		t.Errorf("shown = %s", got)
 	}
 }
+
+func TestListedPersonMatchesEitherAddress(t *testing.T) {
+	lid := types.NewJID("1", types.HiddenUserServer)
+	pn := types.NewJID("911", types.DefaultUserServer)
+	onlyPN := types.NewJID("922", types.DefaultUserServer)
+	current := []privacyListPerson{{LID: lid, PN: pn}, {PN: onlyPN}}
+	for _, jid := range []types.JID{lid, pn} {
+		if got, ok := listedPerson(current, jid); !ok || got.LID != lid {
+			t.Errorf("listedPerson(%s) = %+v, %v", jid, got, ok)
+		}
+	}
+	if got, ok := listedPerson(current, onlyPN); !ok || !got.LID.IsEmpty() {
+		t.Errorf("listedPerson(only PN) = %+v, %v", got, ok)
+	}
+	if _, ok := listedPerson(current, types.NewJID("933", types.DefaultUserServer)); ok {
+		t.Error("unlisted number matched")
+	}
+	wanted := []privacyListPerson{current[1]}
+	changes := privacyListChanges(current, wanted)
+	if len(changes) != 1 || changes[0].Action != types.PrivacyListActionRemove || changes[0].JID != lid {
+		t.Errorf("changes = %+v, want only the removal of 1@lid", changes)
+	}
+}
