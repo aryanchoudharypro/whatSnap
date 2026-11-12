@@ -1200,18 +1200,6 @@ func (acc *Account) eventHandler(evt interface{}) {
 				var writes []func(tx sqlExecer)
 
 				jid := conv.GetID()
-				if jid == types.StatusBroadcastJID.String() || jid == "status@broadcast" {
-					var wmis []*waWeb.WebMessageInfo
-					for _, historyMsg := range conv.GetMessages() {
-						if wmi := historyMsg.GetMessage(); wmi != nil {
-							wmis = append(wmis, wmi)
-						}
-					}
-					if len(wmis) > 0 {
-						acc.storeHistoryStatuses(wmis)
-					}
-					continue
-				}
 				if isIgnoredChatJID(jid) {
 					continue
 				}
@@ -1836,7 +1824,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 			acc.applyReaction(v, reaction)
 			return
 		}
-		if v.Info.Chat == types.StatusBroadcastJID || (v.Info.Chat.User == "status" && v.Info.Chat.Server == types.BroadcastServer) {
+		if v.Info.Chat.User == "status" && v.Info.Chat.Server == types.BroadcastServer {
 			acc.handleIncomingStatus(v)
 			return
 		}
@@ -3403,27 +3391,23 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 	if text == "[Protocol Message]" || text == "[Unsupported Message]" {
 		text = ""
 	}
+	// The sender is stored as the stanza named it, since read receipts,
+	// reactions and likes go back to that address. The Status tab groups a
+	// poster under the phone number, so posterJid is the PN when we know it.
 	senderJID := v.Info.Sender.ToNonAD()
-	if senderJID.IsEmpty() {
-		if !v.Info.SenderAlt.IsEmpty() {
-			senderJID = v.Info.SenderAlt.ToNonAD()
-		} else if v.SourceWebMsg != nil {
-			if p := v.SourceWebMsg.GetParticipant(); p != "" {
-				senderJID, _ = types.ParseJID(p)
-			} else if p := v.SourceWebMsg.GetKey().GetParticipant(); p != "" {
-				senderJID, _ = types.ParseJID(p)
-			} else if r := v.SourceWebMsg.GetKey().GetRemoteJID(); r != "" && r != "status@broadcast" {
-				senderJID, _ = types.ParseJID(r)
-			}
-		}
-	}
-	if v.Info.IsFromMe && (senderJID.IsEmpty() || senderJID.User == "") && acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.ID != nil {
+	if senderJID.IsEmpty() && v.Info.IsFromMe && acc.wa() != nil && acc.wa().Store.ID != nil {
 		senderJID = acc.wa().Store.ID.ToNonAD()
-	} else if senderJID.Server == types.HiddenUserServer || senderJID.Server == "lid" {
-		if !v.Info.SenderAlt.IsEmpty() {
-			senderJID = v.Info.SenderAlt.ToNonAD()
+	}
+	if senderJID.IsEmpty() {
+		log.Printf("Skipping status %s: no sender", v.Info.ID)
+		return
+	}
+	posterJID := senderJID
+	if senderJID.Server == types.HiddenUserServer {
+		if alt := v.Info.SenderAlt.ToNonAD(); alt.Server == types.DefaultUserServer {
+			posterJID = alt
 		} else {
-			senderJID = acc.preferPN(senderJID)
+			posterJID = acc.preferPN(senderJID)
 		}
 	}
 	mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(v.Message)
@@ -3451,11 +3435,11 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 	go acc.purgeExpiredStatuses()
 	background, textColor, font := textStatusColors(rawBytes)
 	posterName := ""
-	if parsed, perr := types.ParseJID(senderJID.String()); perr == nil {
-		posterName = acc.resolveDisplayName(parsed)
+	if !v.Info.IsFromMe {
+		posterName = acc.resolveDisplayName(posterJID)
 	}
 	acc.broadcastEvent("status_update", map[string]interface{}{
-		"id": v.Info.ID, "posterJid": senderJID.String(), "posterName": posterName, "fromMe": v.Info.IsFromMe,
+		"id": v.Info.ID, "posterJid": posterJID.String(), "posterName": posterName, "fromMe": v.Info.IsFromMe,
 		"text": text, "mediaType": mediaType, "timestamp": ts,
 		"background": background, "textColor": textColor, "font": font,
 	})

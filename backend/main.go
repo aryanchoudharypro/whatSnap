@@ -45,7 +45,6 @@ func (acc *Account) buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	clientLog := stallLogger{waLog.Stdout("Client "+acc.logName(), waLogLevel(), true)}
 	acc.hookLIDStore(deviceStore)
 	c := whatsmeow.NewClient(deviceStore, clientLog)
-	hookStatusStanzas(c)
 	c.UserAgent = webViewUserAgent()
 	c.EnableAutoReconnect = true
 	c.AutoReconnectHook = acc.autoReconnectHook(c)

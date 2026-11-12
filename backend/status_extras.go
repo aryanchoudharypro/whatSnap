@@ -5,13 +5,10 @@ import (
 	"encoding/json"
 	"log"
 	"net"
-	"reflect"
 	"time"
-	"unsafe"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
-	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -522,86 +519,41 @@ func (acc *Account) storeHistoryStatuses(statuses []*waWeb.WebMessageInfo) {
 	cutoff := time.Now().Add(-24 * time.Hour)
 	stored := 0
 	for _, wmi := range statuses {
-		if wmi == nil || wmi.GetMessage() == nil {
-			continue
-		}
-		ts := time.Unix(int64(wmi.GetMessageTimestamp()), 0)
-		if ts.Before(cutoff) {
-			continue
-		}
 		evt, err := acc.wa().ParseWebMessage(types.StatusBroadcastJID, wmi)
-		if err != nil || evt == nil || evt.Info.Sender.IsEmpty() {
-			var sender types.JID
-			fromMe := wmi.GetKey().GetFromMe()
-			if fromMe && acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.ID != nil {
-				sender = acc.wa().Store.ID.ToNonAD()
-			} else if p := wmi.GetParticipant(); p != "" {
-				sender, _ = types.ParseJID(p)
-			} else if p := wmi.GetKey().GetParticipant(); p != "" {
-				sender, _ = types.ParseJID(p)
-			} else if r := wmi.GetKey().GetRemoteJID(); r != "" && r != "status@broadcast" {
-				sender, _ = types.ParseJID(r)
-			}
-			if sender.IsEmpty() {
-				log.Printf("Skipping history status %s: cannot determine sender", wmi.GetKey().GetID())
-				continue
-			}
-			evt = &events.Message{
-				Info: types.MessageInfo{
-					MessageSource: types.MessageSource{
-						Chat:     types.StatusBroadcastJID,
-						Sender:   sender,
-						IsFromMe: fromMe,
-						IsGroup:  true,
-					},
-					ID:        types.MessageID(wmi.GetKey().GetID()),
-					PushName:  wmi.GetPushName(),
-					Timestamp: ts,
-				},
-				RawMessage: wmi.GetMessage(),
-				Message:    unwrapMessage(wmi.GetMessage()),
-			}
+		if err != nil {
+			log.Printf("Skipping history status %s: %v", wmi.GetKey().GetID(), err)
+			continue
+		}
+		if evt.Info.Timestamp.Before(cutoff) || evt.Message == nil {
+			continue
+		}
+		if evt.Info.Sender.IsEmpty() || wmi.GetParticipant() == "0@s.whatsapp.net" {
+			continue
 		}
 		acc.handleIncomingStatus(evt)
 		stored++
-	}
-	log.Printf("History sync: %d of %d status updates stored", stored, len(statuses))
-}
-
-// Route encrypted contact status stanzas to handleEncryptedMessage.
-// whatsmeow routes <status> to handleUnencryptedMessage, dropping non-newsletters (tulir/whatsmeow#1323).
-func getNodeHandlersMap(c *whatsmeow.Client) map[string]func(context.Context, *waBinary.Node) {
-	if c == nil {
-		return nil
-	}
-	v := reflect.ValueOf(c).Elem()
-	field := v.FieldByName("nodeHandlers")
-	if !field.IsValid() {
-		return nil
-	}
-	type nodeHandler = func(context.Context, *waBinary.Node)
-	ptr := (*map[string]nodeHandler)(unsafe.Pointer(field.UnsafeAddr()))
-	if ptr == nil || *ptr == nil {
-		return nil
-	}
-	return *ptr
-}
-
-func hookStatusStanzas(c *whatsmeow.Client) {
-	handlers := getNodeHandlersMap(c)
-	if handlers == nil {
-		return
-	}
-	origStatus, okStatus := handlers["status"]
-	msgHandler, okMsg := handlers["message"]
-	if !okStatus || !okMsg {
-		return
-	}
-	handlers["status"] = func(ctx context.Context, node *waBinary.Node) {
-		if len(node.GetChildrenByTag("enc")) > 0 {
-			msgHandler(ctx, node)
-		} else {
-			origStatus(ctx, node)
+		// Like WA Web: a status the phone flags ignore counts as seen, and our
+		// own updates bring who has viewed them already.
+		if wmi.GetIgnore() {
+			acc.db.Exec(`UPDATE messages SET viewed = 1 WHERE id = ? AND jid = 'status@broadcast'`, evt.Info.ID)
+		}
+		if evt.Info.IsFromMe {
+			for _, r := range wmi.GetUserReceipt() {
+				if r.GetReadTimestamp() == 0 {
+					continue
+				}
+				viewer, err := types.ParseJID(r.GetUserJID())
+				if err != nil {
+					continue
+				}
+				viewer = viewer.ToNonAD()
+				if pn := acc.storeTwin(viewer); viewer.Server == types.HiddenUserServer && !pn.IsEmpty() {
+					viewer = pn.ToNonAD()
+				}
+				acc.db.Exec(`INSERT INTO status_viewers (status_id, viewer, viewed_at) VALUES (?, ?, ?)
+					ON CONFLICT(status_id, viewer) DO NOTHING`, evt.Info.ID, viewer.String(), r.GetReadTimestamp())
+			}
 		}
 	}
+	log.Printf("History sync: %d of %d status updates stored", stored, len(statuses))
 }

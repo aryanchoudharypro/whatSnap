@@ -407,8 +407,10 @@ func (acc *Account) handleMarkStatusViewed(raw json.RawMessage) {
 	}
 	acc.db.Exec("UPDATE messages SET viewed = 1 WHERE id = ? AND jid = 'status@broadcast'", data.ID)
 	go func() {
-		poster, err := types.ParseJID(data.PosterJID)
-		if err != nil || poster.IsEmpty() {
+		// The receipt goes to the address the status came from, which can be
+		// the poster's LID while the Status tab shows them by phone number.
+		poster, ok := acc.statusPoster(data.ID)
+		if !ok || poster.IsEmpty() {
 			return
 		}
 		if acc.wa().Store.ID != nil && poster.User == acc.wa().Store.ID.User {
