@@ -55,6 +55,7 @@ type Account struct {
 	activeAudioBridges         map[string]*UDPBridge
 	activeAudioBridgesMutex    sync.Mutex
 	incomingGroupCallJIDs      map[string]types.JID
+	incomingGroupCallIsGroup   map[string]bool
 	incomingGroupCallJIDsMutex sync.Mutex
 	localScreenShares          map[string]*localScreenShare
 	localScreenSharesMutex     sync.Mutex
@@ -191,6 +192,7 @@ func (acc *Account) initAccountState() {
 	acc.activeScreenBridges = make(map[string]*VideoBridge)
 	acc.activeAudioBridges = make(map[string]*UDPBridge)
 	acc.incomingGroupCallJIDs = make(map[string]types.JID)
+	acc.incomingGroupCallIsGroup = make(map[string]bool)
 	acc.localScreenShares = make(map[string]*localScreenShare)
 	acc.channelFetchRunning = map[string]bool{}
 	acc.channelFreshUntil = map[string]time.Time{}

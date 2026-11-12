@@ -452,6 +452,8 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 		acc.handleCallToggle(conn, cmd.Data, "mute_person")
 	case "remove_call_participant":
 		acc.handleCallToggle(conn, cmd.Data, "remove_person")
+	case "ring_call_participant":
+		acc.handleRingParticipant(cmd.Data)
 	case "set_call_approval":
 		acc.handleCallToggle(conn, cmd.Data, "approval")
 	case "place_call":

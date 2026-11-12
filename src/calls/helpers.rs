@@ -28,7 +28,8 @@ pub(crate) fn parse_call_participants(data: &serde_json::Value) -> Vec<CallParti
 				.map(|n| n.to_string())
 				.unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(&jid));
 			let state = p.get("state").and_then(|v| v.as_str()).unwrap_or("").to_string();
-			Some(CallParticipant { jid, name, state })
+			let hand_raised = p.get("hand_raised").and_then(|v| v.as_bool()).unwrap_or(false);
+			Some(CallParticipant { jid, name, state, hand_raised })
 		})
 		.collect()
 }
@@ -135,21 +136,31 @@ pub(crate) enum CallDirection {
 pub(crate) fn call_running_info_text(
 	direction: CallDirection,
 	is_video: bool,
+	is_group: bool,
 	peer_name: &str,
 	duration_secs: u64,
 	is_reconnecting: bool,
 ) -> String {
 	let clock = format_call_duration(duration_secs);
 	let line2 = if is_reconnecting { format!("{} ({clock})", crate::i18n::tr("Reconnecting...")) } else { clock };
-	let prefix = match (direction, is_video) {
-		(CallDirection::Incoming, false) => crate::i18n::tr("Incoming call from"),
-		(CallDirection::Incoming, true) => crate::i18n::tr("Incoming video call from"),
-		(CallDirection::Answered, false) => crate::i18n::tr("Call with"),
-		(CallDirection::Answered, true) => crate::i18n::tr("Video call with"),
-		(CallDirection::Outgoing, false) => crate::i18n::tr("Outgoing call to"),
-		(CallDirection::Outgoing, true) => crate::i18n::tr("Outgoing video call to"),
+	let prefix = if is_group {
+		if peer_name.trim().is_empty() {
+			crate::i18n::tr(if is_video { "Group video call" } else { "Group voice call" }).to_string()
+		} else {
+			format!("{} {peer_name}", crate::i18n::tr(if is_video { "Group video call in" } else { "Group voice call in" }))
+		}
+	} else {
+		let p = match (direction, is_video) {
+			(CallDirection::Incoming, false) => crate::i18n::tr("Incoming call from"),
+			(CallDirection::Incoming, true) => crate::i18n::tr("Incoming video call from"),
+			(CallDirection::Answered, false) => crate::i18n::tr("Call with"),
+			(CallDirection::Answered, true) => crate::i18n::tr("Video call with"),
+			(CallDirection::Outgoing, false) => crate::i18n::tr("Outgoing call to"),
+			(CallDirection::Outgoing, true) => crate::i18n::tr("Outgoing video call to"),
+		};
+		format!("{p} {peer_name}")
 	};
-	format!("{prefix} {peer_name}\r\n{line2}")
+	format!("{prefix}\r\n{line2}")
 }
 
 pub(crate) fn call_incoming_info_text(
@@ -330,26 +341,37 @@ mod caller_info_tests {
 
 	#[test]
 	fn running_call_shows_direction_peer_and_formatted_duration() {
-		assert_eq!(call_running_info_text(CallDirection::Answered, false, "Asha", 5, false), "Call with Asha\r\n0:05");
 		assert_eq!(
-			call_running_info_text(CallDirection::Answered, true, "Asha", 5, false),
+			call_running_info_text(CallDirection::Answered, false, false, "Asha", 5, false),
+			"Call with Asha\r\n0:05"
+		);
+		assert_eq!(
+			call_running_info_text(CallDirection::Answered, true, false, "Asha", 5, false),
 			"Video call with Asha\r\n0:05"
 		);
 		assert_eq!(
-			call_running_info_text(CallDirection::Incoming, false, "Asha", 0, false),
+			call_running_info_text(CallDirection::Incoming, false, false, "Asha", 0, false),
 			"Incoming call from Asha\r\n0:00"
 		);
 		assert_eq!(
-			call_running_info_text(CallDirection::Incoming, true, "Asha", 42, false),
+			call_running_info_text(CallDirection::Incoming, true, false, "Asha", 42, false),
 			"Incoming video call from Asha\r\n0:42"
 		);
 		assert_eq!(
-			call_running_info_text(CallDirection::Outgoing, false, "Asha", 125, false),
+			call_running_info_text(CallDirection::Outgoing, false, false, "Asha", 125, false),
 			"Outgoing call to Asha\r\n2:05"
 		);
 		assert_eq!(
-			call_running_info_text(CallDirection::Outgoing, true, "Asha", 65, true),
+			call_running_info_text(CallDirection::Outgoing, true, false, "Asha", 65, true),
 			"Outgoing video call to Asha\r\nReconnecting... (1:05)"
+		);
+		assert_eq!(
+			call_running_info_text(CallDirection::Answered, false, true, "", 65, false),
+			"Group voice call\r\n1:05"
+		);
+		assert_eq!(
+			call_running_info_text(CallDirection::Answered, true, true, "Dev Group", 120, false),
+			"Group video call in Dev Group\r\n2:00"
 		);
 	}
 
@@ -507,8 +529,16 @@ pub(crate) fn format_call_window_title(
 	_duration_clock: Option<&str>,
 ) -> String {
 	if is_group {
-		let kind = crate::i18n::tr(if is_video { "Group video call in" } else { "Group voice call in" });
-		format!("{kind} {peer_name}")
+		if peer_name.trim().is_empty() {
+			crate::i18n::tr(if is_video { "Group video call" } else { "Group voice call" }).to_string()
+		} else if is_incoming {
+			let title_name = clean_call_title_peer_name(peer_name, is_saved);
+			let kind = crate::i18n::tr(if is_video { "Incoming group video call from" } else { "Incoming group voice call from" });
+			format!("{kind} {title_name}")
+		} else {
+			let kind = crate::i18n::tr(if is_video { "Group video call in" } else { "Group voice call in" });
+			format!("{kind} {peer_name}")
+		}
 	} else {
 		let title_name = clean_call_title_peer_name(peer_name, is_saved);
 		let kind = match (is_incoming, is_video) {
@@ -608,7 +638,7 @@ mod call_participant_tests {
 	use super::*;
 
 	fn p(jid: &str, name: &str, state: &str) -> CallParticipant {
-		CallParticipant { jid: jid.into(), name: name.into(), state: state.into() }
+		CallParticipant { jid: jid.into(), name: name.into(), state: state.into(), hand_raised: false }
 	}
 
 	#[test]
@@ -718,6 +748,18 @@ mod call_participant_tests {
 		assert_eq!(
 			format_call_window_title(false, true, false, "Dev Group", true, Some("04:12")),
 			"Group voice call in Dev Group"
+		);
+		assert_eq!(
+			format_call_window_title(false, true, false, "", true, None),
+			"Group voice call"
+		);
+		assert_eq!(
+			format_call_window_title(false, true, true, "", true, None),
+			"Group video call"
+		);
+		assert_eq!(
+			format_call_window_title(true, true, false, "Alice", true, None),
+			"Incoming group voice call from Alice"
 		);
 	}
 }

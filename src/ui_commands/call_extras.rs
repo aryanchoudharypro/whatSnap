@@ -29,6 +29,7 @@ pub(crate) fn show_call_buttons(s: &AppState, parts: &WindowParts) {
 	let c = &parts.call_parts;
 	c.raise_hand_btn.set_label(crate::i18n::tr(if s.call_video.hand_raised { "Lower hand" } else { "Raise hand" }));
 	c.raise_hand_btn.show(group);
+	c.people_toggle_btn.show(true);
 	c.react_btn.show(true);
 	c.frame.layout();
 }
@@ -36,8 +37,22 @@ pub(crate) fn show_call_buttons(s: &AppState, parts: &WindowParts) {
 pub(crate) fn hide_call_buttons(parts: &WindowParts) {
 	let c = &parts.call_parts;
 	c.raise_hand_btn.show(false);
+	c.people_toggle_btn.show(false);
 	c.react_btn.show(false);
 	c.people_panel.show(false);
+}
+
+pub(crate) fn toggle_people_panel(parts: &WindowParts) {
+	let c = &parts.call_parts;
+	let shown = c.people_panel.is_shown();
+	c.people_panel.show(!shown);
+	c.people_toggle_btn.set_label(crate::i18n::tr(if shown { "People" } else { "Hide people" }));
+	c.frame.layout();
+	announce_call(
+		parts,
+		crate::i18n::tr(if shown { "People list closed." } else { "People list opened." }),
+		Priority::Medium,
+	);
 }
 
 struct PersonRow {
@@ -49,18 +64,40 @@ struct PersonRow {
 }
 
 fn people_rows(s: &AppState) -> Vec<PersonRow> {
-	let mut rows: Vec<PersonRow> = s
-		.call_video
-		.waiting
-		.iter()
-		.map(|p| PersonRow {
+	let mut rows: Vec<PersonRow> = Vec::new();
+	if s.active_call_id.is_some() || s.active_call_audio.is_some() {
+		let self_hand = if s.call_video.hand_raised {
+			format!(" [{}]", crate::i18n::tr("hand raised"))
+		} else {
+			String::new()
+		};
+		let self_muted = s
+			.active_call_audio
+			.as_ref()
+			.map(|a| a.is_muted.load(std::sync::atomic::Ordering::Relaxed))
+			.unwrap_or(s.call_start_muted);
+		let self_mute = if self_muted {
+			crate::i18n::tr("muted")
+		} else {
+			crate::i18n::tr("unmuted")
+		};
+		rows.push(PersonRow {
+			jid: "self".to_string(),
+			name: crate::i18n::tr("You").to_string(),
+			label: format!("{} ({}){}", crate::i18n::tr("You"), self_mute, self_hand),
+			waiting: false,
+			connected: true,
+		});
+	}
+	for p in &s.call_video.waiting {
+		rows.push(PersonRow {
 			jid: p.jid.clone(),
 			name: p.name.clone(),
 			label: crate::i18n::tr_fmt("{}, wants to join", &[&p.name]),
 			waiting: true,
 			connected: false,
-		})
-		.collect();
+		});
+	}
 	for p in &s.call_participants {
 		let state = match p.state.as_str() {
 			"connected" => crate::i18n::tr("in the call"),
@@ -70,10 +107,15 @@ fn people_rows(s: &AppState) -> Vec<PersonRow> {
 			"" => crate::i18n::tr("joining"),
 			other => other,
 		};
+		let hand = if p.hand_raised {
+			format!(" [{}]", crate::i18n::tr("hand raised"))
+		} else {
+			String::new()
+		};
 		rows.push(PersonRow {
 			jid: p.jid.clone(),
 			name: p.name.clone(),
-			label: format!("{}, {}", p.name, state),
+			label: format!("{}, {}{}", p.name, state, hand),
 			waiting: false,
 			connected: p.state == "connected",
 		});
@@ -122,7 +164,10 @@ fn selected_person(s: &AppState, parts: &WindowParts) -> Option<PersonRow> {
 	let rows = people_rows(s);
 	let list = &parts.call_parts.people_list;
 	let jid = list.get_selection().and_then(|i| people_rows_jid_at(list.get_string(i), &rows))?;
-	rows.into_iter().find(|r| r.jid == jid && r.connected)
+	if jid == "self" {
+		return None;
+	}
+	rows.into_iter().find(|r| r.jid == jid)
 }
 
 pub(crate) fn person_buttons(s: &AppState, parts: &WindowParts) {
@@ -130,26 +175,35 @@ pub(crate) fn person_buttons(s: &AppState, parts: &WindowParts) {
 	let person = selected_person(s, parts);
 	let can_remove = s.call_video.can_remove || s.call_video.link_admin;
 	match &person {
-		Some(p) => {
-			{
-				c.mute_person_btn.set_label(&crate::i18n::tr_fmt("Mute {}", &[&p.name]));
-				c.remove_person_btn.set_label(&crate::i18n::tr_fmt("Remove {}", &[&p.name]));
-			}
+		Some(p) if p.connected => {
+			c.mute_person_btn.set_label(&crate::i18n::tr_fmt("Mute {}", &[&p.name]));
+			c.remove_person_btn.set_label(&crate::i18n::tr_fmt("Remove {}", &[&p.name]));
+			c.mute_person_btn.show(true);
+			c.remove_person_btn.show(can_remove);
+			c.ring_person_btn.show(false);
 		}
-		None => {
+		Some(p) if !p.waiting && !p.connected => {
+			c.ring_person_btn.set_label(&crate::i18n::tr_fmt("Ring {} again", &[&p.name]));
+			c.mute_person_btn.show(false);
+			c.remove_person_btn.show(false);
+			c.ring_person_btn.show(true);
+		}
+		_ => {
 			c.mute_person_btn.set_label(crate::i18n::tr("Mute"));
 			c.remove_person_btn.set_label(crate::i18n::tr("Remove"));
+			c.ring_person_btn.set_label(crate::i18n::tr("Ring again"));
+			c.mute_person_btn.show(false);
+			c.remove_person_btn.show(false);
+			c.ring_person_btn.show(false);
 		}
 	}
-	c.mute_person_btn.show(person.is_some());
-	c.remove_person_btn.show(person.is_some() && can_remove);
 	c.people_panel.layout();
 }
 
 pub(crate) fn act_on_person(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, remove: bool) {
 	let s = state.borrow();
 	let Some(call_id) = s.active_call_id.clone() else { return };
-	let Some(person) = selected_person(&s, parts) else {
+	let Some(person) = selected_person(&s, parts).filter(|p| p.connected) else {
 		drop(s);
 		announce_call(parts, crate::i18n::tr("Select someone in the call first."), Priority::High);
 		return;
@@ -162,6 +216,20 @@ pub(crate) fn act_on_person(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	} else {
 		crate::i18n::tr_fmt("Asking {} to mute.", &[&person.name])
 	};
+	announce_call(parts, &msg, Priority::High);
+}
+
+pub(crate) fn ring_call_participant(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let s = state.borrow();
+	let Some(call_id) = s.active_call_id.clone() else { return };
+	let Some(person) = selected_person(&s, parts) else {
+		drop(s);
+		announce_call(parts, crate::i18n::tr("Select someone to ring first."), Priority::High);
+		return;
+	};
+	send(&s, "ring_call_participant", serde_json::json!({ "call_id": call_id, "jid": person.jid }));
+	drop(s);
+	let msg = crate::i18n::tr_fmt("Ringing {} again.", &[&person.name]);
 	announce_call(parts, &msg, Priority::High);
 }
 
@@ -386,7 +454,7 @@ fn waiting_room(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 	let waiting: Vec<CallParticipant> = users
 		.iter()
 		.filter(|u| !text(u, "jid").is_empty())
-		.map(|u| CallParticipant { jid: text(u, "jid"), name: text(u, "name"), state: text(u, "state") })
+		.map(|u| CallParticipant { jid: text(u, "jid"), name: text(u, "name"), state: text(u, "state"), hand_raised: false })
 		.collect();
 	let arrived: Vec<String> = waiting
 		.iter()
