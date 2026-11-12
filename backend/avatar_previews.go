@@ -130,6 +130,15 @@ func (acc *Account) fetchAvatarPreview(jid string) (path string, ok bool) {
 	if err != nil {
 		return "", false
 	}
+	if jid == "me" && cli.Store.ID != nil {
+		parsed = cli.Store.ID.ToNonAD()
+	}
+	if parsed.User == "" {
+		// A bare word like "me" parses as a server name; asking for it sends
+		// an iq the server never answers, which trips the dead-socket timer.
+		acc.storeAvatarPreview(jid, "", "")
+		return "", true
+	}
 	if parsed.ToNonAD() == types.PSAJID || parsed.ToNonAD() == types.StatusBroadcastJID {
 		// The WhatsApp service chat and the status broadcast have no profile
 		// picture to ask for; the server never answers, and the queue would

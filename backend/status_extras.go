@@ -239,7 +239,10 @@ func (acc *Account) handleDeleteStatus(raw json.RawMessage) {
 		msg := acc.wa().BuildRevoke(types.StatusBroadcastJID, types.EmptyJID, types.MessageID(data.ID))
 		recipients := acc.storedStatusRecipients(data.ID)
 		if len(recipients) == 0 {
-			recipients = acc.statusRecipients(context.Background())
+			// Posted from the phone: we never saw its receiver list, so take the
+			// current audience plus everyone known to have viewed it. WA Web
+			// likewise revokes to viewers who left the audience since.
+			recipients = acc.withStatusViewers(data.ID, acc.statusRecipients(context.Background()))
 		}
 		extra := whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: recipients}
 		if _, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, extra); err != nil {
@@ -275,6 +278,38 @@ func (acc *Account) storedStatusRecipients(id string) []types.JID {
 	}
 	rows.Close()
 	return out
+}
+
+func (acc *Account) withStatusViewers(id string, recipients []types.JID) []types.JID {
+	seen := make(map[types.JID]bool, len(recipients))
+	for _, jid := range recipients {
+		seen[jid.ToNonAD()] = true
+	}
+	rows, err := acc.db.Query(`SELECT viewer FROM status_viewers WHERE status_id = ? AND viewer != 'me'`, id)
+	if err != nil {
+		return recipients
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var s string
+		if rows.Scan(&s) != nil {
+			continue
+		}
+		jid, err := types.ParseJID(s)
+		if err != nil || jid.User == "" {
+			continue
+		}
+		jid = jid.ToNonAD()
+		if pn := acc.storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
+			jid = pn.ToNonAD()
+		}
+		if seen[jid] {
+			continue
+		}
+		seen[jid] = true
+		recipients = append(recipients, jid)
+	}
+	return recipients
 }
 
 func (acc *Account) removeStatus(id string) {
