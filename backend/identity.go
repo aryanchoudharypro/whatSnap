@@ -14,9 +14,9 @@ import (
 )
 
 // tools/update_wa_versions.py rewrites these two numbers.
-const webClientRevision = 1054085650
+const webClientRevision = 1054281195
 
-const windowsAppBuild = 264101
+const windowsAppBuild = 264201
 
 const webViewFallbackMajor = 155
 
