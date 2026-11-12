@@ -64,10 +64,31 @@ def collect_code_strings():
     for path in glob.glob("src/**/*.rs", recursive=True):
         if path.startswith("src/i18n/"):
             continue
-        for m in call.finditer(open(path, encoding="utf-8").read()):
+        content = open(path, encoding="utf-8").read()
+        for m in call.finditer(content):
             for g in m.groups():
                 if g:
                     found.add(unescape_rust(g))
+
+    palette = re.search(
+        r"STATUS_PALETTE:\s*\[\(&str,\s*u32\);\s*\d+\]\s*=\s*\[(.*?)\];",
+        open("src/ui/dialogs/status_composer.rs", encoding="utf-8").read(),
+        re.DOTALL,
+    )
+    if palette:
+        for m in re.finditer(r"\(\s*(" + LIT + r")\s*,", palette.group(1)):
+            found.add(unescape_rust(m.group(1)))
+
+    for s in re.findall(
+        r"const\s+[A-Z0-9_]*SUFFIX\s*:\s*&str\s*=\s*(" + LIT + r");",
+        open("src/ui_commands/calls.rs", encoding="utf-8").read(),
+    ):
+        found.add(unescape_rust(s))
+
+    found.update([
+        "Mobile", "iPhone", "Main", "Home fax", "Work fax", "Home", "Work",
+        "Pager", "Email", "Description", "Business name",
+    ])
     return found
 
 
@@ -120,4 +141,5 @@ def main():
     sys.exit(1 if check and bad else 0)
 
 
-main()
+if __name__ == "__main__":
+    main()
