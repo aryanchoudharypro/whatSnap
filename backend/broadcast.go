@@ -228,7 +228,7 @@ func (acc *Account) buildChatsList() []ChatListEntry {
 				resolved := acc.cachedDisplayName(parsedJID)
 				if resolved != parsedJID.String() {
 					n = resolved
-				} else if n == jid && parsedJID.Server != "lid" {
+				} else if n == jid && parsedJID.Server != "lid" && !isPSAJID(parsedJID) {
 					n = "+" + parsedJID.User
 				}
 			}
