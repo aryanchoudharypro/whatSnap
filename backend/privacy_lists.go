@@ -109,6 +109,16 @@ func privacyListChanges(current, wanted []privacyListPerson) []types.PrivacyList
 	return changes
 }
 
+func listedPerson(list []privacyListPerson, jid types.JID) (privacyListPerson, bool) {
+	jid = jid.ToNonAD()
+	for _, person := range list {
+		if jid == person.LID || jid == person.PN {
+			return person, true
+		}
+	}
+	return privacyListPerson{}, false
+}
+
 func (acc *Account) resolvePrivacyListPerson(ctx context.Context, jid types.JID) (privacyListPerson, error) {
 	jid = jid.ToNonAD()
 	person := privacyListPerson{}
@@ -169,6 +179,10 @@ func (acc *Account) handleSetPrivacyList(raw json.RawMessage) {
 		for _, jidStr := range data.JIDs {
 			jid, err := types.ParseJID(jidStr)
 			if err != nil {
+				continue
+			}
+			if person, ok := listedPerson(current, jid); ok {
+				wanted = append(wanted, person)
 				continue
 			}
 			person, err := acc.resolvePrivacyListPerson(ctx, jid)
