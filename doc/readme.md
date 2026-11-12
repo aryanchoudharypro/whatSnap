@@ -215,7 +215,7 @@ The actions menu of a message has these items, when they apply to the message: `
 ### Contact Cards
 When someone sends you a contact, the message reads `Contact:` and the name. Press `Enter` on it to open the `View contact` dialog. A message with several contacts opens a list of all of them, with each contact's name followed by its place in the list, for example `(2 of 3)`.
 
-The list shows the name and work title, each WhatsApp number, then email addresses, home and work addresses, other phone numbers, the birthday, the nickname, and other accounts, the way WhatsApp Web shows them. The buttons work on the item you select:
+A contact with just a name and one number is a single line. Otherwise the list shows the name and work title, each WhatsApp number, then email addresses, home and work addresses, other phone numbers, the birthday, the nickname, and other accounts, the way WhatsApp Web shows them. The buttons work on the item you select:
 
 - `Message` opens a chat with the person. On the name, it uses their WhatsApp number. If the contact has more than one, it asks which one.
 - `Send Email` opens your email app on an email address. `Open in Maps` opens an address in Google Maps.

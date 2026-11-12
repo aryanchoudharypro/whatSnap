@@ -116,6 +116,19 @@ fn card_rows(cards: &[Card], multi: bool) -> Vec<Row> {
 		if multi {
 			head = crate::i18n::tr_fmt("{} ({} of {})", &[&head, &(i + 1), &cards.len()]);
 		}
+		// A plain card, one number and nothing else, reads as a single line.
+		if let [number] = card.numbers.as_slice()
+			&& card.details.is_empty()
+		{
+			let shown = number.shown();
+			rows.push(Row {
+				card: i,
+				text: crate::i18n::tr_fmt("{}, {}, {}, on WhatsApp", &[&head, &shown, &number.label]),
+				copy: shown,
+				action: RowAction::Message(number.jid.clone()),
+			});
+			continue;
+		}
 		let action = if card.message_targets().is_empty() { RowAction::None } else { RowAction::MessageCard };
 		rows.push(Row { card: i, text: head, copy: card.name.clone(), action });
 		for number in &card.numbers {
