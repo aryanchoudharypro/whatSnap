@@ -158,9 +158,10 @@ type Account struct {
 	historyAccessNoticeSent atomic.Bool
 	lidMergeQueue           struct {
 		sync.Mutex
-		pending map[string]types.JID
-		timer   *time.Timer
-		since   time.Time
+		pending    map[string]types.JID
+		renumbered map[string]renumber
+		timer      *time.Timer
+		since      time.Time
 	}
 	lidMergeMu            sync.Mutex
 	container             *sqlstore.Container

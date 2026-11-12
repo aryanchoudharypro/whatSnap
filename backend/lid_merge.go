@@ -27,36 +27,53 @@ func (acc *Account) hookLIDStore(dev *store.Device) {
 }
 
 func (s *lidHookStore) PutLIDMapping(ctx context.Context, lid, pn types.JID) error {
-	isNew := s.isNew(ctx, lid, pn)
+	isNew, oldPN := s.isNew(ctx, lid, pn)
 	err := s.LIDStore.PutLIDMapping(ctx, lid, pn)
 	if err == nil && isNew {
-		s.acc.queueLIDMerge(lid, pn)
+		s.acc.queueLIDMerge(lid, pn, oldPN)
 	}
 	return err
 }
 
 func (s *lidHookStore) PutManyLIDMappings(ctx context.Context, mappings []store.LIDMapping) error {
-	var fresh []store.LIDMapping
+	type change struct {
+		store.LIDMapping
+		oldPN types.JID
+	}
+	var fresh []change
 	for _, m := range mappings {
-		if s.isNew(ctx, m.LID, m.PN) {
-			fresh = append(fresh, m)
+		if isNew, oldPN := s.isNew(ctx, m.LID, m.PN); isNew {
+			fresh = append(fresh, change{m, oldPN})
 		}
 	}
 	err := s.LIDStore.PutManyLIDMappings(ctx, mappings)
 	if err == nil {
 		for _, m := range fresh {
-			s.acc.queueLIDMerge(m.LID, m.PN)
+			s.acc.queueLIDMerge(m.LID, m.PN, m.oldPN)
 		}
 	}
 	return err
 }
 
-func (s *lidHookStore) isNew(ctx context.Context, lid, pn types.JID) bool {
+// isNew reports whether lid -> pn is a mapping we don't have yet. oldPN is
+// the number the LID had until now, when it had another one: the person
+// changed their number but kept their account, so their chat moves with them
+// (WA Web files it by LID, so it never splits there).
+func (s *lidHookStore) isNew(ctx context.Context, lid, pn types.JID) (isNew bool, oldPN types.JID) {
 	if lid.Server != types.HiddenUserServer || pn.Server != types.DefaultUserServer {
-		return false
+		return false, types.EmptyJID
 	}
 	cur, err := s.LIDStore.GetPNForLID(ctx, lid.ToNonAD())
-	return err != nil || cur.User != pn.User
+	if err != nil {
+		return true, types.EmptyJID
+	}
+	if cur.User == pn.User {
+		return false, types.EmptyJID
+	}
+	if !cur.IsEmpty() {
+		oldPN = normalizePN(cur)
+	}
+	return true, oldPN
 }
 
 const (
@@ -64,15 +81,19 @@ const (
 	lidMergeMaxWait  = 10 * time.Second
 )
 
-func (acc *Account) queueLIDMerge(lid, pn types.JID) {
+func (acc *Account) queueLIDMerge(lid, pn, oldPN types.JID) {
 	q := &acc.lidMergeQueue
 	q.Lock()
 	defer q.Unlock()
 	if q.pending == nil {
 		q.pending = make(map[string]types.JID)
+		q.renumbered = make(map[string]renumber)
 		q.since = time.Now()
 	}
 	q.pending[lid.User] = pn.ToNonAD()
+	if !oldPN.IsEmpty() && oldPN.User != pn.User {
+		q.renumbered[oldPN.User] = renumber{newPN: normalizePN(pn), lid: lid.ToNonAD()}
+	}
 	delay := lidMergeDebounce
 	if waited := time.Since(q.since); waited+delay > lidMergeMaxWait {
 		delay = max(lidMergeMaxWait-waited, 0)
@@ -87,15 +108,42 @@ func (acc *Account) flushLIDMerges() {
 	q := &acc.lidMergeQueue
 	q.Lock()
 	pending := q.pending
+	renumbered := q.renumbered
 	q.pending = nil
+	q.renumbered = nil
 	q.Unlock()
-	if len(pending) == 0 {
+	if len(pending) == 0 && len(renumbered) == 0 {
 		return
 	}
-	if acc.mergeLIDRowsIntoPN(pending) {
+	merged := acc.mergeLIDRowsIntoPN(pending)
+	if acc.mergeRenumberedRows(renumbered) {
+		merged = true
+	}
+	if merged {
 		acc.invalidateDisplayNames()
 		acc.broadcastChats()
 	}
+}
+
+// renumber is a contact who moved to newPN while keeping their LID.
+type renumber struct {
+	newPN, lid types.JID
+}
+
+// mergeRenumberedRows moves everything filed under a contact's old number
+// (keyed by its user part) to their new one, so the chat stays one chat.
+// The wire address stays the LID, which is what WhatsApp still uses.
+func (acc *Account) mergeRenumberedRows(moves map[string]renumber) bool {
+	sources := make([]mergeSource, 0, len(moves))
+	for oldUser, r := range moves {
+		if oldUser == "" || r.newPN.User == "" || r.newPN.Server != types.DefaultUserServer || oldUser == r.newPN.User {
+			continue
+		}
+		oldPN := types.NewJID(oldUser, types.DefaultUserServer)
+		log.Printf("Contact %s changed number; moving its chat to %s", r.lid, r.newPN)
+		sources = append(sources, mergeSource{from: oldPN.String(), to: r.newPN.String(), wire: r.lid.String()})
+	}
+	return acc.mergeRowsInto(sources)
 }
 
 func (acc *Account) mergeAllKnownLIDRows() {
@@ -164,7 +212,27 @@ var keyedLIDTables = []struct{ table, key, person, ts string }{
 }
 
 func (acc *Account) mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
-	if len(pns) == 0 {
+	sources := make([]mergeSource, 0, len(pns))
+	for lidUser, pn := range pns {
+		pn = normalizePN(pn)
+		if lidUser == "" || pn.User == "" || pn.Server != types.DefaultUserServer {
+			continue
+		}
+		lid := types.NewJID(lidUser, types.HiddenUserServer).String()
+		sources = append(sources, mergeSource{from: lid, to: pn.String(), wire: lid})
+	}
+	return acc.mergeRowsInto(sources)
+}
+
+// mergeSource folds the rows filed under from (a LID, or a contact's old
+// number) into to (their phone number). wire is the LID WhatsApp addresses
+// them by, kept as the chat's wire_jid and a group sender's wire_sender.
+type mergeSource struct {
+	from, to, wire string
+}
+
+func (acc *Account) mergeRowsInto(sources []mergeSource) bool {
+	if len(sources) == 0 {
 		return false
 	}
 	acc.lidMergeMu.Lock()
@@ -175,19 +243,17 @@ func (acc *Account) mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 		return false
 	}
 	defer tx.Rollback()
-	tx.Exec(`CREATE TEMP TABLE IF NOT EXISTS lid_merge_map (lid TEXT PRIMARY KEY, pn TEXT NOT NULL)`)
-	tx.Exec(`DELETE FROM lid_merge_map`)
-	insert, err := tx.Prepare(`INSERT OR REPLACE INTO lid_merge_map (lid, pn) VALUES (?, ?)`)
+	// lid is the JID merged away (a LID or an old number), pn the number it
+	// merges into, wire the LID to keep as the WhatsApp-side address.
+	tx.Exec(`DROP TABLE IF EXISTS temp.lid_merge_map`)
+	tx.Exec(`CREATE TEMP TABLE lid_merge_map (lid TEXT PRIMARY KEY, pn TEXT NOT NULL, wire TEXT NOT NULL)`)
+	insert, err := tx.Prepare(`INSERT OR REPLACE INTO lid_merge_map (lid, pn, wire) VALUES (?, ?, ?)`)
 	if err != nil {
 		log.Println("Error preparing LID merge:", err)
 		return false
 	}
-	for lidUser, pn := range pns {
-		pn = normalizePN(pn)
-		if lidUser == "" || pn.User == "" || pn.Server != types.DefaultUserServer {
-			continue
-		}
-		insert.Exec(types.NewJID(lidUser, types.HiddenUserServer).String(), pn.String())
+	for _, src := range sources {
+		insert.Exec(src.from, src.to, src.wire)
 	}
 	insert.Close()
 
@@ -218,19 +284,19 @@ func (acc *Account) mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 			limit_sharing_ts = MAX(COALESCE(chats.limit_sharing_ts, 0), COALESCE(l.limit_sharing_ts, 0)),
 			restricted = CASE WHEN COALESCE(l.restricted_ts, 0) > COALESCE(chats.restricted_ts, 0) THEN l.restricted ELSE chats.restricted END,
 			restricted_ts = MAX(COALESCE(chats.restricted_ts, 0), COALESCE(l.restricted_ts, 0)),
-			wire_jid = COALESCE(NULLIF(chats.wire_jid, ''), NULLIF(l.wire_jid, ''), l.jid)
-		FROM (SELECT c.*, m.pn AS merge_pn FROM chats c JOIN lid_merge_map m ON m.lid = c.jid) AS l
+			wire_jid = COALESCE(NULLIF(chats.wire_jid, ''), NULLIF(l.wire_jid, ''), l.merge_wire)
+		FROM (SELECT c.*, m.pn AS merge_pn, m.wire AS merge_wire FROM chats c JOIN lid_merge_map m ON m.lid = c.jid) AS l
 		WHERE chats.jid = l.merge_pn`,
 		`DELETE FROM chats WHERE jid IN (SELECT lid FROM lid_merge_map)
 			AND EXISTS (SELECT 1 FROM lid_merge_map m JOIN chats p ON p.jid = m.pn WHERE m.lid = chats.jid)`,
-		`UPDATE chats SET wire_jid = COALESCE(NULLIF(wire_jid, ''), jid), jid = (SELECT pn FROM lid_merge_map WHERE lid = chats.jid)
+		`UPDATE chats SET wire_jid = COALESCE(NULLIF(wire_jid, ''), (SELECT wire FROM lid_merge_map WHERE lid = chats.jid)), jid = (SELECT pn FROM lid_merge_map WHERE lid = chats.jid)
 			WHERE jid IN (SELECT lid FROM lid_merge_map)`,
 		`UPDATE chats SET preview_sender = (SELECT pn FROM lid_merge_map WHERE lid = chats.preview_sender)
 			WHERE preview_sender IN (SELECT lid FROM lid_merge_map)`,
 		`UPDATE messages SET jid = (SELECT pn FROM lid_merge_map WHERE lid = messages.jid)
 			WHERE jid IN (SELECT lid FROM lid_merge_map)`,
 		`UPDATE messages SET
-			wire_sender = CASE WHEN COALESCE(wire_sender, '') = '' AND jid LIKE '%@g.us' THEN sender_jid ELSE wire_sender END,
+			wire_sender = CASE WHEN COALESCE(wire_sender, '') = '' AND jid LIKE '%@g.us' THEN (SELECT wire FROM lid_merge_map WHERE lid = messages.sender_jid) ELSE wire_sender END,
 			sender_jid = (SELECT pn FROM lid_merge_map WHERE lid = messages.sender_jid)
 			WHERE sender_jid IN (SELECT lid FROM lid_merge_map)`,
 		`UPDATE reactions SET chat_jid = (SELECT pn FROM lid_merge_map WHERE lid = reactions.chat_jid)
@@ -250,6 +316,12 @@ func (acc *Account) mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 			AND EXISTS (SELECT 1 FROM lid_merge_map m JOIN history_requests p ON p.jid = m.pn WHERE m.lid = history_requests.jid)`,
 		`UPDATE history_requests SET jid = (SELECT pn FROM lid_merge_map WHERE lid = history_requests.jid)
 			WHERE jid IN (SELECT lid FROM lid_merge_map)`,
+		`UPDATE OR IGNORE chat_favorites SET jid = (SELECT pn FROM lid_merge_map WHERE lid = chat_favorites.jid)
+			WHERE jid IN (SELECT lid FROM lid_merge_map)`,
+		`DELETE FROM chat_favorites WHERE jid IN (SELECT lid FROM lid_merge_map)`,
+		`UPDATE OR IGNORE chat_list_members SET jid = (SELECT pn FROM lid_merge_map WHERE lid = chat_list_members.jid)
+			WHERE jid IN (SELECT lid FROM lid_merge_map)`,
+		`DELETE FROM chat_list_members WHERE jid IN (SELECT lid FROM lid_merge_map)`,
 	}
 	for _, t := range keyedLIDTables {
 		r := strings.NewReplacer("{T}", t.table, "{K}", t.key, "{P}", t.person, "{S}", t.ts)

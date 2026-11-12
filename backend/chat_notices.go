@@ -116,6 +116,36 @@ func (acc *Account) noteSecurityCodeChange(v *events.IdentityChange) {
 	acc.insertQuietSystemMessage(jid, id, fmt.Sprintf("Your security code with %s changed.", acc.nameToken(contact)), ts)
 }
 
+// noteContactNumberChange puts WA Web's "changed their phone number" line in
+// the person's chat. When they kept their account (same LID) the LID hook
+// moves the old number's chat to the new number, so there is one chat and
+// the line goes there; a new account keeps both chats, and both get it.
+func (acc *Account) noteContactNumberChange(v *events.ContactNumberChanged) {
+	oldPN, newPN := normalizePN(v.OldJID), normalizePN(v.NewJID)
+	if oldPN.Server != types.DefaultUserServer || newPN.Server != types.DefaultUserServer || acc.isOwnJID(newPN) {
+		return
+	}
+	ts := v.Timestamp
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	sameAccount := !v.OldLID.IsEmpty() && v.OldLID.User == v.NewLID.User
+	targets := []types.JID{oldPN, newPN}
+	if sameAccount {
+		targets = []types.JID{newPN}
+	}
+	text := fmt.Sprintf("%s changed their phone number", acc.nameToken(newPN))
+	for _, chat := range targets {
+		var exists int
+		acc.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ? OR (? AND jid = ?)`, chat.String(), sameAccount, oldPN.String()).Scan(&exists)
+		if exists == 0 {
+			continue
+		}
+		id := fmt.Sprintf("system_%s_%d_number_identity", chat.User, ts.Unix())
+		acc.insertQuietSystemMessage(chat.String(), id, text, ts)
+	}
+}
+
 // quietSystemSuffix ends the id of every system line that only goes into the
 // chat itself. UpdateChatSnippet skips these, so a rebuilt preview never
 // becomes one of them.

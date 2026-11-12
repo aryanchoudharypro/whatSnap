@@ -2200,6 +2200,8 @@ func (acc *Account) eventHandler(evt interface{}) {
 		log.Println("Unknown stream error, code:", v.Code)
 	case *events.Disconnected:
 		acc.setConnState(connStateConnecting, "Connection lost.", 0)
+	case *events.ContactNumberChanged:
+		acc.noteContactNumberChange(v)
 	case *events.KeepAliveTimeout:
 		log.Printf("Keepalive timed out (%d in a row, last answer %s ago)", v.ErrorCount, time.Since(v.LastSuccess).Round(time.Second))
 		if acc.currentConnState()["state"] == connStateOnline {
