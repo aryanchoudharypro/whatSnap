@@ -357,7 +357,7 @@ Press `Enter` on a row to open the status viewer. The viewer starts at the first
 
 In the viewer, you can like, reply, react, open the chat, and mute the person. `Like` sends a green heart that only the person who posted the update sees, the same as the like button of WhatsApp Web. The other emoji send a reply to the person's chat. For your own updates, you can see who viewed them and delete them. The context menu of a row has the same actions. On `My status`, if you have more than one update, `Viewed by...` and `Delete...` ask which update you mean.
 
-To post a status, use `Post Status Update...` for text, or `Post Photo/Video Status...`.
+To post a status, use `Post Status Update...` and choose text, photo or video, or voice, or use `Post Photo/Video Status...`. A voice status is recorded in its own window: press `Record`, speak for up to 30 seconds, press `Stop`, then `Post Status` (or `Ctrl+Enter`). WhatsApp Web can't post voice statuses, so whatSnap sends them the way the phone does.
 
 ## Channels and Communities
 - The Channels section shows the channels that you follow. Use `Find channels...` to search for channels, and `Create channel...` to make your own.

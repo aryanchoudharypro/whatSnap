@@ -19,3 +19,4 @@ pub mod screen_picker;
 pub mod send_to;
 pub mod settings_dialog;
 pub mod status_composer;
+pub mod voice_status_composer;

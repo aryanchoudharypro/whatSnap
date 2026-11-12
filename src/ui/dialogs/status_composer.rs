@@ -97,7 +97,11 @@ pub fn show_status_composer_choice(
 	state: &Rc<std::cell::RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
 ) {
-	let choices = [crate::i18n::tr("Text status update..."), crate::i18n::tr("Photo or video status update...")];
+	let choices = [
+		crate::i18n::tr("Text status update..."),
+		crate::i18n::tr("Photo or video status update..."),
+		crate::i18n::tr("Voice status update..."),
+	];
 	let dialog = SingleChoiceDialog::builder(
 		parent,
 		crate::i18n::tr("Choose what kind of status update to post:"),
@@ -111,6 +115,7 @@ pub fn show_status_composer_choice(
 	match dialog.get_selection() {
 		0 => show_text_status_composer(parent, state, parts),
 		1 => show_media_status_composer(parent, state, parts),
+		2 => super::voice_status_composer::show_voice_status_composer(parent, state, parts),
 		_ => {}
 	}
 }

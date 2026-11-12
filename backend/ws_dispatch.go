@@ -380,6 +380,8 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 		acc.handlePostStatus(cmd.Data)
 	case "post_media_status":
 		acc.handlePostMediaStatus(cmd.Data)
+	case "post_voice_status":
+		acc.handlePostVoiceStatus(cmd.Data)
 	case "get_status_viewers":
 		go acc.handleGetStatusViewers(conn, cmd.Data)
 	case "react_status":
