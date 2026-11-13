@@ -303,6 +303,9 @@ func (acc *Account) withStatusViewers(id string, recipients []types.JID) []types
 		if pn := acc.storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
 			jid = pn.ToNonAD()
 		}
+		if jid.Server != types.DefaultUserServer {
+			continue
+		}
 		if seen[jid] {
 			continue
 		}
@@ -453,13 +456,12 @@ func (acc *Account) statusAudience(ctx context.Context) (mode string, list []typ
 // an empty string: an empty audience is refused the way WA Web's privacy popup
 // warns about it.
 func (acc *Account) statusPostBlocker(ctx context.Context) string {
-	action := acc.storedStatusPrivacy()
-	if action == nil {
-		return ""
-	}
-	switch action.GetMode() {
-	case waSyncAction.StatusPrivacyAction_ALLOW_LIST, waSyncAction.StatusPrivacyAction_DENY_LIST:
-		if recipients := acc.statusRecipients(ctx); recipients != nil && len(recipients) == 0 {
+	mode, _ := acc.statusAudience(ctx)
+	switch mode {
+	case "close_friends", "custom_list":
+		return "Your status privacy is set to Close Friends or a custom list on your phone, which whatSnap can't use yet. Change it to My contacts, My contacts except or Only share with."
+	case "only", "except":
+		if recipients := acc.statusRecipients(ctx); len(recipients) == 0 {
 			return "This status update would be sent to 0 contacts. Check your status privacy."
 		}
 	}
@@ -467,40 +469,65 @@ func (acc *Account) statusPostBlocker(ctx context.Context) string {
 }
 
 func (acc *Account) statusRecipients(ctx context.Context) []types.JID {
-	action := acc.storedStatusPrivacy()
-	if action == nil {
-		return nil
+	mode, audienceList := acc.statusAudience(ctx)
+	if mode == "close_friends" || mode == "custom_list" {
+		return []types.JID{}
 	}
-	user := func(jid types.JID) types.JID {
+
+	toPN := func(jid types.JID) (types.JID, bool) {
 		jid = jid.ToNonAD()
-		if pn := acc.storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
-			return pn.ToNonAD()
+		if jid.Server == types.DefaultUserServer {
+			return jid, true
 		}
-		return jid
-	}
-	listed := map[types.JID]bool{}
-	for _, s := range action.GetUserJID() {
-		if jid, err := types.ParseJID(s); err == nil {
-			listed[user(jid)] = true
+		if jid.Server == types.HiddenUserServer {
+			if pn := acc.storeTwin(jid); !pn.IsEmpty() && pn.Server == types.DefaultUserServer {
+				return pn.ToNonAD(), true
+			}
 		}
+		return types.EmptyJID, false
 	}
+
+	seen := make(map[types.JID]bool)
 	out := []types.JID{}
-	if action.GetMode() == waSyncAction.StatusPrivacyAction_ALLOW_LIST {
-		for jid := range listed {
-			out = append(out, jid)
+
+	if mode == "only" {
+		for _, jid := range audienceList {
+			if pn, ok := toPN(jid); ok && !seen[pn] {
+				seen[pn] = true
+				out = append(out, pn)
+			}
 		}
+		return out
+	}
+
+	if acc.wa() == nil || acc.wa().Store == nil || acc.wa().Store.Contacts == nil {
 		return out
 	}
 	contacts, err := acc.wa().Store.Contacts.GetAllContacts(ctx)
 	if err != nil {
-		return nil
+		return out
 	}
-	deny := action.GetMode() == waSyncAction.StatusPrivacyAction_DENY_LIST
+
+	deny := mode == "except"
+	denied := make(map[types.JID]bool)
+	if deny {
+		for _, jid := range audienceList {
+			if pn, ok := toPN(jid); ok {
+				denied[pn] = true
+			}
+		}
+	}
+
 	for jid, contact := range contacts {
-		if contact.FullName == "" || (deny && listed[user(jid)]) {
+		if contact.FullName == "" && contact.FirstName == "" {
 			continue
 		}
-		out = append(out, jid)
+		pn, ok := toPN(jid)
+		if !ok || (deny && denied[pn]) || seen[pn] {
+			continue
+		}
+		seen[pn] = true
+		out = append(out, pn)
 	}
 	return out
 }
