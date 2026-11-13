@@ -5530,6 +5530,13 @@ pub fn bind_input_handlers(
 
 	let open_menu_key = open_msg_context_menu.clone();
 	let enter_guard_msgs_down = crate::platform::tray::enter_release_guard();
+	let view_text_on_enter = std::rc::Rc::new(std::cell::Cell::new(None));
+	let view_text_on_enter_down = view_text_on_enter.clone();
+	let view_text_on_enter_blur = view_text_on_enter.clone();
+	parts.conversations_parts.messages_list.on_kill_focus(move |event| {
+		view_text_on_enter_blur.set(None);
+		event.skip(true);
+	});
 	parts.conversations_parts.messages_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
@@ -5539,6 +5546,18 @@ pub fn bind_input_handlers(
 				(s.keymap.clone(), s.settings.type_to_compose)
 			};
 			let pressed = |id| keymap.is_pressed_in_list(id, key_event, type_to_compose);
+			if keys::is_enter(code) {
+				// Capture modifiers on the first press, not the release (or a
+				// repeat): Shift may be released before Enter. Keep opening the
+				// dialog on release so the held key cannot activate its Close button.
+				if view_text_on_enter_down.get().is_none() {
+					view_text_on_enter_down.set(Some(pressed(message_list::VIEW_TEXT)));
+				}
+				if view_text_on_enter_down.get() == Some(true) {
+					event.skip(false);
+					return;
+				}
+			}
 
 			if keys::is_left(code) {
 				let now = std::time::Instant::now();
@@ -6193,7 +6212,7 @@ pub fn bind_input_handlers(
 						let _ = tx_play_media.send(UiCommand::AskDeleteMessages(ids));
 					}
 				}
-			} else if pressed(message_list::VIEW_TEXT) && code != Some(WXK_RETURN) {
+			} else if pressed(message_list::VIEW_TEXT) && !keys::is_enter(code) {
 				show_message_text(&parent_frame, &msgs_list_play, &state_play);
 				event.skip(false);
 			} else if keys::is_context_menu_key(key_event) {
@@ -6219,13 +6238,14 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.messages_list.on_key_up(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			let view_text = keys::is_enter(code) && view_text_on_enter.take() == Some(true);
 			// The release of an Enter pressed somewhere else (a menu, a
 			// dialog, the Start menu) mustn't open the focused message's link.
 			if keys::is_enter(code) && enter_guard_msgs.replace(false) {
 				event.skip(false);
 				return;
 			}
-			if code == Some(WXK_RETURN) && state_enter.borrow().keymap.is_pressed(message_list::VIEW_TEXT, key_event) {
+			if view_text {
 				show_message_text(&parent_frame_enter, &msgs_list_enter, &state_enter);
 				event.skip(false);
 				return;
