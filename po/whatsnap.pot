@@ -479,6 +479,12 @@ msgstr ""
 msgid ", {} unread chats"
 msgstr ""
 
+msgid ". Going on now, press Enter to join"
+msgstr ""
+
+msgid ". In progress, press Enter to return to it"
+msgstr ""
+
 msgid "0 selected"
 msgstr ""
 
@@ -815,6 +821,12 @@ msgstr ""
 msgid "Backup and Restore"
 msgstr ""
 
+msgid "Bali Hai"
+msgstr ""
+
+msgid "Bittersweet"
+msgstr ""
+
 msgid "Block a contact..."
 msgstr ""
 
@@ -852,6 +864,15 @@ msgid "Blocked: yes"
 msgstr ""
 
 msgid "Blocking {}..."
+msgstr ""
+
+msgid "Brandy Rose"
+msgstr ""
+
+msgid "Bright Sun"
+msgstr ""
+
+msgid "Business name"
 msgstr ""
 
 msgid "Busy, on another call with"
@@ -933,6 +954,9 @@ msgid "Call log cleared."
 msgstr ""
 
 msgid "Call with"
+msgstr ""
+
+msgid "Call with {}"
 msgstr ""
 
 msgid "Call {}"
@@ -1020,6 +1044,9 @@ msgid "Catalogue"
 msgstr ""
 
 msgid "Category:"
+msgstr ""
+
+msgid "Ce Soir"
 msgstr ""
 
 msgid "Change &picture..."
@@ -1604,6 +1631,9 @@ msgstr ""
 msgid "Delivered to"
 msgstr ""
 
+msgid "Description"
+msgstr ""
+
 msgid "Description (optional)"
 msgstr ""
 
@@ -1641,6 +1671,9 @@ msgid "Document"
 msgstr ""
 
 msgid "Documents"
+msgstr ""
+
+msgid "Dodger Blue"
 msgstr ""
 
 msgid "Don't allow messages forwarded many times"
@@ -1700,6 +1733,9 @@ msgstr ""
 msgid "E&xit"
 msgstr ""
 
+msgid "Earls Green"
+msgstr ""
+
 msgid "Edit"
 msgstr ""
 
@@ -1734,6 +1770,15 @@ msgid "Editing cancelled."
 msgstr ""
 
 msgid "Editing message. Press Enter to save, Escape to cancel."
+msgstr ""
+
+msgid "Elephant"
+msgstr ""
+
+msgid "Email"
+msgstr ""
+
+msgid "Emerald"
 msgstr ""
 
 msgid "Emoji"
@@ -1994,6 +2039,12 @@ msgstr ""
 msgid "Hide message content: notifications from this chat don't show what the message says"
 msgstr ""
 
+msgid "Home"
+msgstr ""
+
+msgid "Home fax"
+msgstr ""
+
 msgid "Hour"
 msgstr ""
 
@@ -2001,6 +2052,9 @@ msgid "How this archived chat alerts you about new messages"
 msgstr ""
 
 msgid "How this computer alerts you about this chat, without changing your phone"
+msgstr ""
+
+msgid "I'd like you to be an admin of my WhatsApp channel."
 msgstr ""
 
 msgid "In group call with"
@@ -2288,6 +2342,9 @@ msgstr ""
 msgid "Lower hand"
 msgstr ""
 
+msgid "Main"
+msgstr ""
+
 msgid "Main Navigation"
 msgstr ""
 
@@ -2354,7 +2411,13 @@ msgstr ""
 msgid "Markdown file (*.md)|*.md"
 msgstr ""
 
+msgid "Maya Blue"
+msgstr ""
+
 msgid "Media"
+msgstr ""
+
+msgid "Medium Red Violet"
 msgstr ""
 
 msgid "Member changes"
@@ -2475,6 +2538,15 @@ msgid "Missed call from {}."
 msgstr ""
 
 msgid "Misspelled: {}"
+msgstr ""
+
+msgid "Mobile"
+msgstr ""
+
+msgid "Mona Lisa"
+msgstr ""
+
+msgid "Monte Carlo"
 msgstr ""
 
 msgid "More channels"
@@ -2888,6 +2960,9 @@ msgstr ""
 msgid "Pa&use"
 msgstr ""
 
+msgid "Pager"
+msgstr ""
+
 msgid "Pairing code updated: {}"
 msgstr ""
 
@@ -3041,6 +3116,9 @@ msgstr ""
 msgid "Poll"
 msgstr ""
 
+msgid "Polo Blue"
+msgstr ""
+
 msgid "Post &Status"
 msgstr ""
 
@@ -3084,6 +3162,9 @@ msgid "Posting status update..."
 msgstr ""
 
 msgid "Posting voice status..."
+msgstr ""
+
+msgid "Prelude"
 msgstr ""
 
 msgid "Press Record and speak. A voice status can be up to 30 seconds."
@@ -3576,6 +3657,9 @@ msgid "Scheduled messages: none"
 msgstr ""
 
 msgid "Scheduling message..."
+msgstr ""
+
+msgid "Scorpion"
 msgstr ""
 
 msgid "Screen"
@@ -4094,6 +4178,12 @@ msgstr ""
 msgid "Storage & Media"
 msgstr ""
 
+msgid "Summer Sky"
+msgstr ""
+
+msgid "Sundance"
+msgstr ""
+
 msgid "Surname"
 msgstr ""
 
@@ -4110,6 +4200,9 @@ msgid "Take this message off your starred messages"
 msgstr ""
 
 msgid "Take this sticker off your favorites"
+msgstr ""
+
+msgid "Tawny Port"
 msgstr ""
 
 msgid "Text"
@@ -4409,6 +4502,9 @@ msgstr ""
 msgid "Video call with"
 msgstr ""
 
+msgid "Video call with {}"
+msgstr ""
+
 msgid "Video call {}"
 msgstr ""
 
@@ -4458,6 +4554,9 @@ msgid "Viewed, muted"
 msgstr ""
 
 msgid "Visible to your configured status audience."
+msgstr ""
+
+msgid "Vivid Violet"
 msgstr ""
 
 msgid "Voice call"
@@ -4526,6 +4625,9 @@ msgstr ""
 msgid "Waiting for someone in the call to let you in..."
 msgstr ""
 
+msgid "Wasabi"
+msgstr ""
+
 msgid "Website"
 msgstr ""
 
@@ -4584,6 +4686,12 @@ msgid "Window"
 msgstr ""
 
 msgid "Windows default"
+msgstr ""
+
+msgid "Work"
+msgstr ""
+
+msgid "Work fax"
 msgstr ""
 
 msgid "Yesterday"
@@ -4785,6 +4893,9 @@ msgid "group video call from"
 msgstr ""
 
 msgid "group voice call from"
+msgstr ""
+
+msgid "iPhone"
 msgstr ""
 
 msgid "in"

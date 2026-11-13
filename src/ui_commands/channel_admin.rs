@@ -20,7 +20,6 @@ use crate::{
 	},
 };
 
-const ADMIN_INVITE_TEXT: &str = "I'd like you to be an admin of my WhatsApp channel.";
 
 fn admin_invite_targets(s: &AppState) -> Vec<SendTarget> {
 	let person = |jid: &str| jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
@@ -223,7 +222,7 @@ pub(crate) fn manage_channel(
 				&parts.frame,
 				crate::i18n::tr("Invite admins"),
 				targets,
-				crate::i18n::tr(ADMIN_INVITE_TEXT),
+				crate::i18n::tr("I'd like you to be an admin of my WhatsApp channel."),
 				&[],
 			) else {
 				return;

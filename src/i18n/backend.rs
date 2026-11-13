@@ -530,6 +530,8 @@ pub fn translate_backend_message(msg: &str) -> String {
 			"Kode penautan sudah kedaluwarsa. Minta kode baru untuk mencoba lagi."
 		}
 		"This event can't be opened here." => "Acara ini tidak dapat dibuka di sini.",
+		"This contact card can't be opened here." => "Kartu kontak ini tidak dapat dibuka di sini.",
+		"This message isn't a contact card." => "Pesan ini bukan merupakan kartu kontak.",
 		"This event was cancelled." => "Acara ini dibatalkan.",
 		"Events can't be posted in channels." => "Acara tidak dapat diposting di saluran.",
 		"This poll can't be opened here." => "Polling ini tidak dapat dibuka di sini.",

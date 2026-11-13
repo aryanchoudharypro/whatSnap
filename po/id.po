@@ -6364,3 +6364,114 @@ msgstr "{}, {}, di WhatsApp"
 msgid "{}, {}, {}, on WhatsApp"
 msgstr "{}, {}, {}, di WhatsApp"
 
+msgid "Call with {}"
+msgstr "Panggilan dengan {}"
+
+msgid "I'd like you to be an admin of my WhatsApp channel."
+msgstr "Saya ingin Anda menjadi admin saluran WhatsApp saya."
+
+msgid "Video call with {}"
+msgstr "Panggilan video dengan {}"
+
+msgid ". Going on now, press Enter to join"
+msgstr ". Sedang berlangsung, tekan Enter untuk bergabung"
+
+msgid ". In progress, press Enter to return to it"
+msgstr ". Sedang berlangsung, tekan Enter untuk kembali"
+
+msgid "Bali Hai"
+msgstr "Abu-Abu Biru"
+
+msgid "Bittersweet"
+msgstr "Jingga Kemerahan"
+
+msgid "Brandy Rose"
+msgstr "Cokelat Mawar"
+
+msgid "Bright Sun"
+msgstr "Kuning Cerah"
+
+msgid "Business name"
+msgstr "Nama bisnis"
+
+msgid "Ce Soir"
+msgstr "Ungu Lavender"
+
+msgid "Description"
+msgstr "Deskripsi"
+
+msgid "Dodger Blue"
+msgstr "Biru Dodger"
+
+msgid "Earls Green"
+msgstr "Hijau Zaitun"
+
+msgid "Elephant"
+msgstr "Abu-Abu Gelap"
+
+msgid "Email"
+msgstr "Email"
+
+msgid "Emerald"
+msgstr "Zamrud"
+
+msgid "Home"
+msgstr "Rumah"
+
+msgid "Home fax"
+msgstr "Faks rumah"
+
+msgid "Main"
+msgstr "Utama"
+
+msgid "Maya Blue"
+msgstr "Biru Maya"
+
+msgid "Medium Red Violet"
+msgstr "Ungu Kemerahan"
+
+msgid "Mobile"
+msgstr "Ponsel"
+
+msgid "Mona Lisa"
+msgstr "Merah Muda Mona Lisa"
+
+msgid "Monte Carlo"
+msgstr "Hijau Monte Carlo"
+
+msgid "Pager"
+msgstr "Pager"
+
+msgid "Polo Blue"
+msgstr "Biru Polo"
+
+msgid "Prelude"
+msgstr "Ungu Muda"
+
+msgid "Scorpion"
+msgstr "Abu-Abu Tua"
+
+msgid "Summer Sky"
+msgstr "Biru Langit Cerah"
+
+msgid "Sundance"
+msgstr "Kuning Emas"
+
+msgid "Tawny Port"
+msgstr "Merah Anggur"
+
+msgid "Vivid Violet"
+msgstr "Ungu Pekat"
+
+msgid "Wasabi"
+msgstr "Hijau Wasabi"
+
+msgid "Work"
+msgstr "Kantor"
+
+msgid "Work fax"
+msgstr "Faks kantor"
+
+msgid "iPhone"
+msgstr "iPhone"
+
