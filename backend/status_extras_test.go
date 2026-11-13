@@ -44,11 +44,23 @@ func setupTestAccount(t *testing.T) (*Account, func()) {
 	return testAcc, cleanup
 }
 
+func storeStatusPrivacy(t *testing.T, acc *Account, action *waSyncAction.StatusPrivacyAction) {
+	t.Helper()
+	raw, err := proto.Marshal(action)
+	if err != nil {
+		t.Fatalf("failed to marshal status privacy: %v", err)
+	}
+	if _, err := acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, statusPrivacyKey, raw); err != nil {
+		t.Fatalf("failed to store status privacy: %v", err)
+	}
+}
+
 func TestStatusRecipientsNormalization(t *testing.T) {
 	testAcc, cleanup := setupTestAccount(t)
 	defer cleanup()
 
 	ctx := context.Background()
+	storeStatusPrivacy(t, testAcc, &waSyncAction.StatusPrivacyAction{Mode: waSyncAction.StatusPrivacyAction_CONTACTS.Enum()})
 
 	pn1 := types.NewJID("6281111111", types.DefaultUserServer)
 	pn2 := types.NewJID("6282222222", types.DefaultUserServer)
@@ -126,12 +138,10 @@ func TestStatusRecipientsOnlyMode(t *testing.T) {
 	_ = testAcc.wa().Store.LIDs.PutLIDMapping(ctx, lid2, pn2)
 
 	// Save ALLOW_LIST status privacy
-	action := &waSyncAction.StatusPrivacyAction{
+	storeStatusPrivacy(t, testAcc, &waSyncAction.StatusPrivacyAction{
 		Mode:    waSyncAction.StatusPrivacyAction_ALLOW_LIST.Enum(),
 		UserJID: []string{pn1.String(), lid2.String(), lidUnmapped.String()},
-	}
-	raw, _ := proto.Marshal(action)
-	_, _ = testAcc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, statusPrivacyKey, raw)
+	})
 
 	recipients := testAcc.statusRecipients(ctx)
 	if len(recipients) != 2 {
@@ -187,29 +197,23 @@ func TestStatusPostBlocker(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Default mode (contacts) with 0 contacts
-	if reason := testAcc.statusPostBlocker(ctx); reason != "" {
-		t.Errorf("default contacts mode shouldn't block: %s", reason)
-	}
-
-	// Close friends mode
-	actionCF := &waSyncAction.StatusPrivacyAction{
-		Mode: waSyncAction.StatusPrivacyAction_CLOSE_FRIENDS.Enum(),
-	}
-	rawCF, _ := proto.Marshal(actionCF)
-	_, _ = testAcc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, statusPrivacyKey, rawCF)
-
+	// No stored privacy and no connection to ask the server: refuse rather
+	// than fall back to all contacts.
 	if reason := testAcc.statusPostBlocker(ctx); reason == "" {
-		t.Error("close friends mode should block status posting")
+		t.Error("unknown status privacy should block status posting")
+	}
+	if recipients := testAcc.statusRecipients(ctx); recipients != nil {
+		t.Errorf("unknown status privacy should give nil recipients, got %+v", recipients)
+	}
+
+	// Contacts mode with 0 contacts
+	storeStatusPrivacy(t, testAcc, &waSyncAction.StatusPrivacyAction{Mode: waSyncAction.StatusPrivacyAction_CONTACTS.Enum()})
+	if reason := testAcc.statusPostBlocker(ctx); reason != "" {
+		t.Errorf("contacts mode shouldn't block: %s", reason)
 	}
 
 	// Empty allow list
-	actionAllow := &waSyncAction.StatusPrivacyAction{
-		Mode: waSyncAction.StatusPrivacyAction_ALLOW_LIST.Enum(),
-	}
-	rawAllow, _ := proto.Marshal(actionAllow)
-	_, _ = testAcc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, statusPrivacyKey, rawAllow)
-
+	storeStatusPrivacy(t, testAcc, &waSyncAction.StatusPrivacyAction{Mode: waSyncAction.StatusPrivacyAction_ALLOW_LIST.Enum()})
 	if reason := testAcc.statusPostBlocker(ctx); reason == "" {
 		t.Error("empty allow list should block status posting")
 	}

@@ -289,21 +289,27 @@ func (acc *Account) withStatusViewers(id string, recipients []types.JID) []types
 	if err != nil {
 		return recipients
 	}
-	defer rows.Close()
+	var viewers []string
 	for rows.Next() {
 		var s string
-		if rows.Scan(&s) != nil {
-			continue
+		if rows.Scan(&s) == nil {
+			viewers = append(viewers, s)
 		}
+	}
+	rows.Close()
+	for _, s := range viewers {
 		jid, err := types.ParseJID(s)
 		if err != nil || jid.User == "" {
 			continue
 		}
 		jid = jid.ToNonAD()
-		if pn := acc.storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
-			jid = pn.ToNonAD()
+		if jid.Server == types.HiddenUserServer {
+			if pn := acc.storeTwin(jid); !pn.IsEmpty() {
+				jid = pn.ToNonAD()
+			}
 		}
 		if jid.Server != types.DefaultUserServer {
+			log.Printf("Status %s: viewer %s has no known phone number, not sending the delete to them", id, jid)
 			continue
 		}
 		if seen[jid] {
@@ -427,6 +433,17 @@ func (acc *Account) storedStatusPrivacy() *waSyncAction.StatusPrivacyAction {
 }
 
 func (acc *Account) statusAudience(ctx context.Context) (mode string, list []types.JID) {
+	mode, list, err := acc.loadStatusAudience(ctx)
+	if err != nil {
+		return "contacts", nil
+	}
+	return mode, list
+}
+
+// loadStatusAudience is statusAudience without the "contacts" fallback: when
+// the setting never came through app state and the server can't be asked, it
+// returns an error, so a status is never sent wider than the user chose.
+func (acc *Account) loadStatusAudience(ctx context.Context) (mode string, list []types.JID, err error) {
 	if action := acc.storedStatusPrivacy(); action != nil {
 		for _, s := range action.GetUserJID() {
 			if jid, err := types.ParseJID(s); err == nil {
@@ -435,31 +452,41 @@ func (acc *Account) statusAudience(ctx context.Context) (mode string, list []typ
 		}
 		switch action.GetMode() {
 		case waSyncAction.StatusPrivacyAction_ALLOW_LIST:
-			return "only", list
+			return "only", list, nil
 		case waSyncAction.StatusPrivacyAction_DENY_LIST:
-			return "except", list
+			return "except", list, nil
 		}
-		return "contacts", nil
+		return "contacts", nil, nil
 	}
-	if settings, err := acc.wa().GetStatusPrivacy(ctx); err == nil && len(settings) > 0 {
+	cli := acc.wa()
+	if cli == nil {
+		return "", nil, whatsmeow.ErrClientIsNil
+	}
+	settings, err := cli.GetStatusPrivacy(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(settings) > 0 {
 		switch settings[0].Type {
 		case types.StatusPrivacyTypeWhitelist:
-			return "only", settings[0].List
+			return "only", settings[0].List, nil
 		case types.StatusPrivacyTypeBlacklist:
-			return "except", settings[0].List
+			return "except", settings[0].List, nil
 		}
 	}
-	return "contacts", nil
+	return "contacts", nil, nil
 }
 
 // statusPostBlocker returns why a status update can't be posted right now, or
 // an empty string: an empty audience is refused the way WA Web's privacy popup
 // warns about it.
 func (acc *Account) statusPostBlocker(ctx context.Context) string {
-	mode, _ := acc.statusAudience(ctx)
+	mode, _, err := acc.loadStatusAudience(ctx)
+	if err != nil {
+		log.Printf("Status privacy unknown, not posting: %v", err)
+		return "Couldn't load your status privacy from WhatsApp. Check your connection and try again."
+	}
 	switch mode {
-	case "close_friends", "custom_list":
-		return "Your status privacy is set to Close Friends or a custom list on your phone, which whatSnap can't use yet. Change it to My contacts, My contacts except or Only share with."
 	case "only", "except":
 		if recipients := acc.statusRecipients(ctx); len(recipients) == 0 {
 			return "This status update would be sent to 0 contacts. Check your status privacy."
@@ -468,21 +495,27 @@ func (acc *Account) statusPostBlocker(ctx context.Context) string {
 	return ""
 }
 
+// statusRecipients lists who a new status update goes to, all as phone
+// number JIDs: the server rejects a status whose list mixes LIDs and phone
+// numbers. Anyone we can't map to a phone number is left out. A nil result
+// means the audience couldn't be worked out.
 func (acc *Account) statusRecipients(ctx context.Context) []types.JID {
-	mode, audienceList := acc.statusAudience(ctx)
-	if mode == "close_friends" || mode == "custom_list" {
-		return []types.JID{}
+	mode, audienceList, err := acc.loadStatusAudience(ctx)
+	if err != nil {
+		return nil
 	}
 
+	unmapped := 0
 	toPN := func(jid types.JID) (types.JID, bool) {
 		jid = jid.ToNonAD()
-		if jid.Server == types.DefaultUserServer {
+		switch jid.Server {
+		case types.DefaultUserServer:
 			return jid, true
-		}
-		if jid.Server == types.HiddenUserServer {
+		case types.HiddenUserServer:
 			if pn := acc.storeTwin(jid); !pn.IsEmpty() && pn.Server == types.DefaultUserServer {
 				return pn.ToNonAD(), true
 			}
+			unmapped++
 		}
 		return types.EmptyJID, false
 	}
@@ -497,24 +530,32 @@ func (acc *Account) statusRecipients(ctx context.Context) []types.JID {
 				out = append(out, pn)
 			}
 		}
+		if unmapped > 0 {
+			log.Printf("Status recipients: left out %d of %d allowed people with no known phone number", unmapped, len(audienceList))
+		}
 		return out
 	}
 
-	if acc.wa() == nil || acc.wa().Store == nil || acc.wa().Store.Contacts == nil {
-		return out
+	cli := acc.wa()
+	if cli == nil || cli.Store == nil || cli.Store.Contacts == nil {
+		return nil
 	}
-	contacts, err := acc.wa().Store.Contacts.GetAllContacts(ctx)
+	contacts, err := cli.Store.Contacts.GetAllContacts(ctx)
 	if err != nil {
-		return out
+		log.Printf("Status recipients: couldn't read contacts: %v", err)
+		return nil
 	}
 
-	deny := mode == "except"
 	denied := make(map[types.JID]bool)
-	if deny {
+	if mode == "except" {
 		for _, jid := range audienceList {
 			if pn, ok := toPN(jid); ok {
 				denied[pn] = true
 			}
+		}
+		if unmapped > 0 {
+			log.Printf("Status recipients: %d excluded people have no known phone number", unmapped)
+			unmapped = 0
 		}
 	}
 
@@ -523,11 +564,14 @@ func (acc *Account) statusRecipients(ctx context.Context) []types.JID {
 			continue
 		}
 		pn, ok := toPN(jid)
-		if !ok || (deny && denied[pn]) || seen[pn] {
+		if !ok || denied[pn] || seen[pn] {
 			continue
 		}
 		seen[pn] = true
 		out = append(out, pn)
+	}
+	if unmapped > 0 {
+		log.Printf("Status recipients: left out %d contacts with no known phone number", unmapped)
 	}
 	return out
 }
