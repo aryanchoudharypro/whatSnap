@@ -275,7 +275,10 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 		o.clear_btn.on_click(move |_| {
 			let Some(jid) = target(&st) else { return };
 			let name = st.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-			let msg = crate::i18n::tr_fmt("Delete all messages in the chat with {}? The chat itself will stay in your list.", &[&name]);
+			let msg = crate::i18n::tr_fmt(
+				"Delete all messages in the chat with {}? The chat itself will stay in your list.",
+				&[&name],
+			);
 			let ask = MessageDialog::builder(&dialog, &msg, crate::i18n::tr("Confirm Clear Chat"))
 				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
 				.build();

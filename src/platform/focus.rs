@@ -150,7 +150,8 @@ pub fn restore_previous_after_toast() {
 			std::thread::sleep(std::time::Duration::from_millis(100));
 			unsafe {
 				use windows::Win32::UI::WindowsAndMessaging::IsIconic;
-				if !IsWindow(Some(target)).as_bool() || !IsWindowVisible(target).as_bool() || IsIconic(target).as_bool() {
+				if !IsWindow(Some(target)).as_bool() || !IsWindowVisible(target).as_bool() || IsIconic(target).as_bool()
+				{
 					return;
 				}
 				let current = GetForegroundWindow();

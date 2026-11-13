@@ -2857,7 +2857,10 @@ pub fn bind_input_handlers(
 				if control.is_except() && !already_except && !s.privacy_list_edits.contains_key(control.name) {
 					drop(s);
 					let label = crate::i18n::tr(control.label);
-					let msg = crate::i18n::tr_fmt("Choose the contacts excluded from {} first, with the button under it.", &[&label]);
+					let msg = crate::i18n::tr_fmt(
+						"Choose the contacts excluded from {} first, with the button under it.",
+						&[&label],
+					);
 					MessageDialog::builder(&settings_dialog_ok, &msg, crate::i18n::tr("Settings"))
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 						.build()
@@ -4423,7 +4426,8 @@ pub fn bind_input_handlers(
 								}
 							}
 						} else {
-							let prompt = crate::i18n::tr_fmt("Are you sure you want to delete chat with {}?", &[&chat_name]);
+							let prompt =
+								crate::i18n::tr_fmt("Are you sure you want to delete chat with {}?", &[&chat_name]);
 							let dialog =
 								MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Confirm Delete"))
 									.with_style(
@@ -4437,7 +4441,10 @@ pub fn bind_input_handlers(
 							}
 						}
 					} else if id == clear_id {
-						let prompt = crate::i18n::tr_fmt("Delete all messages in the chat with {}? The chat itself will stay in your list.", &[&chat_name]);
+						let prompt = crate::i18n::tr_fmt(
+							"Delete all messages in the chat with {}? The chat itself will stay in your list.",
+							&[&chat_name],
+						);
 						let dialog =
 							MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Confirm Clear Chat"))
 								.with_style(
@@ -5103,7 +5110,10 @@ pub fn bind_input_handlers(
 							Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
 						s.pending_reply_preview = Some(crate::i18n::tr_fmt("Replying to {}: {}", &[&sender, &preview]));
 
-						let status_msg = crate::i18n::tr_fmt("Replying to {}: {}. Type your reply and press Enter.", &[&sender, &preview]);
+						let status_msg = crate::i18n::tr_fmt(
+							"Replying to {}: {}. Type your reply and press Enter.",
+							&[&sender, &preview],
+						);
 						crate::platform::announce::announce(msgs_announcer_clone, &status_msg);
 						crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_ctx);
 						msg_input_field_clone.set_focus();
@@ -5654,7 +5664,8 @@ pub fn bind_input_handlers(
 								messages.iter().map(|m| m.id.as_str()).collect()
 							}
 						};
-						let replies = |m: &whatsnap::Msg| !m.quoted_id.is_empty() && ids.contains(&m.quoted_id.as_str());
+						let replies =
+							|m: &whatsnap::Msg| !m.quoted_id.is_empty() && ids.contains(&m.quoted_id.as_str());
 						s.display_items.iter().enumerate().skip(i + 1).find_map(|(n, item)| {
 							let hit = match item {
 								whatsnap::DisplayItem::Single(m) => replies(m),
@@ -5681,7 +5692,11 @@ pub fn bind_input_handlers(
 							};
 							if let Some(m) = reply {
 								let who = if m.from_me { crate::i18n::tr("You") } else { m.sender_name.as_str() };
-								let said = if m.text.is_empty() { format!("{who}: media") } else { format!("{who}: {}", m.text) };
+								let said = if m.text.is_empty() {
+									format!("{who}: media")
+								} else {
+									format!("{who}: {}", m.text)
+								};
 								crate::platform::announce::announce(msgs_announcer, &said);
 							}
 						}
@@ -5922,7 +5937,10 @@ pub fn bind_input_handlers(
 							Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
 						s.pending_reply_preview = Some(crate::i18n::tr_fmt("Replying to {}: {}", &[&sender, &preview]));
 
-						let status_msg = crate::i18n::tr_fmt("Replying to {}: {}. Type your reply and press Enter.", &[&sender, &preview]);
+						let status_msg = crate::i18n::tr_fmt(
+							"Replying to {}: {}. Type your reply and press Enter.",
+							&[&sender, &preview],
+						);
 						crate::platform::announce::announce(msgs_announcer, &status_msg);
 						crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_play);
 						msg_input_field.set_focus();
@@ -6241,7 +6259,8 @@ pub fn bind_input_handlers(
 				} else {
 					if let Some(idx) = msgs_list_enter.get_selection() {
 						let s = state_enter.borrow();
-						let is_album = matches!(s.display_items.get(idx as usize), Some(whatsnap::DisplayItem::Album { .. }));
+						let is_album =
+							matches!(s.display_items.get(idx as usize), Some(whatsnap::DisplayItem::Album { .. }));
 						drop(s);
 						if is_album {
 							let _ = tx_invite_enter.send(UiCommand::OpenMedia);
@@ -6977,9 +6996,9 @@ fn choose_excluded_contacts(
 				Some(Err(reason)) => {
 					let reason_tr = crate::i18n::translate_backend_message(reason);
 					Err(crate::i18n::tr_fmt(
-							"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later. ({})",
-							&[&label, &reason_tr],
-						))
+						"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later. ({})",
+						&[&label, &reason_tr],
+					))
 				}
 				None => {
 					Err(crate::i18n::tr_fmt("Still loading who's excluded from {}. Try again in a moment.", &[&label]))

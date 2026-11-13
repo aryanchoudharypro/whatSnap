@@ -228,7 +228,8 @@ pub(crate) fn send_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
 		let count = contact_jids.len();
-		let msg = crate::i18n::tr_fmt(if count == 1 { "Sending {} contact..." } else { "Sending {} contacts..." }, &[&count]);
+		let msg =
+			crate::i18n::tr_fmt(if count == 1 { "Sending {} contact..." } else { "Sending {} contacts..." }, &[&count]);
 		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 	}
 }
@@ -511,12 +512,8 @@ fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str,
 /// announced as saved, so the user went looking for a file that never existed.
 fn announce_saved(parts: &Rc<WindowParts>, result: std::io::Result<u64>, path: &str) {
 	let text = match result {
-		Ok(_) => {
-			crate::i18n::tr_fmt("File saved to {}", &[&path])
-		}
-		Err(err) => {
-			crate::i18n::tr_fmt("Couldn't save the file: {}", &[&err])
-		}
+		Ok(_) => crate::i18n::tr_fmt("File saved to {}", &[&path]),
+		Err(err) => crate::i18n::tr_fmt("Couldn't save the file: {}", &[&err]),
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
 }
@@ -595,7 +592,8 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 							}
 						}
 					}
-					let ann_msg = crate::i18n::tr_fmt("Saved {} {} to folder.", &[&saved_count, &crate::i18n::tr_str(noun_en)]);
+					let ann_msg =
+						crate::i18n::tr_fmt("Saved {} {} to folder.", &[&saved_count, &crate::i18n::tr_str(noun_en)]);
 					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &ann_msg);
 				}
 			}

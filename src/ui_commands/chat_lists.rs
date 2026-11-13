@@ -90,8 +90,7 @@ pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let label_text =
-		crate::i18n::tr_fmt("Lists {} is in", &[&name]);
+	let label_text = crate::i18n::tr_fmt("Lists {} is in", &[&name]);
 	let label = StaticText::builder(&panel).with_label(&label_text).build();
 	theme::style_muted_label(&label);
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Top, 10);
@@ -142,9 +141,7 @@ pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 
 fn new_list(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: Option<&str>, chat: &str) {
 	let prompt = match jid {
-		Some(_) => {
-			crate::i18n::tr_fmt("Name a new list for {}:", &[&chat])
-		}
+		Some(_) => crate::i18n::tr_fmt("Name a new list for {}:", &[&chat]),
 		None => crate::i18n::tr("List name:").to_string(),
 	};
 	let Some(name) = ask_name(&parts.frame, &prompt, crate::i18n::tr("New List"), "") else { return };
@@ -175,11 +172,7 @@ struct ListChats {
 }
 
 fn count_chats(count: usize) -> String {
-	if count == 1 {
-		crate::i18n::tr("1 chat").to_string()
-	} else {
-		crate::i18n::tr_fmt("{} chats", &[&count])
-	}
+	if count == 1 { crate::i18n::tr("1 chat").to_string() } else { crate::i18n::tr_fmt("{} chats", &[&count]) }
 }
 
 fn keep_selection(list: &ListBox, idx: usize, buttons: &[&Button]) {
@@ -240,8 +233,7 @@ impl ListChats {
 		let labels: Vec<String> = l.jids.iter().map(|j| chat_name(s, j)).collect();
 		let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 		self.list.set_items(&refs);
-		let title =
-			crate::i18n::tr_fmt("Chats in {}", &[&l.name]);
+		let title = crate::i18n::tr_fmt("Chats in {}", &[&l.name]);
 		self.dialog.set_label(&title);
 		self.list_label.set_label(&match l.jids.len() {
 			0 => crate::i18n::tr_fmt("Chats in {}: none yet", &[&l.name]),
@@ -497,14 +489,15 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"favorite_saved" => {
 			let name = chat_name(&state.borrow(), &text(data, "jid"));
 			let favorite = data.get("favorite").and_then(|f| f.as_bool()).unwrap_or(false);
-			let msg = crate::i18n::tr_fmt(if favorite { "{} added to favorites." } else { "{} removed from favorites." }, &[&name]);
+			let msg = crate::i18n::tr_fmt(
+				if favorite { "{} added to favorites." } else { "{} removed from favorites." },
+				&[&name],
+			);
 			announce(state, parts, &msg);
 		}
 		"list_saved" => {
 			let created = data.get("created").and_then(|c| c.as_bool()).unwrap_or(false);
-			let verb = if created {
-				crate::i18n::tr("created")
-			} else { crate::i18n::tr("renamed") };
+			let verb = if created { crate::i18n::tr("created") } else { crate::i18n::tr("renamed") };
 			let manager = state.borrow().list_manager.clone();
 			if let Some(manager) = manager.filter(|_| created) {
 				manager.select(&text(data, "id"));
@@ -524,7 +517,8 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 			let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(1);
 			let list = text(data, "name");
 			let who = if count > 1 { count_chats(count as usize) } else { name };
-			let msg = crate::i18n::tr_fmt(if member { "{} added to {}." } else { "{} removed from {}." }, &[&who, &list]);
+			let msg =
+				crate::i18n::tr_fmt(if member { "{} added to {}." } else { "{} removed from {}." }, &[&who, &list]);
 			announce(state, parts, &msg);
 		}
 		"common_groups" => show_common_groups(state, parts, data),

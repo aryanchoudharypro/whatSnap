@@ -129,9 +129,8 @@ pub(crate) fn notification_reply(
 		if crate::ui_commands::blocking::is_blocked(&s, &jid) {
 			Some(crate::i18n::tr_fmt("Your reply to {} wasn't sent because you blocked them.", &[&name]))
 		} else {
-			crate::ui::chat_ui::group_send_block_reason(&s, &jid).map(|reason| {
-				crate::i18n::tr_fmt("Your reply to {} wasn't sent. {}.", &[&name, &reason])
-			})
+			crate::ui::chat_ui::group_send_block_reason(&s, &jid)
+				.map(|reason| crate::i18n::tr_fmt("Your reply to {} wasn't sent. {}.", &[&name, &reason]))
 		}
 	};
 	if let Some(refusal) = refusal {
@@ -186,9 +185,7 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 			let fname = std::path::Path::new(one).file_name().unwrap_or_default().to_string_lossy();
 			crate::i18n::tr_fmt("Send {}", &[&fname])
 		}
-		many => {
-			crate::i18n::tr_fmt("Send {} files", &[&many.len()])
-		}
+		many => crate::i18n::tr_fmt("Send {} files", &[&many.len()]),
 	};
 	let targets = send_targets(&state.borrow());
 	let Some(choice) = show_send_to_dialog(&parts.frame, &title, targets, "", &paths) else { return };
@@ -407,9 +404,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	}
 	details.push(match followers {
 		1 => crate::i18n::tr("1 follower").to_string(),
-		n => {
-			crate::i18n::tr_fmt("{} followers", &[&n])
-		}
+		n => crate::i18n::tr_fmt("{} followers", &[&n]),
 	});
 	match text("role").as_str() {
 		"owner" => details.push(crate::i18n::tr("You own this channel").to_string()),

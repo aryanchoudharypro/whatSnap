@@ -639,11 +639,7 @@ impl ChatMessage {
 				} else {
 					"Contact".to_string()
 				};
-				if is_id {
-					format!("{name} bereaksi {}", r.emoji)
-				} else {
-					format!("{name} reacted with {}", r.emoji)
-				}
+				if is_id { format!("{name} bereaksi {}", r.emoji) } else { format!("{name} reacted with {}", r.emoji) }
 			})
 			.collect();
 
@@ -677,7 +673,9 @@ impl ChatMessage {
 				let you = i18n::tr("You");
 				if !formatted_time.is_empty() {
 					i18n::tr_fmt("{}: deleted this message, sent at {}", &[&you, &formatted_time])
-				} else { i18n::tr_fmt("{}: deleted this message", &[&you]) }
+				} else {
+					i18n::tr_fmt("{}: deleted this message", &[&you])
+				}
 			} else {
 				let name = if !is_placeholder_name(&self.sender_name) {
 					self.sender_name.as_str()
@@ -688,7 +686,9 @@ impl ChatMessage {
 				};
 				if !formatted_time.is_empty() {
 					crate::i18n::tr_fmt("{}: deleted this message, received at {}", &[&name, &formatted_time])
-				} else { crate::i18n::tr_fmt("{}: deleted this message", &[&name]) }
+				} else {
+					crate::i18n::tr_fmt("{}: deleted this message", &[&name])
+				}
 			};
 		}
 
@@ -737,7 +737,17 @@ impl ChatMessage {
 			if !formatted_time.is_empty() {
 				i18n::tr_fmt(
 					"{}: {}{}{} sent at {}, {}{}{}{}",
-					&[&you, &body, &reply_suffix, &sep, &formatted_time, &status_title, &reactions_suffix, &edit_suffix, &star_suffix],
+					&[
+						&you,
+						&body,
+						&reply_suffix,
+						&sep,
+						&formatted_time,
+						&status_title,
+						&reactions_suffix,
+						&edit_suffix,
+						&star_suffix,
+					],
 				)
 			} else {
 				format!("{you}: {body}{reply_suffix}{sep} {status_title}{reactions_suffix}{edit_suffix}{star_suffix}")
@@ -752,7 +762,19 @@ impl ChatMessage {
 			};
 
 			if !formatted_time.is_empty() {
-				crate::i18n::tr_fmt("{}: {}{}{} received at {}{}{}{}", &[&name, &body, &reply_suffix, &sep, &formatted_time, &reactions_suffix, &edit_suffix, &star_suffix])
+				crate::i18n::tr_fmt(
+					"{}: {}{}{} received at {}{}{}{}",
+					&[
+						&name,
+						&body,
+						&reply_suffix,
+						&sep,
+						&formatted_time,
+						&reactions_suffix,
+						&edit_suffix,
+						&star_suffix,
+					],
+				)
 			} else {
 				format!("{name}: {body}{reply_suffix}{reactions_suffix}{edit_suffix}{star_suffix}")
 			}
@@ -852,7 +874,9 @@ impl DisplayItem {
 					crate::i18n::tr_fmt("Album: {} photos", &[&photo_count])
 				} else if video_count > 0 && photo_count == 0 {
 					crate::i18n::tr_fmt("Album: {} videos", &[&video_count])
-				} else { crate::i18n::tr_fmt("Album: {} media items", &[&total]) }
+				} else {
+					crate::i18n::tr_fmt("Album: {} media items", &[&total])
+				}
 			}
 		}
 	}
@@ -889,7 +913,9 @@ impl DisplayItem {
 					crate::i18n::tr_fmt("{} photos", &[&photo_count])
 				} else if video_count > 0 && photo_count == 0 {
 					crate::i18n::tr_fmt("{} videos", &[&video_count])
-				} else { crate::i18n::tr_fmt("{} media items", &[&total]) };
+				} else {
+					crate::i18n::tr_fmt("{} media items", &[&total])
+				};
 
 				let all_reactions: Vec<ChatReaction> =
 					messages.iter().flat_map(|m| m.reactions.iter().cloned()).collect();
@@ -901,7 +927,9 @@ impl DisplayItem {
 					let you = i18n::tr("You");
 					if !formatted_time.is_empty() {
 						i18n::tr_fmt("{}: [Album: {}], sent at {}{}", &[&you, &desc, &formatted_time, &reactions])
-					} else { i18n::tr_fmt("{}: [Album: {}]{}", &[&you, &desc, &reactions]) }
+					} else {
+						i18n::tr_fmt("{}: [Album: {}]{}", &[&you, &desc, &reactions])
+					}
 				} else {
 					let name = if !is_placeholder_name(sender_name) {
 						sender_name.as_str()
@@ -911,8 +939,13 @@ impl DisplayItem {
 						i18n::tr("Contact")
 					};
 					if !formatted_time.is_empty() {
-						crate::i18n::tr_fmt("{}: [Album: {}], received at {}{}", &[&name, &desc, &formatted_time, &reactions])
-					} else { crate::i18n::tr_fmt("{}: [Album: {}]{}", &[&name, &desc, &reactions]) }
+						crate::i18n::tr_fmt(
+							"{}: [Album: {}], received at {}{}",
+							&[&name, &desc, &formatted_time, &reactions],
+						)
+					} else {
+						crate::i18n::tr_fmt("{}: [Album: {}]{}", &[&name, &desc, &reactions])
+					}
 				}
 			}
 		}
@@ -1480,11 +1513,8 @@ pub fn insert_unread_divider(messages: &mut Vec<Msg>, count: u64) {
 			false
 		})
 		.unwrap_or(messages.len());
-	let label = if n == 1 {
-		i18n::tr("1 unread message").to_string()
-	} else {
-		i18n::tr_fmt("{} unread messages", &[&n])
-	};
+	let label =
+		if n == 1 { i18n::tr("1 unread message").to_string() } else { i18n::tr_fmt("{} unread messages", &[&n]) };
 	messages.insert(insert_at, Msg::new(ChatMessage { text: label, is_unread_divider: true, ..Default::default() }));
 }
 

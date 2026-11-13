@@ -34,7 +34,10 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, jid: &str) {
 
 fn block_with_confirm(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) {
 	let name = chat_name(&state.borrow(), jid);
-	let question = crate::i18n::tr_fmt("Block {}? They won't be able to call you or send you messages. They won't be told.", &[&name]);
+	let question = crate::i18n::tr_fmt(
+		"Block {}? They won't be able to call you or send you messages. They won't be told.",
+		&[&name],
+	);
 	let title = crate::i18n::tr("Block contact");
 	let dialog = state.borrow().blocked_contacts.clone();
 	let answer = match dialog {
@@ -140,7 +143,10 @@ pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		return;
 	};
 	let err_text = crate::i18n::translate_backend_message(error);
-	let message = crate::i18n::tr_fmt(if blocked { "Couldn't block {}: {}" } else { "Couldn't unblock {}: {}" }, &[&name, &err_text]);
+	let message = crate::i18n::tr_fmt(
+		if blocked { "Couldn't block {}: {}" } else { "Couldn't unblock {}: {}" },
+		&[&name, &err_text],
+	);
 	let title = crate::i18n::tr("Error");
 	let dialog = state.borrow().blocked_contacts.clone();
 	let style = MessageDialogStyle::OK | MessageDialogStyle::IconError;

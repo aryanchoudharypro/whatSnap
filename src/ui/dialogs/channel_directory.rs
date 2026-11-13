@@ -106,7 +106,9 @@ impl ChannelDirectory {
 			crate::i18n::tr("Searching...").to_string()
 		} else if let Some((_, name)) = CATEGORIES.iter().find(|(code, _)| *code == category) {
 			crate::i18n::tr_fmt("Loading {} channels{}...", &[&crate::i18n::tr(name), &place])
-		} else { crate::i18n::tr_fmt("Loading recommended channels{}...", &[&place]) };
+		} else {
+			crate::i18n::tr_fmt("Loading recommended channels{}...", &[&place])
+		};
 		crate::platform::announce::announce(self.announcer, &loading);
 	}
 
@@ -120,7 +122,10 @@ impl ChannelDirectory {
 		let payload = serde_json::json!({ "action": "get_similar_channels", "data": { "jid": jid } });
 		let _ = self.ws_tx.send(payload.to_string());
 		self.dialog.set_label(&crate::i18n::tr_fmt("Channels like {}", &[&name]));
-		crate::platform::announce::announce(self.announcer, &crate::i18n::tr_fmt("Loading channels like {}...", &[&name]));
+		crate::platform::announce::announce(
+			self.announcer,
+			&crate::i18n::tr_fmt("Loading channels like {}...", &[&name]),
+		);
 	}
 
 	pub fn apply(&self, data: &serde_json::Value) {
@@ -180,17 +185,11 @@ impl ChannelDirectory {
 				crate::i18n::tr("No channels in this category.").to_string()
 			}
 			(0, false) if s.query.is_empty() => crate::i18n::tr("No recommended channels.").to_string(),
-			(0, false) => {
-				crate::i18n::tr_fmt("No channels found for {}.", &[&s.query])
-			}
+			(0, false) => crate::i18n::tr_fmt("No channels found for {}.", &[&s.query]),
 			(0, true) => crate::i18n::tr("No more channels.").to_string(),
 			(1, _) => crate::i18n::tr("1 channel.").to_string(),
-			(n, true) => {
-				crate::i18n::tr_fmt("{} more channels.", &[&n])
-			}
-			(n, false) => {
-				crate::i18n::tr_fmt("{} channels.", &[&n])
-			}
+			(n, true) => crate::i18n::tr_fmt("{} more channels.", &[&n]),
+			(n, false) => crate::i18n::tr_fmt("{} channels.", &[&n]),
 		};
 		drop(s);
 		self.selection_changed();

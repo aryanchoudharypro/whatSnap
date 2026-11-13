@@ -128,12 +128,8 @@ impl EmojiPanel {
 		if !query.is_empty() {
 			self.announce(&match labels.len() {
 				0 => crate::i18n::tr("No emoji found.").to_string(),
-				1 => {
-					crate::i18n::tr_fmt("1 emoji: {}", &[&labels[0]])
-				}
-				n => {
-					crate::i18n::tr_fmt("{} emoji.", &[&n])
-				}
+				1 => crate::i18n::tr_fmt("1 emoji: {}", &[&labels[0]]),
+				n => crate::i18n::tr_fmt("{} emoji.", &[&n]),
 			});
 		}
 	}
@@ -289,9 +285,7 @@ impl EmojiPanel {
 			self.announce(&match labels.len() {
 				0 => empty.to_string(),
 				1 => crate::i18n::tr("1 sticker.").to_string(),
-				n => {
-					crate::i18n::tr_fmt("{} stickers.", &[&n])
-				}
+				n => crate::i18n::tr_fmt("{} stickers.", &[&n]),
 			});
 		}
 	}

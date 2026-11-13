@@ -66,9 +66,12 @@ pub(crate) fn show_security_code(_state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		.with_size(Size::new(300, 80))
 		.build();
 	sizer.add(&code_field, 0, SizerFlag::Expand | SizerFlag::All, 8);
-	let about_text = crate::i18n::tr_fmt("To check that your messages and calls with {} are end-to-end encrypted, compare these 60 \
+	let about_text = crate::i18n::tr_fmt(
+		"To check that your messages and calls with {} are end-to-end encrypted, compare these 60 \
 			 numbers with the ones on their phone, or let them scan the QR code with their phone. The code is \
-			 the same on all your devices.", &[&name]);
+			 the same on all your devices.",
+		&[&name],
+	);
 	let about = StaticText::builder(&panel).with_label(&about_text).build();
 	about.wrap(320);
 	sizer.add(&about, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
@@ -127,7 +130,10 @@ pub(crate) fn group_history_result(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	let name = PENDING_HISTORY.with(|p| p.borrow_mut().take()).unwrap_or_else(|| crate::i18n::tr("them").to_string());
 	if data.get("ok").and_then(|o| o.as_bool()) == Some(true) {
 		let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
-		let msg = crate::i18n::tr_fmt("Message history sent to {}: {}.", &[&name, &crate::i18n::count_noun(count as usize, "message", "messages")]);
+		let msg = crate::i18n::tr_fmt(
+			"Message history sent to {}: {}.",
+			&[&name, &crate::i18n::count_noun(count as usize, "message", "messages")],
+		);
 		tell(parts, &msg, crate::i18n::tr("Send Message History"), false);
 		// Refresh the members so the menu no longer offers it.
 		let group = state.borrow().selected_chat.clone();

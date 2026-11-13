@@ -253,7 +253,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 							let tagged = if tag.is_empty() {
 								local_name.clone()
-							} else { crate::i18n::tr_fmt("{}, tag: {}", &[&local_name, &tag]) };
+							} else {
+								crate::i18n::tr_fmt("{}, tag: {}", &[&local_name, &tag])
+							};
 							let display = if phone.is_empty() || local_name == phone {
 								format!("{}{}", tagged, role)
 							} else {
@@ -311,7 +313,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let community_name = data.get("communityName").and_then(|n| n.as_str()).unwrap_or("");
 					parts.group_data_dialog.groups_label.set_label(&if community_name.is_empty() {
 						crate::i18n::tr("Groups in this community").to_string()
-					} else { crate::i18n::tr_fmt("Groups in {}", &[&community_name]) });
+					} else {
+						crate::i18n::tr_fmt("Groups in {}", &[&community_name])
+					});
 					let mut subgroup_jids = Vec::new();
 					let mut subgroup_joined = Vec::new();
 					let mut labels = Vec::new();
@@ -376,7 +380,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let label = data.get("label").and_then(|l| l.as_str()).unwrap_or("");
 					let text = if label.is_empty() {
 						crate::i18n::tr("Your tag was removed.").to_string()
-					} else { crate::i18n::tr_fmt("Your tag is now {}.", &[&label]) };
+					} else {
+						crate::i18n::tr_fmt("Your tag is now {}.", &[&label])
+					};
 					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
 				}
 				if s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown() {
@@ -521,7 +527,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					.unwrap_or_else(|| crate::i18n::tr("the channel").to_string());
 				let message = if following {
 					crate::i18n::tr_fmt("Following {}. It's in the Channels tab, Alt+6.", &[&name])
-				} else { crate::i18n::tr_fmt("Unfollowed {}.", &[&name]) };
+				} else {
+					crate::i18n::tr_fmt("Unfollowed {}.", &[&name])
+				};
 				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 			}
 		}
@@ -541,8 +549,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				.and_then(|j| j.as_str())
 				.and_then(|jid| state.borrow().contacts.get(jid).cloned())
 				.unwrap_or_else(|| crate::i18n::tr("the group").to_string());
-			let msg =
-				crate::i18n::tr_fmt("Joined {}.", &[&name]);
+			let msg = crate::i18n::tr_fmt("Joined {}.", &[&name]);
 			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		}
 		"avatar_previews" => {

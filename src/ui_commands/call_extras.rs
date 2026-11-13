@@ -131,10 +131,8 @@ pub(crate) fn person_buttons(s: &AppState, parts: &WindowParts) {
 	let can_remove = s.call_video.can_remove || s.call_video.link_admin;
 	match &person {
 		Some(p) => {
-			{
-				c.mute_person_btn.set_label(&crate::i18n::tr_fmt("Mute {}", &[&p.name]));
-				c.remove_person_btn.set_label(&crate::i18n::tr_fmt("Remove {}", &[&p.name]));
-			}
+			c.mute_person_btn.set_label(&crate::i18n::tr_fmt("Mute {}", &[&p.name]));
+			c.remove_person_btn.set_label(&crate::i18n::tr_fmt("Remove {}", &[&p.name]));
 		}
 		None => {
 			c.mute_person_btn.set_label(crate::i18n::tr("Mute"));
@@ -314,7 +312,8 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"call_hand" => {
 			let raised = data.get("raised").and_then(|v| v.as_bool()).unwrap_or(false);
 			let name = text(data, "name");
-			let msg = crate::i18n::tr_fmt(if raised { "{} raised their hand." } else { "{} lowered their hand." }, &[&name]);
+			let msg =
+				crate::i18n::tr_fmt(if raised { "{} raised their hand." } else { "{} lowered their hand." }, &[&name]);
 			announce_call(parts, &msg, Priority::High);
 		}
 		"call_reaction" => {
@@ -418,7 +417,10 @@ fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: S
 	let panel = Panel::builder(&dialog).build();
 	crate::ui::theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let intro_text = crate::i18n::tr_fmt("Anyone with WhatsApp can use this link to join your {} call.", &[&crate::i18n::tr_str(kind)]);
+	let intro_text = crate::i18n::tr_fmt(
+		"Anyone with WhatsApp can use this link to join your {} call.",
+		&[&crate::i18n::tr_str(kind)],
+	);
 	let intro = StaticText::builder(&panel).with_label(&intro_text).build();
 	sizer.add(&intro, 0, SizerFlag::All, 10);
 	let link_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ReadOnly).build();

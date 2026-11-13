@@ -40,9 +40,7 @@ impl BlockedContacts {
 		self.list.set_items(&label_refs);
 		self.list_label.set_label(&match entries.len() {
 			0 => crate::i18n::tr("Blocked contacts: none").to_string(),
-			n => {
-				crate::i18n::tr_fmt("Blocked contacts ({})", &[&n])
-			}
+			n => crate::i18n::tr_fmt("Blocked contacts ({})", &[&n]),
 		});
 		if !entries.is_empty() {
 			self.list.set_selection(previous.min(entries.len() - 1) as u32, true);

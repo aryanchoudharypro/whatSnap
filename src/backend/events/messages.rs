@@ -346,7 +346,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								timestamp: head.timestamp,
 								messages: members,
 							};
-							parts.conversations_parts.messages_list.set_string(first as u32, &album.format_display(is_group));
+							parts
+								.conversations_parts
+								.messages_list
+								.set_string(first as u32, &album.format_display(is_group));
 							s.display_items.push(album);
 						} else if let Some(idx) = target {
 							let item = std::mem::replace(
@@ -443,11 +446,22 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								}
 							}
 							if !is_backlog {
-								play_notification_sound(
-									NotificationSound::MessageCurrent,
-									sounds_enabled,
-									s.settings.output_device_name.clone(),
-								);
+								if s.window_focused {
+									play_notification_sound(
+										NotificationSound::MessageCurrent,
+										sounds_enabled,
+										s.settings.output_device_name.clone(),
+									);
+								} else {
+									// An open chat in the background uses its configured notification tone.
+									let (tone, file) = s.settings.message_tone_for(jid);
+									crate::audio::play_message_tone(
+										tone,
+										&file,
+										sounds_enabled,
+										s.settings.output_device_name.clone(),
+									);
+								}
 							} else if is_missed_call || !is_call_line {
 								crate::ui::chat_ui::record_catch_up_alert(
 									&mut s,
@@ -560,9 +574,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 										.unwrap_or_else(|| display_name_for_jid(&clean_from));
 									let toast_body = match (previews, sender_name.is_empty()) {
 										(false, true) => crate::i18n::tr("New message").to_string(),
-										(false, false) => {
-											crate::i18n::tr_fmt("Message from {}", &[&sender_name])
-										}
+										(false, false) => crate::i18n::tr_fmt("Message from {}", &[&sender_name]),
 										(true, true) => body.to_string(),
 										(true, false) => format!("{}: {}", sender_name, body),
 									};
@@ -772,7 +784,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if from_notification {
 				let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
 				drop(s);
-				let msg = crate::i18n::tr_fmt("Couldn't mark {} as read. Check your connection and try again.", &[&name]);
+				let msg =
+					crate::i18n::tr_fmt("Couldn't mark {} as read. Check your connection and try again.", &[&name]);
 				crate::ui::chat_ui::show_toast_notification(whatsnap::TRAY_APP_NAME, &msg);
 			}
 		}
@@ -943,7 +956,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								.map(|a| a.iter().filter_map(|o| o.as_str()).collect())
 								.unwrap_or_default();
 							let when = fmt_ts(v.get("timestamp").and_then(|x| x.as_i64()).unwrap_or(0));
-							let entry = crate::i18n::tr_fmt("  {} voted {}", &[&name, &options.join(&crate::i18n::tr_str(" and "))]);
+							let entry = crate::i18n::tr_fmt(
+								"  {} voted {}",
+								&[&name, &options.join(&crate::i18n::tr_str(" and "))],
+							);
 							poll_lines.push(if when.is_empty() { entry } else { format!("{}, {}", entry, when) });
 						}
 					}
@@ -1052,8 +1068,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let media_exported = data.get("media_exported").and_then(|m| m.as_i64()).unwrap_or(0);
 				let media_skipped = data.get("media_skipped").and_then(|m| m.as_i64()).unwrap_or(0);
 				let msg = if media_skipped > 0 {
-					crate::i18n::tr_fmt("Chat exported to {}. {} media files included, {} could not be downloaded and were skipped.", &[&path, &media_exported, &media_skipped])
-				} else { crate::i18n::tr_fmt("Chat exported to {}. {} media files included.", &[&path, &media_exported]) };
+					crate::i18n::tr_fmt(
+						"Chat exported to {}. {} media files included, {} could not be downloaded and were skipped.",
+						&[&path, &media_exported, &media_skipped],
+					)
+				} else {
+					crate::i18n::tr_fmt("Chat exported to {}. {} media files included.", &[&path, &media_exported])
+				};
 				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 			}
 		}
@@ -1321,7 +1342,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						} else {
 							format!("{}, offline", name)
 						}
-					} else { crate::i18n::tr_fmt("{} is now online", &[&name]) };
+					} else {
+						crate::i18n::tr_fmt("{} is now online", &[&name])
+					};
 					if should_announce {
 						crate::platform::announce::announce(
 							parts.conversations_parts.messages_announcer,
@@ -1414,8 +1437,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		}
 		"message_option_sent" => {
 			let label = val.pointer("/data/label").and_then(|l| l.as_str()).unwrap_or("");
-			let msg =
-				crate::i18n::tr_fmt("Sent: {}", &[&label]);
+			let msg = crate::i18n::tr_fmt("Sent: {}", &[&label]);
 			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		}
 		"event_details" => {
@@ -1653,7 +1675,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.conversations_parts.messages_list.set_string(di as u32, &item.format_display(is_group));
 						let announce_msg = if emoji.is_empty() {
 							crate::i18n::tr_fmt("Reaction removed by {}", &[&resolved_name])
-						} else { crate::i18n::tr_fmt("{} reacted with {}", &[&resolved_name, &emoji]) };
+						} else {
+							crate::i18n::tr_fmt("{} reacted with {}", &[&resolved_name, &emoji])
+						};
 						crate::platform::announce::announce(
 							parts.conversations_parts.messages_announcer,
 							&announce_msg,
@@ -1706,7 +1730,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								let body = if previews {
 									let preview = whatsnap::friendly_preview_text(text);
 									crate::i18n::tr_fmt("Reacted {} to \"{}\"", &[&emoji, &preview])
-								} else { crate::i18n::tr_fmt("Reacted {}", &[&emoji]) };
+								} else {
+									crate::i18n::tr_fmt("Reacted {}", &[&emoji])
+								};
 								crate::ui::chat_ui::show_chat_notification(&s, chat_jid, &resolved_name, &body, false);
 							}
 						}
@@ -1740,7 +1766,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					crate::i18n::tr("Copied voice message to clipboard.").to_string()
 				} else if msg_ids.len() <= 1 {
 					crate::i18n::tr("Copied file to clipboard.").to_string()
-				} else { crate::i18n::tr_fmt("Copied {} files to clipboard.", &[&msg_ids.len()]) }
+				} else {
+					crate::i18n::tr_fmt("Copied {} files to clipboard.", &[&msg_ids.len()])
+				}
 			} else {
 				crate::i18n::tr("Copied file to clipboard.").to_string()
 			};

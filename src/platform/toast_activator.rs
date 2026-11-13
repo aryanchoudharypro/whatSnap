@@ -20,12 +20,16 @@ use windows::{
 				CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 				CoRegisterClassObject, CoTaskMemAlloc, IClassFactory, IClassFactory_Impl, IPersistFile,
 				REGCLS_MULTIPLEUSE, STGM_READWRITE,
-				StructuredStorage::{PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0, PropVariantToStringAlloc},
+				StructuredStorage::{
+					PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0, PropVariantToStringAlloc,
+				},
 			},
 			Variant::{VT_CLSID, VT_LPWSTR},
 		},
 		UI::{
-			Notifications::{INotificationActivationCallback, INotificationActivationCallback_Impl, NOTIFICATION_USER_INPUT_DATA},
+			Notifications::{
+				INotificationActivationCallback, INotificationActivationCallback_Impl, NOTIFICATION_USER_INPUT_DATA,
+			},
 			Shell::{IShellLinkW, PropertiesSystem::IPropertyStore, ShellLink},
 		},
 	},
@@ -236,7 +240,8 @@ impl INotificationActivationCallback_Impl for Activator_Impl {
 		data: *const NOTIFICATION_USER_INPUT_DATA,
 		count: u32,
 	) -> windows::core::Result<()> {
-		let arguments = if arguments.is_null() { String::new() } else { unsafe { arguments.to_string() }.unwrap_or_default() };
+		let arguments =
+			if arguments.is_null() { String::new() } else { unsafe { arguments.to_string() }.unwrap_or_default() };
 		let inputs = if data.is_null() { &[][..] } else { unsafe { std::slice::from_raw_parts(data, count as usize) } };
 		let reply = inputs
 			.iter()

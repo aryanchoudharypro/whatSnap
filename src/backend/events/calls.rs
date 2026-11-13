@@ -207,7 +207,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						crate::i18n::tr_fmt("{}'s battery is low.", &[&name])
 					} else if data.get("interrupted").and_then(|i| i.as_bool()).unwrap_or(true) {
 						crate::i18n::tr_fmt("{} is on a phone call and can't hear you right now.", &[&name])
-					} else { crate::i18n::tr_fmt("{} is back on the call.", &[&name]) };
+					} else {
+						crate::i18n::tr_fmt("{} is back on the call.", &[&name])
+					};
 					drop(s);
 					announce_call(parts, &message, Priority::High);
 				}
@@ -762,7 +764,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let (call_hotkeys, unavailable) = crate::calls::hotkeys::start(&s.ui_tx, &s.keymap);
 					s.call_hotkeys = call_hotkeys;
 					for chord in unavailable {
-						let msg = crate::i18n::tr_fmt("Could not register the call key {}; another program is using it", &[&chord]);
+						let msg = crate::i18n::tr_fmt(
+							"Could not register the call key {}; another program is using it",
+							&[&chord],
+						);
 						announce_call(parts, &msg, Priority::High);
 					}
 					if s.settings.notifications_enabled && s.settings.call_notifications {

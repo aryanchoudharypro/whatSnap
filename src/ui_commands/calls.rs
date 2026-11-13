@@ -803,8 +803,13 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let win_title =
 		crate::calls::helpers::format_call_window_title(is_incoming, is_group, true, &name, is_saved, clock.as_deref());
 	parts.call_parts.frame.set_title(&win_title);
-	let running_info =
-		crate::calls::helpers::call_running_info_text(s.call_info_direction(), true, &name, secs, s.call_is_reconnecting);
+	let running_info = crate::calls::helpers::call_running_info_text(
+		s.call_info_direction(),
+		true,
+		&name,
+		secs,
+		s.call_is_reconnecting,
+	);
 	parts.call_parts.caller_info.set_value(&running_info);
 	crate::calls::helpers::show_call_device_combos(&s, parts);
 	drop(s);
@@ -1222,7 +1227,10 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 				let s = state_menu.borrow();
 				s.call_contacts.iter().find(|c| c.jid == jid).map(|c| c.name.clone()).unwrap_or_else(|| jid.clone())
 			};
-			let msg = crate::i18n::tr_fmt("Delete {} from your contacts? They'll be removed from your phone's contacts too.", &[&name]);
+			let msg = crate::i18n::tr_fmt(
+				"Delete {} from your contacts? They'll be removed from your phone's contacts too.",
+				&[&name],
+			);
 			let confirm = MessageDialog::builder(&parts_menu.frame, &msg, crate::i18n::tr("Delete Contact"))
 				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 				.build();

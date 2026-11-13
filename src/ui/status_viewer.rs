@@ -708,9 +708,7 @@ fn reaction_note(mine: &str) -> String {
 	match mine {
 		"" => String::new(),
 		STATUS_LIKE => crate::i18n::tr(" You liked this.").to_string(),
-		emoji => {
-			crate::i18n::tr_fmt(" You reacted {}.", &[&emoji])
-		}
+		emoji => crate::i18n::tr_fmt(" You reacted {}.", &[&emoji]),
 	}
 }
 
@@ -1093,8 +1091,7 @@ impl Viewer {
 		if emoji.is_empty() {
 			crate::platform::announce::announce(self.announcer, crate::i18n::tr("Reaction removed."));
 		} else {
-			let msg =
-				crate::i18n::tr_fmt("Reacted {}.", &[&emoji]);
+			let msg = crate::i18n::tr_fmt("Reacted {}.", &[&emoji]);
 			crate::platform::announce::announce(self.announcer, &msg);
 		}
 	}
@@ -1111,7 +1108,8 @@ impl Viewer {
 			_ if entry.text.is_empty() => format!("{}.", kind(&entry)),
 			_ => format!("{}. {}", kind(&entry), entry.text),
 		};
-		let mut msg = crate::i18n::tr_fmt("{}, status {} of {}, posted {}. {}", &[&who, &position, &count, &time, &body]);
+		let mut msg =
+			crate::i18n::tr_fmt("{}, status {} of {}, posted {}. {}", &[&who, &position, &count, &time, &body]);
 		msg.push_str(&reaction_note(&entry.my_reaction));
 		crate::platform::announce::announce(self.announcer, &msg);
 	}
@@ -1155,7 +1153,9 @@ impl Viewer {
 		let first = entry.poster_name.split_whitespace().next().unwrap_or(&entry.poster_name).to_string();
 		let label = if entry.muted {
 			crate::i18n::tr_fmt("Un&mute {}", &[&first])
-		} else { crate::i18n::tr_fmt("&Mute {}", &[&first]) };
+		} else {
+			crate::i18n::tr_fmt("&Mute {}", &[&first])
+		};
 		self.mute_btn.set_label(&label);
 	}
 
@@ -1240,7 +1240,10 @@ impl Viewer {
 			self.viewers_label.set_label(crate::i18n::tr("&Viewed by: no one yet"));
 			self.viewers_list.append(crate::i18n::tr("No one has seen this status update yet."));
 		} else {
-			self.viewers_label.set_label(&crate::i18n::tr_fmt("&Viewed by {} {}", &[&count, &crate::i18n::tr(if count == 1 { "person" } else { "people" })]));
+			self.viewers_label.set_label(&crate::i18n::tr_fmt(
+				"&Viewed by {} {}",
+				&[&count, &crate::i18n::tr(if count == 1 { "person" } else { "people" })],
+			));
 			for v in &viewers {
 				let jid = text(v, "jid");
 				let name = text(v, "name");
@@ -1345,7 +1348,9 @@ pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 					}
 				} else if emoji.is_empty() {
 					crate::i18n::tr("Reaction removed.").to_string()
-				} else { crate::i18n::tr_fmt("You reacted {}.", &[&emoji]) };
+				} else {
+					crate::i18n::tr_fmt("You reacted {}.", &[&emoji])
+				};
 				crate::platform::announce::announce(viewer.announcer, &spoken);
 			}
 		}
@@ -1358,7 +1363,10 @@ pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 				&& entry.poster_jid == jid
 			{
 				viewer.show_mute(&entry);
-				let spoken = crate::i18n::tr_fmt(if muted { "{}'s status updates muted." } else { "{}'s status updates unmuted." }, &[&entry.poster_name]);
+				let spoken = crate::i18n::tr_fmt(
+					if muted { "{}'s status updates muted." } else { "{}'s status updates unmuted." },
+					&[&entry.poster_name],
+				);
 				crate::platform::announce::announce(viewer.announcer, &spoken);
 			}
 		}

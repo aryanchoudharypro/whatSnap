@@ -1,6 +1,6 @@
 pub mod accounts;
-pub mod album_items;
 pub mod add_members;
+pub mod album_items;
 pub mod attach_contact;
 pub mod attachment_dialog;
 pub mod blocked_contacts;

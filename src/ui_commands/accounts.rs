@@ -266,7 +266,10 @@ fn linked_new_account(account: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	refresh_title(state, parts);
 	// The same number linked twice would be two copies of one account.
 	if let Some((existing, name)) = duplicate {
-		let msg = crate::i18n::tr_fmt("This phone number is already linked in whatSnap as {}, so the new link is being removed.", &[&name]);
+		let msg = crate::i18n::tr_fmt(
+			"This phone number is already linked in whatSnap as {}, so the new link is being removed.",
+			&[&name],
+		);
 		MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Account Already Linked"))
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 			.build()
@@ -653,8 +656,7 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 		let _ = ws_tx.send(serde_json::json!({ "action": "hello" }).to_string());
 	}
 	let name = accounts.borrow().registry.display_name(target);
-	let switched_msg =
-		crate::i18n::tr_fmt("Switched to {}.", &[&name]);
+	let switched_msg = crate::i18n::tr_fmt("Switched to {}.", &[&name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &switched_msg);
 	parts.conversations_parts.conversations_list.set_focus();
 	true
@@ -797,7 +799,10 @@ fn account_rows(a: &Accounts) -> Vec<crate::ui::dialogs::accounts::AccountRow> {
 				&& !bg.unread.is_empty()
 			{
 				let n = bg.unread.len();
-				label.push_str(&crate::i18n::tr_fmt(if n == 1 { ", {} unread chat" } else { ", {} unread chats" }, &[&n]));
+				label.push_str(&crate::i18n::tr_fmt(
+					if n == 1 { ", {} unread chat" } else { ", {} unread chats" },
+					&[&n],
+				));
 			}
 			if x.messages == crate::platform::accounts::MessageAlerts::Off && x.calls == CallAlerts::Off {
 				label.push_str(crate::i18n::tr(", notifications off"));
@@ -907,8 +912,13 @@ fn remove(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
 		return;
 	}
 	let question = if linked {
-		crate::i18n::tr_fmt("Remove {} from whatSnap?\n\nThis logs it out of WhatsApp on this computer and deletes its messages and media saved here. Your phone keeps its chats.", &[&name])
-	} else { crate::i18n::tr_fmt("Remove {} from whatSnap?", &[&name]) };
+		crate::i18n::tr_fmt(
+			"Remove {} from whatSnap?\n\nThis logs it out of WhatsApp on this computer and deletes its messages and media saved here. Your phone keeps its chats.",
+			&[&name],
+		)
+	} else {
+		crate::i18n::tr_fmt("Remove {} from whatSnap?", &[&name])
+	};
 	let answer = MessageDialog::builder(&parts.frame, &question, crate::i18n::tr("Remove Account"))
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
 		.build()
@@ -933,8 +943,7 @@ fn remove(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
 	if accounts.borrow().registry.get(id).is_some_and(|x| x.state != AccountState::Deleting) {
 		start_removal(state, id, linked);
 	}
-	let removed_msg =
-		crate::i18n::tr_fmt("Removed {}.", &[&name]);
+	let removed_msg = crate::i18n::tr_fmt("Removed {}.", &[&name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &removed_msg);
 	refresh_title(state, parts);
 }

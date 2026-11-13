@@ -58,10 +58,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					.filter(|n| !n.is_empty())
 					.map(|n| n.to_string())
 					.unwrap_or_else(|| {
-						s.contacts
-							.get(&poster_jid)
-							.cloned()
-							.unwrap_or_else(|| if from_me { crate::i18n::tr("You").to_string() } else { poster_jid.clone() })
+						s.contacts.get(&poster_jid).cloned().unwrap_or_else(|| {
+							if from_me { crate::i18n::tr("You").to_string() } else { poster_jid.clone() }
+						})
 					});
 				let item = StatusItem {
 					id,

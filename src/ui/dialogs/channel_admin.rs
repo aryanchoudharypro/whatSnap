@@ -265,7 +265,10 @@ pub fn show_channel_followers(
 	let chosen_owner = chosen.clone();
 	owner_btn.on_click(move |_| {
 		let Some((jid, name)) = selected() else { return };
-		let prompt = crate::i18n::tr_fmt("Make {} the owner of this channel? You'll become an admin, and only the new owner can undo this.", &[&name]);
+		let prompt = crate::i18n::tr_fmt(
+			"Make {} the owner of this channel? You'll become an admin, and only the new owner can undo this.",
+			&[&name],
+		);
 		let confirm = MessageDialog::builder(&dialog, &prompt, crate::i18n::tr("Change owner"))
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
 			.build();

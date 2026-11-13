@@ -98,7 +98,9 @@ mod tests {
 
 	#[test]
 	fn parses_escapes_and_continuations() {
-		let map = parse("msgid \"\"\nmsgstr \"\"\n\"Language: id\\n\"\n\nmsgid \"a \\\"b\\\"\\n\"\nmsgstr \"x\"\n\"y\"\n\nmsgid \"untranslated\"\nmsgstr \"\"\n");
+		let map = parse(
+			"msgid \"\"\nmsgstr \"\"\n\"Language: id\\n\"\n\nmsgid \"a \\\"b\\\"\\n\"\nmsgstr \"x\"\n\"y\"\n\nmsgid \"untranslated\"\nmsgstr \"\"\n",
+		);
 		assert_eq!(map.get("a \"b\"\n").map(String::as_str), Some("xy"));
 		assert!(!map.contains_key("untranslated"));
 		assert!(!map.contains_key(""));

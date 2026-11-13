@@ -286,8 +286,7 @@ pub fn text_changed(field: &TextCtrl, announce: Option<StaticText>) {
 	}
 	let word = MISTAKES.with(|m| just_finished(&m.borrow(), &all, end));
 	if let Some(word) = word {
-		let msg =
-			crate::i18n::tr_fmt("Misspelled: {}", &[&word]);
+		let msg = crate::i18n::tr_fmt("Misspelled: {}", &[&word]);
 		crate::platform::announce::announce(announcer, &msg);
 	}
 }

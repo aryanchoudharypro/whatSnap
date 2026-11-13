@@ -7,13 +7,12 @@ use std::{
 
 use wxdragon::prelude::*;
 
+use super::status_composer::STATUS_PALETTE;
 use crate::{
 	AppState,
 	audio::{compute_voice_waveform, convert_wav_to_opus_ogg, voice_recorder::RecordingSession},
 	ui::{dialog_look, keys, theme, window::WindowParts},
 };
-
-use super::status_composer::STATUS_PALETTE;
 
 const MAX_VOICE_STATUS: Duration = Duration::from_secs(30);
 

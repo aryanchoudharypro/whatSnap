@@ -58,7 +58,8 @@ pub(crate) fn channel_admin_invite(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		return;
 	}
 	if flag("fromMe") {
-		let msg = crate::i18n::tr_fmt("You invited {} to be an admin of {}. Cancel this invite?", &[&user_name, &channel]);
+		let msg =
+			crate::i18n::tr_fmt("You invited {} to be an admin of {}. Cancel this invite?", &[&user_name, &channel]);
 		let dlg = MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Channel admin invite"))
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build();
@@ -311,8 +312,7 @@ pub(crate) fn channel_deleted(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		s.channel_jids.remove(&jid);
 		s.channel_roles.remove(&jid);
 	}
-	let msg =
-		crate::i18n::tr_fmt("{} was deleted.", &[&name]);
+	let msg = crate::i18n::tr_fmt("{} was deleted.", &[&name]);
 	announce(parts, &msg);
 }
 

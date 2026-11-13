@@ -185,7 +185,10 @@ fn show_picker(
 		if list.is_checked(idx) {
 			if s.checked.len() >= MAX_RECIPIENTS {
 				list.check(idx, false);
-				let limit_msg = crate::i18n::tr_fmt("You can only send to {} chats at once. {} not selected.", &[&MAX_RECIPIENTS, &label]);
+				let limit_msg = crate::i18n::tr_fmt(
+					"You can only send to {} chats at once. {} not selected.",
+					&[&MAX_RECIPIENTS, &label],
+				);
 				crate::platform::announce::announce(announcer_toggle, &limit_msg);
 				return;
 			}

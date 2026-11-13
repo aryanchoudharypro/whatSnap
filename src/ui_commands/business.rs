@@ -165,7 +165,8 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 				"call" | "copy" => {
 					if crate::platform::clipboard::copy_text(&option.value) {
 						let msg = {
-							let what = if option.kind == "call" { crate::i18n::tr("Number") } else { crate::i18n::tr("Code") };
+							let what =
+								if option.kind == "call" { crate::i18n::tr("Number") } else { crate::i18n::tr("Code") };
 							crate::i18n::tr_fmt("{} copied: {}", &[&what, &option.value])
 						};
 						crate::platform::announce::announce(announcer, &msg);
@@ -382,9 +383,7 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		s.contacts.get(&business).cloned().filter(|n| !n.is_empty())
 	};
 	let title = match name {
-		Some(name) => {
-			crate::i18n::tr_fmt("{}'s catalogue", &[&name])
-		}
+		Some(name) => crate::i18n::tr_fmt("{}'s catalogue", &[&name]),
 		None => crate::i18n::tr("Catalogue").to_string(),
 	};
 

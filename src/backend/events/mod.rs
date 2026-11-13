@@ -91,7 +91,9 @@ pub(crate) fn format_conv_data_label(
 		if is_group {
 			let status = if is_recording {
 				crate::i18n::tr_fmt("{} is recording audio...", &[&sender_name])
-			} else { crate::i18n::tr_fmt("{} is typing...", &[&sender_name]) };
+			} else {
+				crate::i18n::tr_fmt("{} is typing...", &[&sender_name])
+			};
 			format!("{chat_name}, {status}")
 		} else {
 			let status =

@@ -146,12 +146,8 @@ pub(crate) fn save_copy(parent: &impl WxWidget, source: &str, name: &str, announ
 	}
 	let Some(dest) = dialog.get_path() else { return };
 	let text = match std::fs::copy(source, &dest) {
-		Ok(_) => {
-			crate::i18n::tr_fmt("File saved to {}", &[&dest])
-		}
-		Err(err) => {
-			crate::i18n::tr_fmt("Couldn't save the file: {}", &[&err])
-		}
+		Ok(_) => crate::i18n::tr_fmt("File saved to {}", &[&dest]),
+		Err(err) => crate::i18n::tr_fmt("Couldn't save the file: {}", &[&err]),
 	};
 	crate::platform::announce::announce(announcer, &text);
 }

@@ -926,7 +926,10 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 									} else {
 										size
 									};
-									crate::i18n::tr_fmt("Download album ({} items remaining, {})", &[&uncollected.len(), &size])
+									crate::i18n::tr_fmt(
+										"Download album ({} items remaining, {})",
+										&[&uncollected.len(), &size],
+									)
 								}
 								None => {
 									crate::i18n::tr_fmt("Download album ({} items remaining)", &[&uncollected.len()])

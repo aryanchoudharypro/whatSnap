@@ -293,7 +293,10 @@ pub(crate) fn conversation_selection_changed(idx: usize, state: &Rc<RefCell<AppS
 					whatsnap::phone::format_international(raw_phone).unwrap_or_else(|| format!("+{raw_phone}"))
 				});
 				drop(s);
-				let (call_lbl, video_lbl) = (crate::i18n::tr_fmt("Call {}", &[&peer_name]), crate::i18n::tr_fmt("Video call {}", &[&peer_name]));
+				let (call_lbl, video_lbl) = (
+					crate::i18n::tr_fmt("Call {}", &[&peer_name]),
+					crate::i18n::tr_fmt("Video call {}", &[&peer_name]),
+				);
 				parts.conversations_parts.calls_call_btn.set_label(&call_lbl);
 				parts.conversations_parts.calls_video_btn.set_label(&video_lbl);
 				parts.conversations_parts.calls_btn_panel.layout();
@@ -402,8 +405,7 @@ pub(crate) fn go_to_date(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		"data": { "jid": jid, "date": date, "context": crate::MESSAGE_PAGE_SIZE / 2 }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let say_msg =
-		crate::i18n::tr_fmt("Going to {}.", &[&date]);
+	let say_msg = crate::i18n::tr_fmt("Going to {}.", &[&date]);
 	say(&say_msg);
 }
 
@@ -794,7 +796,10 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		phone = formatted;
 	}
 
-	let initial_text = crate::i18n::tr_fmt("Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...", &[&local_name, &phone, &crate::ui_commands::blocking::info_line(&s, &jid)]);
+	let initial_text = crate::i18n::tr_fmt(
+		"Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...",
+		&[&local_name, &phone, &crate::ui_commands::blocking::info_line(&s, &jid)],
+	);
 	let dlg = &parts.conversation_data_dialog;
 	dlg.info_field.set_value(&initial_text);
 	let callable = crate::ui_commands::calls::can_call(&s, &jid);

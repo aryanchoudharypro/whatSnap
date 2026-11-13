@@ -259,18 +259,14 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							let hours = secs.div_ceil(3600);
 							crate::i18n::tr_fmt("Status: Offline. {} Retrying in {} hours.", &[&reason, &hours])
 						}
-						_ => {
-							crate::i18n::tr_fmt("Status: Offline. {} Retrying automatically.", &[&reason])
-						}
+						_ => crate::i18n::tr_fmt("Status: Offline. {} Retrying automatically.", &[&reason]),
 					};
 					parts.frame.set_status_text(&label, 0);
 					s.conn_status_text = label;
 					let speak = !s.conn_outage_announced || s.conn_manual_reconnect;
 					s.conn_outage_announced = true;
 					s.conn_manual_reconnect = false;
-					speak.then(|| {
-						crate::i18n::tr_fmt("{} whatSnap will keep trying to reconnect.", &[&reason])
-					})
+					speak.then(|| crate::i18n::tr_fmt("{} whatSnap will keep trying to reconnect.", &[&reason]))
 				}
 				"stopped" => {
 					let msg_tr = crate::i18n::translate_backend_message(message);
@@ -296,8 +292,16 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let mut s = state.borrow_mut();
 					let label = if s.recent_sync_active && s.recent_sync_percent >= 0 {
 						let pct = s.recent_sync_percent;
-						crate::i18n::tr_fmt("Status: Connected (Syncing older messages, {}% complete: {} messages, {} chats so far)", &[&pct, &msgs_done, &chats_done])
-					} else { crate::i18n::tr_fmt("Status: Connected (Syncing history... {} messages, {} chats so far)", &[&msgs_done, &chats_done]) };
+						crate::i18n::tr_fmt(
+							"Status: Connected (Syncing older messages, {}% complete: {} messages, {} chats so far)",
+							&[&pct, &msgs_done, &chats_done],
+						)
+					} else {
+						crate::i18n::tr_fmt(
+							"Status: Connected (Syncing history... {} messages, {} chats so far)",
+							&[&msgs_done, &chats_done],
+						)
+					};
 					// Batches already received keep being saved after the
 					// connection drops; don't paint "Connected" over that.
 					if s.conn_online {

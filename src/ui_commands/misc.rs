@@ -44,7 +44,10 @@ pub(crate) fn exit_app(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 pub(crate) fn restart_app(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	if let Err(err) = crate::platform::single_instance::spawn_restarted_copy() {
 		use wxdragon::prelude::*;
-		let msg = crate::i18n::tr_fmt("Couldn't restart whatSnap automatically:\n{}\n\nPlease close and reopen the app manually.", &[&err]);
+		let msg = crate::i18n::tr_fmt(
+			"Couldn't restart whatSnap automatically:\n{}\n\nPlease close and reopen the app manually.",
+			&[&err],
+		);
 		MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Restart Required"))
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
 			.build()

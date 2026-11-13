@@ -188,11 +188,8 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelPart
 			cp.mention_list.show(true);
 			cp.conversation_panel.layout();
 		}
-		let message = if opening {
-			crate::i18n::tr_fmt("Mention suggestions. {}", &[&announcement])
-		} else {
-			announcement
-		};
+		let message =
+			if opening { crate::i18n::tr_fmt("Mention suggestions. {}", &[&announcement]) } else { announcement };
 		crate::platform::announce::announce(announcer, &message);
 	}
 }

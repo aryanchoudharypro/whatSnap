@@ -160,7 +160,9 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	} else {
 		let mute = if row.muted {
 			crate::i18n::tr_fmt("Un&mute {}'s status updates", &[&row.poster_name])
-		} else { crate::i18n::tr_fmt("&Mute {}'s status updates", &[&row.poster_name]) };
+		} else {
+			crate::i18n::tr_fmt("&Mute {}'s status updates", &[&row.poster_name])
+		};
 		builder = builder
 			.append_item(VIEW, crate::i18n::tr("&View status"), crate::i18n::tr("View their status updates"))
 			.append_item(

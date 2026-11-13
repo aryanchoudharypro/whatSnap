@@ -334,7 +334,11 @@ fn build_language_table() {
 			let text = std::fs::read_to_string(&path).unwrap_or_default();
 			let name = text
 				.lines()
-				.find_map(|l| l.trim().strip_prefix("\"X-Language-Name:").map(|r| r.trim().trim_end_matches("\\n\"").trim().to_string()))
+				.find_map(|l| {
+					l.trim()
+						.strip_prefix("\"X-Language-Name:")
+						.map(|r| r.trim().trim_end_matches("\\n\"").trim().to_string())
+				})
 				.unwrap_or_else(|| code.clone());
 			entries.push((code, name, path));
 		}

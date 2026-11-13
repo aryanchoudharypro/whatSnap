@@ -39,7 +39,11 @@ fn announce(parts: &WindowParts, text: &str) {
 }
 
 fn plural(count: usize, one: &str, many: &str) -> String {
-	if count == 1 { format!("1 {}", crate::i18n::tr_str(one)) } else { format!("{count} {}", crate::i18n::tr_str(many)) }
+	if count == 1 {
+		format!("1 {}", crate::i18n::tr_str(one))
+	} else {
+		format!("{count} {}", crate::i18n::tr_str(many))
+	}
 }
 
 /// The selected messages, oldest first. An album counts as each of its
@@ -378,9 +382,7 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 	};
 	let admin_name = admin_msg.as_ref().filter(|_| revokable).map(|m| sender_name(state, m));
 	let title = match &admin_name {
-		Some(name) => {
-			crate::i18n::tr_fmt("Delete message from {}?", &[&name])
-		}
+		Some(name) => crate::i18n::tr_fmt("Delete message from {}?", &[&name]),
 		None if msgs.len() == 1 => crate::i18n::tr("Delete message?").to_string(),
 		None => crate::i18n::tr("Delete messages?").to_string(),
 	};
@@ -397,7 +399,10 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 		match dialog.show_modal() {
 			id if id == wxdragon::id::ID_YES => {
 				if let Some(name) = &admin_name {
-					let confirm_text = crate::i18n::tr_fmt("As an admin, you are deleting {}'s message for everyone in this chat. They will see that you deleted the message.", &[&name]);
+					let confirm_text = crate::i18n::tr_fmt(
+						"As an admin, you are deleting {}'s message for everyone in this chat. They will see that you deleted the message.",
+						&[&name],
+					);
 					let confirm =
 						MessageDialog::builder(&parts.frame, &confirm_text, crate::i18n::tr("Delete for everyone"))
 							.with_style(
@@ -496,7 +501,8 @@ pub(crate) fn forward_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect()
 	};
 	let names_joined = names.join(", ");
-	let spoken = crate::i18n::tr_fmt("{} forwarded to {}.", &[&plural(ids.len(), "message", "messages"), &names_joined]);
+	let spoken =
+		crate::i18n::tr_fmt("{} forwarded to {}.", &[&plural(ids.len(), "message", "messages"), &names_joined]);
 	announce(parts, &spoken);
 }
 

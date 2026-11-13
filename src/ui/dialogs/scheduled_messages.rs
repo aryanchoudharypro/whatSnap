@@ -48,15 +48,9 @@ impl ScheduledEntry {
 	pub fn label(&self) -> String {
 		let when = crate::i18n::translate_backend_message(&self.when);
 		match (self.failed, self.past) {
-			(false, _) => {
-				crate::i18n::tr_fmt("Scheduled for {}: {}", &[&when, &self.content()])
-			}
-			(true, true) => {
-				crate::i18n::tr_fmt("Did not send, {}: {}", &[&when, &self.content()])
-			}
-			(true, false) => {
-				crate::i18n::tr_fmt("Couldn't be scheduled, {}: {}", &[&when, &self.content()])
-			}
+			(false, _) => crate::i18n::tr_fmt("Scheduled for {}: {}", &[&when, &self.content()]),
+			(true, true) => crate::i18n::tr_fmt("Did not send, {}: {}", &[&when, &self.content()]),
+			(true, false) => crate::i18n::tr_fmt("Couldn't be scheduled, {}: {}", &[&when, &self.content()]),
 		}
 	}
 }
@@ -81,9 +75,7 @@ impl ScheduledList {
 		self.list.set_items(&label_refs);
 		self.list_label.set_label(&match entries.len() {
 			0 => crate::i18n::tr("Scheduled messages: none").to_string(),
-			n => {
-				crate::i18n::tr_fmt("Scheduled messages ({}, {} of {} waiting)", &[&n, &pending, &limit])
-			}
+			n => crate::i18n::tr_fmt("Scheduled messages ({}, {} of {} waiting)", &[&n, &pending, &limit]),
 		});
 		let any = !entries.is_empty();
 		if any {

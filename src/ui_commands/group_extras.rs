@@ -39,7 +39,10 @@ pub(crate) fn group_action(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 				let name = s.contacts.get(&group).cloned().unwrap_or_else(|| crate::i18n::tr("this group").to_string());
 				(s.group_data_community.clone().unwrap_or(jid), group, name)
 			};
-			let question = crate::i18n::tr_fmt("Remove {} from the community? It stays a group of its own, and its members leave the community.", &[&name]);
+			let question = crate::i18n::tr_fmt(
+				"Remove {} from the community? It stays a group of its own, and its members leave the community.",
+				&[&name],
+			);
 			if confirm(dialog, &question, crate::i18n::tr("Remove Group"), crate::i18n::tr("Remove")) {
 				send(state, "unlink_community_group", serde_json::json!({ "community": community, "group": group }));
 			}
@@ -92,7 +95,8 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 			let approve = data.get("approve").and_then(|c| c.as_bool()).unwrap_or(false);
 			let spoken = {
 				let people = |n: u64| crate::i18n::count_noun(n as usize, "person", "people");
-				let mut s = crate::i18n::tr_fmt(if approve { "Approved {}." } else { "Rejected {}." }, &[&people(count)]);
+				let mut s =
+					crate::i18n::tr_fmt(if approve { "Approved {}." } else { "Rejected {}." }, &[&people(count)]);
 				if failed > 0 {
 					s.push_str(&crate::i18n::tr_fmt(" {} couldn't be.", &[&people(failed)]));
 				}

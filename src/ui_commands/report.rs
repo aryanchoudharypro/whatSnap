@@ -15,23 +15,28 @@ fn confirm_and_report(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 	let is_group = jid.ends_with("@g.us");
 	let name = chat_name(&state.borrow(), &jid);
 	let question = match (&message_id, is_group) {
-		(Some(_), false) => {
-			crate::i18n::tr_fmt("Report this message to WhatsApp? WhatsApp receives this message. {} won't be notified.", &[&name])
-		}
+		(Some(_), false) => crate::i18n::tr_fmt(
+			"Report this message to WhatsApp? WhatsApp receives this message. {} won't be notified.",
+			&[&name],
+		),
 		(Some(_), true) => crate::i18n::tr(
 			"Report this message to WhatsApp? WhatsApp receives this message. The sender and the group won't be notified.",
 		)
 		.to_string(),
-		(None, false) => {
-			crate::i18n::tr_fmt("Report {} to WhatsApp? WhatsApp receives the last message they sent you. They won't be notified.", &[&name])
-		}
-		(None, true) => {
-			crate::i18n::tr_fmt("Report {} to WhatsApp? WhatsApp receives the most recent message someone else sent here. The group won't be notified.", &[&name])
-		}
+		(None, false) => crate::i18n::tr_fmt(
+			"Report {} to WhatsApp? WhatsApp receives the last message they sent you. They won't be notified.",
+			&[&name],
+		),
+		(None, true) => crate::i18n::tr_fmt(
+			"Report {} to WhatsApp? WhatsApp receives the most recent message someone else sent here. The group won't be notified.",
+			&[&name],
+		),
 	};
 	let also = if is_group {
 		crate::i18n::tr("Report and exit group").to_string()
-	} else { crate::i18n::tr_fmt("Report and block {}", &[&name]) };
+	} else {
+		crate::i18n::tr_fmt("Report and block {}", &[&name])
+	};
 	let report_label = crate::i18n::tr("Report");
 	let choices: Vec<&str> = vec![report_label, also.as_str()];
 	let dialog = SingleChoiceDialog::builder(&parts.frame, &question, report_label, &choices).build();

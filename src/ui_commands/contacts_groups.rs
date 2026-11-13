@@ -291,9 +291,13 @@ pub(crate) fn group_member_action(
 		MemberAction::SendHistory => {
 			let count = member.history_count;
 			let question = crate::i18n::tr_fmt(
-					"Send message history to {}?\n\n{} will get {} from this group.",
-					&[&member.name, &member.name, &crate::i18n::count_noun(count as usize, "recent message", "recent messages")],
-				);
+				"Send message history to {}?\n\n{} will get {} from this group.",
+				&[
+					&member.name,
+					&member.name,
+					&crate::i18n::count_noun(count as usize, "recent message", "recent messages"),
+				],
+			);
 			if ask(&question, crate::i18n::tr("Send Message History"), crate::i18n::tr("Send")) {
 				crate::ui_commands::member_extras::send_history(state, parts, &group_jid, &member);
 			}
@@ -494,7 +498,10 @@ pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let Some(card) = state.borrow().conversation_data_contact.clone().filter(|c| c.saved) else { return };
 	let name = if card.full_name.is_empty() { &card.first_name } else { &card.full_name };
-	let question = crate::i18n::tr_fmt("Delete {} from your contacts? They'll be removed from your phone's contacts too.", &[&name]);
+	let question = crate::i18n::tr_fmt(
+		"Delete {} from your contacts? They'll be removed from your phone's contacts too.",
+		&[&name],
+	);
 	let confirm = MessageDialog::builder(
 		&parts.conversation_data_dialog.details_dialog,
 		&question,
