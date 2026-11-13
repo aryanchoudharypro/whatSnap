@@ -598,15 +598,9 @@ fn show_message_text(
 	dlg_sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
 	dlg_panel.set_sizer(dlg_sizer, true);
 
-	let dlg_esc = dlg;
-	text_view.on_key_down(keys::escape_cancels(dlg_esc));
-
+	crate::ui::show_modeless_viewer(dlg, close_btn);
 	text_view.set_focus();
 	text_view.set_selection(0, 0);
-	dlg.show_modal();
-	// The base Dialog has no Drop, so a dialog built per use must be
-	// destroyed or it (and every closure bound to it) lives on hidden.
-	dlg.destroy();
 }
 
 /// The chat management actions that work on the chat focused in the chat

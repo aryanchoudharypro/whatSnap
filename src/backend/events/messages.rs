@@ -995,12 +995,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let ok_btn = Button::builder(&dlg).with_label(crate::i18n::tr("OK")).build();
 				sizer.add(&ok_btn, 0, SizerFlag::AlignCentre | SizerFlag::Bottom | SizerFlag::All, 8);
 				dlg.set_sizer_and_fit(sizer, true);
-				let dlg_close = dlg;
-				ok_btn.on_click(move |_| {
-					dlg_close.end_modal(wxdragon::id::ID_OK);
-				});
-				dlg.show_modal();
-				dlg.destroy();
+				crate::ui::show_modeless_viewer(dlg, ok_btn);
+				txt.set_focus();
+				txt.set_selection(0, 0);
 			}
 		}
 		"chat_media" => {

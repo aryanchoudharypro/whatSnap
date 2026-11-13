@@ -69,3 +69,31 @@ pub(crate) fn show_modal_again(dialog: &wxdragon::prelude::Dialog) -> i32 {
 		dialog.show_modal()
 	})
 }
+
+/// Read-only viewers must leave the call window usable. Unlike a modal
+/// dialog, these stay alive after show() returns and are destroyed on close.
+pub(crate) fn show_modeless_viewer(dialog: wxdragon::prelude::Dialog, close_button: wxdragon::prelude::Button) {
+	use wxdragon::prelude::*;
+
+	close_button.on_click(move |_| {
+		dialog.close(false);
+	});
+	// Catch Escape before a multiline text control or dialog navigation
+	// consumes it. EndModal is only valid for modal dialogs.
+	dialog.bind_internal(EventType::CHAR_HOOK, move |event| {
+		let event = WindowEventData::new(event);
+		if let WindowEventData::Keyboard(ref key) = event
+			&& keys::is_escape(key.get_key_code())
+		{
+			event.skip(false);
+			dialog.close(false);
+		} else {
+			event.skip(true);
+		}
+	});
+	dialog.on_close(move |event| {
+		event.skip(false);
+		dialog.destroy();
+	});
+	dialog.show(true);
+}
