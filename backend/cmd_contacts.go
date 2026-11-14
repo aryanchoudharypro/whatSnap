@@ -211,7 +211,7 @@ func (acc *Account) handleGetBusinessProfile(conn net.Conn, raw json.RawMessage)
 
 func (acc *Account) handleGetBlocklist(conn net.Conn) {
 	go func() {
-		acc.sendEvent(conn, "blocklist", acc.blocklistPayload())
+		acc.sendBlocklist(conn)
 		acc.refreshBlocklist()
 	}()
 }

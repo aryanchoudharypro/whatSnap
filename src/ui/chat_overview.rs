@@ -124,13 +124,12 @@ fn applies(jid: &str) -> Applies {
 	}
 }
 
-pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid: &str) {
+pub(crate) fn refresh_block_state(s: &AppState, o: &ChatOverviewParts, jid: &str) {
 	let a = applies(jid);
-	let mut s = state.borrow_mut();
 	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
 	let kind = if jid.ends_with("@g.us") { crate::i18n::tr("Group") } else { crate::i18n::tr("Contact") };
 	let locked = s.locked_jids.contains(jid);
-	let blocked = crate::ui_commands::blocking::is_blocked(&s, jid);
+	let blocked = crate::ui_commands::blocking::is_blocked(s, jid);
 	let mut lines = vec![format!("{kind}: {name}")];
 	lines.push(format!(
 		"{}: {}",
@@ -146,17 +145,25 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid:
 		lines.push(crate::i18n::tr("Blocked: yes").to_string());
 	}
 	o.summary.set_value(&lines.join("\n"));
-	o.lock_chk.set_value(locked);
-	o.restricted_chk.set_value(false);
-	o.restricted_chk.show(false);
-	o.disappearing_btn.show(a.disappearing);
-	o.privacy_btn.show(a.privacy);
 	o.block_btn.show(a.block);
 	o.block_btn.set_label(if blocked {
 		crate::i18n::tr("Unblock contact")
 	} else {
 		crate::i18n::tr("Block contact...")
 	});
+	o.panel.layout();
+}
+
+pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid: &str) {
+	let a = applies(jid);
+	let mut s = state.borrow_mut();
+	refresh_block_state(&s, o, jid);
+	let locked = s.locked_jids.contains(jid);
+	o.lock_chk.set_value(locked);
+	o.restricted_chk.set_value(false);
+	o.restricted_chk.show(false);
+	o.disappearing_btn.show(a.disappearing);
+	o.privacy_btn.show(a.privacy);
 	o.report_btn.show(a.report);
 	o.starred_btn.show(a.starred);
 	if a.starred {

@@ -83,7 +83,7 @@ func (acc *Account) sendGreeting(conn net.Conn) {
 		acc.sendEvent(conn, "connected", map[string]string{"jid": acc.wa().Store.ID.String()})
 		acc.sendEvent(conn, "connection_state", acc.currentConnState())
 		acc.sendEvent(conn, "server_flags", acc.serverFlagsPayload())
-		acc.sendEvent(conn, "blocklist", acc.blocklistPayload())
+		acc.sendBlocklist(conn)
 		go func() {
 			acc.populateChatsFromStore()
 			acc.broadcastChats()

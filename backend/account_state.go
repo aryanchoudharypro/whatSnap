@@ -35,7 +35,6 @@ type Account struct {
 		queued  map[string]bool
 		running bool
 	}
-	blocklistMu                sync.Mutex
 	blocklistSyncMu            sync.Mutex
 	blocklistSyncedFor         *whatsmeow.Client
 	blocklistDHash             string
