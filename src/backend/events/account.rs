@@ -237,7 +237,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		}
 		"blocklist" => {
 			if let Some(data) = val.get("data") {
-				crate::ui_commands::blocking::blocklist_received(state, data);
+				crate::ui_commands::blocking::blocklist_received(state, parts, data);
 			}
 		}
 		"block_result" => {

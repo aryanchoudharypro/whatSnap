@@ -623,11 +623,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 					let mut text = crate::i18n::tr_fmt("Name: {}\nPhone: {}\n", &[&local_name, &phone]);
 					let blocked_line = crate::ui_commands::blocking::info_line(&s, jid);
-					if crate::i18n::is_indonesian() && blocked_line == "Blocked: Yes\n" {
-						text.push_str("Diblokir: Ya\n");
-					} else {
-						text.push_str(blocked_line);
-					}
+					text.push_str(blocked_line);
 					if !push_name.is_empty() {
 						text.push_str(&format!("{}: {}\n", crate::i18n::tr("WhatsApp Name"), push_name));
 					} else if !full_name.is_empty() {
