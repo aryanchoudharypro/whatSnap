@@ -36,6 +36,23 @@ pub(crate) fn fit_in_box(width: u32, height: u32, max_width: u32, max_height: u3
 	}
 }
 
+/// Read the source proportions without allocating or decoding its pixels.
+pub(crate) fn dimensions(path: &str) -> crate::error::Result<(u32, u32)> {
+	unsafe {
+		let factory: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
+		let decoder = factory.CreateDecoderFromFilename(
+			&HSTRING::from(path),
+			None,
+			GENERIC_READ,
+			WICDecodeMetadataCacheOnDemand,
+		)?;
+		let frame = decoder.GetFrame(0)?;
+		let (mut width, mut height) = (0, 0);
+		frame.GetSize(&mut width, &mut height)?;
+		Ok((width, height))
+	}
+}
+
 pub(crate) fn decode_rgba(path: &str, max_edge: u32) -> crate::error::Result<(u32, u32, Vec<u8>)> {
 	decode_rgba_with(path, |w, h| fit_within(w, h, max_edge))
 }

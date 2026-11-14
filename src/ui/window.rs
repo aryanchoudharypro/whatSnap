@@ -1444,11 +1444,21 @@ pub fn bind_input_handlers(
 
 	let (messages_list, select_list) =
 		(parts.conversations_parts.messages_list, parts.conversations_parts.messages_select_list);
-	crate::ui::thumbnails::init(state.borrow().ws_tx.clone(), move || {
-		messages_list.refresh(false, None);
-		select_list.refresh(false, None);
-		crate::ui::owner_draw::refresh_media_lists();
-	});
+	crate::ui::thumbnails::init(
+		state.borrow().ws_tx.clone(),
+		move || {
+			messages_list.remeasure_all();
+			select_list.remeasure_all();
+			messages_list.refresh(false, None);
+			select_list.refresh(false, None);
+			crate::ui::owner_draw::refresh_media_lists();
+		},
+		move || {
+			messages_list.refresh(false, None);
+			select_list.refresh(false, None);
+			crate::ui::owner_draw::refresh_media_lists();
+		},
+	);
 	let state_members = state.clone();
 	crate::ui::owner_draw::install_people_list(&parts.group_data_dialog.members_list, move |index| {
 		state_members.try_borrow().ok()?.group_data_visible_member_jids.get(index).cloned()
@@ -4718,6 +4728,9 @@ pub fn bind_input_handlers(
 			let message_number_id = 3015;
 			let report_id = 3016;
 			let report_admins_id = 3017;
+			let download_media_id = 3018;
+			let open_media_id = 3019;
+			let save_media_id = 3020;
 
 			let s = state_ctx.borrow();
 			let chat_jid = s.selected_chat.clone().unwrap_or_default();
@@ -4859,7 +4872,30 @@ pub fn bind_input_handlers(
 					.unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(jid))
 			});
 
+			let media_message = display_item.as_ref().and_then(|item| match item {
+				whatsnap::DisplayItem::Single(m) if crate::ui::message_art::media_action_for(m).is_some() => {
+					Some(m.clone())
+				}
+				_ => None,
+			});
 			let mut menu_builder = Menu::builder();
+			if let Some(msg) = &media_message {
+				if msg.is_media_downloaded() {
+					menu_builder = menu_builder
+						.append_item(open_media_id, crate::i18n::tr("&Open"), crate::i18n::tr("Open this file"))
+						.append_item(
+							save_media_id,
+							crate::i18n::tr("&Save as..."),
+							crate::i18n::tr("Save this file to a chosen location"),
+						);
+				} else {
+					menu_builder = menu_builder.append_item(
+						download_media_id,
+						crate::i18n::tr("&Download"),
+						crate::i18n::tr("Download this file"),
+					);
+				}
+			}
 			menu_builder = menu_builder.append_item(
 				copy_id,
 				crate::i18n::tr("&Copy	Ctrl+C"),
@@ -5056,6 +5092,18 @@ pub fn bind_input_handlers(
 
 			popup_menu.on_selected(move |menu_evt| {
 				let id = menu_evt.get_id();
+				if let Some(msg) = &media_message {
+					let command = match id {
+						3018 => Some(UiCommand::DownloadMediaMessage(msg.id.clone())),
+						3019 => Some(UiCommand::OpenMediaMessage(msg.id.clone())),
+						3020 => Some(UiCommand::SaveMediaMessageAs(msg.id.clone())),
+						_ => None,
+					};
+					if let Some(command) = command {
+						let _ = tx_play_media_clone.send(command);
+						return;
+					}
+				}
 				if let Some(msg) = extras_msg.as_ref()
 					&& crate::ui_commands::message_extras::handle_message_action(
 						id,
@@ -6421,7 +6469,11 @@ pub fn bind_input_handlers(
 	});
 
 	let open_menu_cb = open_msg_context_menu.clone();
-	parts.conversations_parts.messages_list.bind_internal(EventType::CONTEXT_MENU, move |_event| {
+	let tx_media_action = ui_tx.clone();
+	parts.conversations_parts.messages_list.on_media_action(move |command| {
+		let _ = tx_media_action.send(command);
+	});
+	parts.conversations_parts.messages_list.on_context_menu(move || {
 		open_menu_cb.as_ref()();
 	});
 

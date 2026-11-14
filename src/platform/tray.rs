@@ -1,5 +1,20 @@
 use crate::{AppState, ui::window::WindowParts};
 
+/// Independent of the call hotkeys, which are registered only while ringing.
+pub(crate) fn register_toggle_hotkey(
+	ui_tx: &crate::ui::wake::UiCommandSender,
+) -> Option<wx_utils::global_hotkeys::GlobalHotkeys> {
+	let chord = key_chord::KeyChord::parse("Ctrl+Alt+W").expect("valid tray shortcut");
+	let ui_tx = ui_tx.clone();
+	let (running, failed) = wx_utils::global_hotkeys::GlobalHotkeys::register(vec![(chord, ())], move |_| {
+		let _ = ui_tx.send(crate::UiCommand::ToggleTrayWindow);
+	});
+	if !failed.is_empty() {
+		eprintln!("Couldn't register Ctrl+Alt+W to show/hide whatSnap; the shortcut may be in use by another app.");
+	}
+	running
+}
+
 /// Repaints the tray icon's tooltip with the current unread total, so the count
 /// can be read straight off the notification area without restoring the window.
 ///

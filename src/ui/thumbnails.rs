@@ -20,24 +20,28 @@ pub(crate) enum Thumb<'a> {
 #[derive(Default)]
 struct Cache {
 	paths: HashMap<String, Option<String>>,
+	dimensions: HashMap<String, Option<(u32, u32)>>,
 	bitmaps: HashMap<String, ((i32, i32), Bitmap)>,
+	decoding: HashMap<String, (String, (i32, i32))>,
 	order: VecDeque<String>,
 	asked: HashMap<String, Instant>,
 	pending: Vec<String>,
 	flush_scheduled: bool,
 	tx: Option<mpsc::Sender<String>>,
 	on_change: Option<Box<dyn Fn()>>,
+	on_decoded: Option<Box<dyn Fn()>>,
 }
 
 thread_local! {
 	static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
 }
 
-pub(crate) fn init(tx: mpsc::Sender<String>, on_change: impl Fn() + 'static) {
+pub(crate) fn init(tx: mpsc::Sender<String>, on_change: impl Fn() + 'static, on_decoded: impl Fn() + 'static) {
 	CACHE.with(|c| {
 		let mut c = c.borrow_mut();
 		c.tx = Some(tx);
 		c.on_change = Some(Box::new(on_change));
+		c.on_decoded = Some(Box::new(on_decoded));
 	});
 }
 
@@ -49,6 +53,21 @@ pub(crate) fn path_of(id: &str) -> Option<Option<String>> {
 			ask(&mut c, id);
 		}
 		known
+	})
+}
+
+pub(crate) fn preview_size(id: &str, max_w: i32, max_h: i32) -> (i32, i32) {
+	let Some(Some(path)) = path_of(id) else { return (max_w, max_h) };
+	CACHE.with(|cache| {
+		let mut c = cache.borrow_mut();
+		let dimensions = *c
+			.dimensions
+			.entry(id.to_string())
+			.or_insert_with(|| crate::media::image_decode::dimensions(&path).ok().filter(|&(w, h)| w > 0 && h > 0));
+		dimensions.map_or((max_w, max_h), |(w, h)| {
+			let (w, h) = crate::media::image_decode::fit_in_box(w, h, max_w.max(1) as u32, max_h.max(1) as u32);
+			(w as i32, h as i32)
+		})
 	})
 }
 
@@ -64,24 +83,68 @@ pub(crate) fn with_thumb<R>(id: &str, max_w: i32, max_h: i32, draw: impl FnOnce(
 			}
 		};
 		if c.bitmaps.get(id).is_none_or(|(size, _)| *size != (max_w, max_h)) {
-			let decoded =
-				crate::media::image_decode::decode_rgba_in_box(&path, max_w.max(1) as u32, max_h.max(1) as u32)
-					.ok()
-					.and_then(|(w, h, rgba)| Bitmap::from_rgba(&rgba, w, h));
-			let Some(bitmap) = decoded else {
-				c.paths.insert(id.to_string(), None);
-				return draw(Thumb::Nothing);
-			};
-			c.order.retain(|k| k != id);
-			while c.bitmaps.len() >= MAX_BITMAPS
-				&& let Some(old) = c.order.pop_front()
-			{
-				c.bitmaps.remove(&old);
+			let wanted = (path.clone(), (max_w, max_h));
+			if c.decoding.get(id) != Some(&wanted) {
+				c.decoding.insert(id.to_string(), wanted);
+				let _ = decoder().send((id.to_string(), path, max_w, max_h));
 			}
-			c.order.push_back(id.to_string());
-			c.bitmaps.insert(id.to_string(), ((max_w, max_h), bitmap));
+			return draw(Thumb::Waiting);
 		}
+		// Keep recently viewed pictures, rather than evicting them in insertion order.
+		c.order.retain(|k| k != id);
+		c.order.push_back(id.to_string());
 		draw(c.bitmaps.get(id).map_or(Thumb::Nothing, |(_, bitmap)| Thumb::Picture(bitmap)))
+	})
+}
+
+type DecodeRequest = (String, String, i32, i32);
+
+fn decoder() -> &'static mpsc::Sender<DecodeRequest> {
+	static DECODER: std::sync::OnceLock<mpsc::Sender<DecodeRequest>> = std::sync::OnceLock::new();
+	DECODER.get_or_init(|| {
+		let (tx, rx) = mpsc::channel::<DecodeRequest>();
+		std::thread::spawn(move || {
+			use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
+			let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
+			for (id, path, w, h) in rx {
+				let pixels =
+					crate::media::image_decode::decode_rgba_in_box(&path, w.max(1) as u32, h.max(1) as u32).ok();
+				wxdragon::call_after(Box::new(move || {
+					let callback = CACHE.with(|cache| {
+						let mut c = cache.borrow_mut();
+						if c.decoding.get(&id) != Some(&(path.clone(), (w, h))) {
+							return None;
+						}
+						c.decoding.remove(&id);
+						if c.paths.get(&id) != Some(&Some(path)) {
+							return None;
+						}
+						if let Some(bitmap) = pixels.and_then(|(bw, bh, rgba)| Bitmap::from_rgba(&rgba, bw, bh)) {
+							c.order.retain(|k| k != &id);
+							while c.bitmaps.len() >= MAX_BITMAPS {
+								let Some(old) = c.order.pop_front() else { break };
+								c.bitmaps.remove(&old);
+							}
+							c.order.push_back(id.clone());
+							c.bitmaps.insert(id, ((w, h), bitmap));
+						} else {
+							c.paths.insert(id, None);
+						}
+						// Pixels becoming ready doesn't change row geometry. Repaint
+						// without measuring the entire history for every decoded photo.
+						c.on_decoded.take()
+					});
+					if let Some(callback) = callback {
+						callback();
+						CACHE.with(|c| c.borrow_mut().on_decoded = Some(callback));
+					}
+				}));
+			}
+			if initialized {
+				unsafe { CoUninitialize() };
+			}
+		});
+		tx
 	})
 }
 
@@ -121,12 +184,15 @@ pub(crate) fn on_thumbnails(data: &serde_json::Value) {
 		if c.paths.len() >= MAX_PATHS {
 			let Cache { paths, bitmaps, .. } = &mut *c;
 			paths.retain(|id, _| bitmaps.contains_key(id));
+			c.dimensions.clear();
 		}
 		for item in items {
 			let Some(id) = item.get("id").and_then(|j| j.as_str()) else { continue };
 			let path = item.get("path").and_then(|p| p.as_str()).filter(|p| !p.is_empty()).map(str::to_string);
 			c.asked.remove(id);
 			c.bitmaps.remove(id);
+			c.dimensions.remove(id);
+			c.decoding.remove(id);
 			c.paths.insert(id.to_string(), path);
 		}
 		c.on_change.take()
@@ -141,6 +207,8 @@ pub(crate) fn forget(id: &str) {
 	CACHE.with(|cache| {
 		let mut c = cache.borrow_mut();
 		c.paths.remove(id);
+		c.dimensions.remove(id);
+		c.decoding.remove(id);
 		c.bitmaps.remove(id);
 		c.asked.remove(id);
 	});

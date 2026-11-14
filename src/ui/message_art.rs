@@ -39,6 +39,7 @@ pub(crate) enum Look {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Bubble {
+	pub media_action: Option<(String, bool)>,
 	pub from_me: bool,
 	pub sender: String,
 	pub sender_colour: usize,
@@ -54,6 +55,14 @@ pub(crate) struct Bubble {
 	pub video: bool,
 	pub voice: Option<String>,
 	pub audio_file: bool,
+}
+
+pub(crate) fn media_action_for(msg: &whatsnap::ChatMessage) -> Option<(String, bool)> {
+	(!msg.is_deleted
+		&& !msg.text.starts_with("[View once]")
+		&& (msg.is_media_downloaded()
+			|| matches!(msg.media_type.as_str(), "image" | "video" | "audio" | "voice" | "document" | "sticker")))
+	.then(|| (msg.id.clone(), msg.is_media_downloaded()))
 }
 
 pub(crate) fn tick_glyphs(ticks: Ticks) -> (&'static str, bool) {
@@ -163,6 +172,9 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 					crate::i18n::tr("This message was deleted")
 				};
 				(Some(icon::DELETED), text.to_string())
+			} else if msg.is_call() {
+				let video = msg.text.to_lowercase().contains("video");
+				(Some(if video { icon::VIDEO } else { icon::PHONE }), msg.body_text())
 			} else if voice {
 				let body = msg.body_text();
 				let glyph = if msg.text.starts_with("[Audio]") { icon::AUDIO } else { icon::MICROPHONE };
@@ -180,6 +192,7 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 			let picture = has_picture(msg);
 			let mine = msg.from_me;
 			Look::Bubble(Bubble {
+				media_action: media_action_for(msg),
 				from_me: mine,
 				sender: if is_group && !mine { sender_name(msg) } else { String::new() },
 				sender_colour: name_colour(&msg.sender_jid),
@@ -384,12 +397,20 @@ impl Fonts {
 		if lines.len() > MAX_LINES {
 			lines.truncate(MAX_LINES);
 			if let Some(last) = lines.last_mut() {
-				if let Some(last_span) = last.spans.last_mut() {
-					last_span.text.push_str(" …");
-				} else {
-					last.spans
-						.push(whatsnap::StyledSpan { text: "…".to_string(), style: whatsnap::TextStyle::default() });
+				let limit = if MAX_LINES == 1 { first_max } else { max };
+				let ellipsis_w = self.char_width(dc, Face::Body, '…');
+				// Make room for the truncation marker rather than appending it
+				// beyond an already full line.
+				while last.width + ellipsis_w > limit {
+					let Some(span) = last.spans.last_mut() else { break };
+					if let Some(c) = span.text.pop() {
+						last.width -= self.char_width(dc, Face::from_style(span.style), c);
+					} else {
+						last.spans.pop();
+					}
 				}
+				last.spans
+					.push(whatsnap::StyledSpan { text: "…".to_string(), style: whatsnap::TextStyle::default() });
 				last.width = last.spans.iter().map(|s| self.width(dc, Face::from_style(s.style), &s.text)).sum();
 			}
 		}
@@ -609,6 +630,10 @@ fn icon_width(dc: &impl DeviceContext, font: &Option<Font>, glyphs: &str) -> i32
 	if glyphs.chars().count() == 2 { w * 2 / 3 } else { w }
 }
 
+fn text_block_width(widest: i32, last: i32, metadata: i32, inline: bool) -> i32 {
+	widest.max(if inline { last + GAP + metadata } else { metadata })
+}
+
 fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layout {
 	let line = fonts.line;
 	let max_w = (room * 13 / 20).max(200.min(room)).min(room);
@@ -626,9 +651,9 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 
 	let (thumb_w, thumb_h) = match b.thumbs.len() {
 		0 => (0, 0),
-		1 => (content_max.min(line * 14), line * 10),
+		1 => thumbnails::preview_size(&b.thumbs[0], content_max.min(line * 18), line * 18),
 		n => {
-			let side = ((content_max.min(line * 18) - (n as i32 - 1) * 4) / n as i32).max(line * 3);
+			let side = ((content_max.min(line * 18) - (n as i32 - 1) * 4) / n as i32).max(1);
 			(side, side)
 		}
 	};
@@ -636,7 +661,7 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 	let voice_h = if b.voice.is_some() { line * 2 } else { 0 };
 	let voice_w = if b.voice.is_some() { content_max.min(line * 14) } else { 0 };
 
-	let text_max = if thumbs_w > 0 { thumbs_w.max(line * 6) } else { content_max };
+	let text_max = if thumbs_w > 0 { thumbs_w.max(line * 6).min(content_max) } else { content_max };
 	let icon_w = match (b.icon, &fonts.icons, b.voice.is_some()) {
 		(Some(g), Some(_), false) => icon_width(dc, &fonts.icons, &g.to_string()) + 4,
 		_ => 0,
@@ -662,17 +687,13 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 		(fonts.width(dc, Face::Bold, who).max(fonts.width(dc, Face::Body, what)) + PAD * 2).min(content_max)
 	});
 
-	let inner_w = [
-		sender_w,
-		quote_w,
-		thumbs_w - 2 * PAD + 8,
-		voice_w,
-		if meta_inline { last_w + GAP + corner_w } else { widest.max(corner_w) },
-	]
-	.into_iter()
-	.max()
-	.unwrap_or(0)
-	.min(content_max.max(thumbs_w - 2 * PAD + 8));
+	let action_w = if b.media_action.is_some() { content_max.min(line * 12) } else { 0 };
+	let inner_w =
+		[sender_w, quote_w, thumbs_w, voice_w, action_w, text_block_width(widest, last_w, corner_w, meta_inline)]
+			.into_iter()
+			.max()
+			.unwrap_or(0)
+			.min(content_max);
 	let width = inner_w + 2 * PAD;
 
 	let mut height = PAD / 2 + PAD / 2;
@@ -689,6 +710,9 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 	height += lines.len() as i32 * line;
 	if !meta_inline {
 		height += line;
+	}
+	if b.media_action.is_some() {
+		height += line + PAD;
 	}
 	let reactions_h = if b.reactions.is_empty() { 0 } else { line * 3 / 4 + 4 };
 
@@ -714,6 +738,35 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 
 fn bubble_room(width: i32, left: i32) -> i32 {
 	(width - left - MARGIN).max(80)
+}
+
+pub(crate) fn media_command_at(
+	dc: &impl DeviceContext,
+	font: &Font,
+	look: &Look,
+	width: i32,
+	row_y: i32,
+	checkable: bool,
+	px: i32,
+	py: i32,
+) -> Option<crate::UiCommand> {
+	let Look::Bubble(b) = look else { return None };
+	let (id, downloaded) = b.media_action.as_ref()?;
+	let fonts = fonts_for(dc, font);
+	let left = MARGIN + if checkable { fonts.line + 8 } else { 0 };
+	let l = layout(dc, &fonts, b, bubble_room(width, left));
+	let x = if b.from_me { width - MARGIN - l.width } else { left };
+	let y = row_y + 2 + l.height - PAD / 2 - fonts.line;
+	if px < x + PAD || px >= x + l.width - PAD || py < y || py >= y + fonts.line {
+		return None;
+	}
+	Some(if !downloaded {
+		crate::UiCommand::DownloadMediaMessage(id.clone())
+	} else if px < x + l.width / 2 {
+		crate::UiCommand::OpenMediaMessage(id.clone())
+	} else {
+		crate::UiCommand::SaveMediaMessageAs(id.clone())
+	})
 }
 
 pub(crate) fn units(
@@ -972,7 +1025,7 @@ fn draw_bubble(
 	}
 
 	if l.thumb_h > 0 {
-		let mut tx = x + 4;
+		let mut tx = inner_x;
 		for id in &b.thumbs {
 			let drawn = thumbnails::with_thumb(id, l.thumb_w, l.thumb_h, |thumb| match thumb {
 				Thumb::Picture(bitmap) => {
@@ -1031,7 +1084,17 @@ fn draw_bubble(
 			if c.custom { (Palette::ACCENT().r, Palette::ACCENT().g, Palette::ACCENT().b) } else { (0x80, 0x80, 0x80) };
 		play_button(dc, fonts, inner_x + size / 2, y + size / 2, size, (r, g, bl), 255);
 		let bars_x = inner_x + size + GAP;
-		let bars_w = inner_w - size - GAP;
+		// A microphone beside the waveform distinguishes a voice note from
+		// an audio attachment even before playback.
+		let mic_w = icon_width(dc, &fonts.icons, &icon::MICROPHONE.to_string());
+		let bars_w = (inner_w - size - GAP - mic_w - GAP).max(0);
+		if let Some(font) = &fonts.icons {
+			dc.set_font(font);
+			dc.set_text_foreground(c.accent);
+			let mic = icon::MICROPHONE.to_string();
+			let mh = dc.get_text_extent(&mic).1;
+			dc.draw_text(&mic, inner_x + inner_w - mic_w, y + (size - mh) / 2);
+		}
 		thumbnails::with_waveform(id, |bars| {
 			let bars: Vec<u8> = match bars {
 				Some(bars) => bars.to_vec(),
@@ -1054,7 +1117,7 @@ fn draw_bubble(
 		y += l.voice_h;
 	}
 
-	let text_x = if l.thumb_h > 0 { x + 4 + 4 } else { inner_x };
+	let text_x = inner_x;
 	for (i, formatted_line) in l.lines.iter().enumerate() {
 		let mut lx = text_x;
 		if i == 0
@@ -1086,7 +1149,9 @@ fn draw_bubble(
 		dc.set_font(&fonts.small);
 		dc.set_text_foreground(c.muted);
 		let skip = if b.audio_file { l.voice_h + 2 * GAP + l.voice_h * 3 / 4 } else { l.voice_h + GAP };
-		dc.draw_text(&b.body, inner_x + skip, corner_y + (line - dc.get_text_extent("Ag").1) / 2);
+		let available = (inner_w - skip - l.star_w - l.meta_w - l.ticks_w - GAP).max(0);
+		let duration = fonts.fit(dc, Face::Small, &b.body, available);
+		dc.draw_text(&duration, inner_x + skip, corner_y + (line - dc.get_text_extent("Ag").1) / 2);
 	}
 	let mut mx = x + l.width - PAD - (l.star_w + l.meta_w + l.ticks_w);
 	if b.starred
@@ -1120,6 +1185,28 @@ fn draw_bubble(
 		}
 	}
 
+	if let Some((_, downloaded)) = &b.media_action {
+		let action_y = top + l.height - PAD / 2 - line;
+		let count = if *downloaded { 2 } else { 1 };
+		let button_w = inner_w / count;
+		for i in 0..count {
+			let label = if !downloaded {
+				crate::i18n::tr("Download")
+			} else if i == 0 {
+				crate::i18n::tr("Open")
+			} else {
+				crate::i18n::tr("Save as...")
+			};
+			let bx = inner_x + i * button_w;
+			let button_fill = if b.from_me { c.quote_mine } else { c.quote_theirs };
+			shape(dc, c, bx, action_y, button_w - 2, line, button_fill, fill);
+			let text = fonts.fit(dc, Face::Small, label, button_w - 8);
+			dc.set_font(&fonts.small);
+			dc.set_text_foreground(c.accent);
+			let (tw, th) = dc.get_text_extent(&text);
+			dc.draw_text(&text, bx + (button_w - tw) / 2, action_y + (line - th) / 2);
+		}
+	}
 	if !b.reactions.is_empty() {
 		dc.set_font(&fonts.small);
 		let (tw, th) = dc.get_text_extent(&b.reactions);
@@ -1284,9 +1371,40 @@ mod tests {
 	}
 
 	#[test]
+	fn media_controls_follow_download_state_and_exclude_view_once_and_deleted_messages() {
+		let mut m = whatsnap::ChatMessage { id: "photo".into(), media_type: "image".into(), ..Default::default() };
+		assert_eq!(super::media_action_for(&m), Some(("photo".into(), false)));
+		// Downloaded means the file exists, not just that a path was stored.
+		m.media_path = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+		assert_eq!(super::media_action_for(&m), Some(("photo".into(), true)));
+		m.is_deleted = true;
+		assert!(super::media_action_for(&m).is_none());
+		m.is_deleted = false;
+		m.text = "[View once] [Image]".into();
+		assert!(super::media_action_for(&m).is_none());
+	}
+
+	#[test]
 	fn a_photo_shows_its_picture_and_caption() {
 		let Look::Bubble(b) = look_for(&msg("[Image] beach", "image", false), true) else { panic!() };
 		assert_eq!((b.sender.as_str(), b.body.as_str(), b.thumbs.len()), ("Bob", "beach", 1));
+	}
+
+	#[test]
+	fn a_short_last_line_does_not_shrink_earlier_lines_out_of_the_bubble() {
+		assert_eq!(super::text_block_width(280, 30, 70, true), 280);
+		assert_eq!(super::text_block_width(80, 80, 70, true), 156);
+		assert_eq!(super::text_block_width(280, 260, 70, false), 280);
+	}
+
+	#[test]
+	fn call_bubbles_use_phone_and_video_icons() {
+		for (text, glyph) in [("Missed voice call", super::icon::PHONE), ("Video call", super::icon::VIDEO)] {
+			let Look::Bubble(b) = look_for(&msg(text, "call", false), false) else { panic!() };
+			assert_eq!(b.icon, Some(glyph));
+			assert_eq!(b.body, text);
+			assert!(b.voice.is_none());
+		}
 	}
 
 	#[test]

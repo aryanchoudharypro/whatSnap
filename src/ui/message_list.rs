@@ -35,6 +35,7 @@ struct State {
 	next_id: u64,
 	selected: Option<usize>,
 	top: usize,
+	top_offset: i32,
 	row_height: i32,
 	scrollbar: (usize, i32),
 	/// The rows described to the screen reader.
@@ -72,6 +73,12 @@ impl State {
 
 	fn total_units(&self) -> usize {
 		self.starts.last().copied().unwrap_or(0)
+	}
+
+	fn view_position(&self) -> usize {
+		let height = self.row_height.max(1);
+		let offset = self.top_offset.clamp(0, self.rows.get(self.top).map_or(0, |r| r.units as i32 * height - 1));
+		self.start_of(self.top) * height as usize + offset as usize
 	}
 
 	fn start_of(&self, row: usize) -> usize {
@@ -170,7 +177,11 @@ impl State {
 		}
 		let position = |key: &Option<String>| key.as_ref().and_then(|k| rows.iter().position(|r| &r.key == k));
 		self.selected = position(&selected_key);
-		self.top = position(&top_key).unwrap_or(0);
+		let top = position(&top_key);
+		self.top = top.unwrap_or(0);
+		if top.is_none() {
+			self.top_offset = 0;
+		}
 		self.frozen = match (cursor_text, self.frozen.take()) {
 			// Still frozen from an earlier change: the screen reader has the older text.
 			(Some((id, _)), Some((fid, frozen))) if fid == id => Some((id, frozen)),
@@ -204,6 +215,8 @@ struct Shared {
 	on_selection_changed: RefCell<Option<SelectionCallback>>,
 	on_toggled: RefCell<Option<SelectionCallback>>,
 	on_typed: RefCell<Option<Rc<dyn Fn(char) -> bool>>>,
+	on_context_menu: RefCell<Option<Rc<dyn Fn()>>>,
+	on_media_action: RefCell<Option<Rc<dyn Fn(crate::UiCommand)>>>,
 	looks: RefCell<Option<LookSource>>,
 	measure_pending: Cell<bool>,
 	measure_retries: Cell<u8>,
@@ -310,6 +323,8 @@ impl MessageList {
 			on_selection_changed: RefCell::new(None),
 			on_toggled: RefCell::new(None),
 			on_typed: RefCell::new(None),
+			on_context_menu: RefCell::new(None),
+			on_media_action: RefCell::new(None),
 			looks: RefCell::new(None),
 			measure_pending: Cell::new(false),
 			measure_retries: Cell::new(0),
@@ -340,6 +355,21 @@ impl MessageList {
 
 	pub fn get_count(&self) -> u32 {
 		self.shared().state.borrow().rows.len() as u32
+	}
+
+	pub fn on_context_menu(&self, callback: impl Fn() + 'static) {
+		*self.shared().on_context_menu.borrow_mut() = Some(Rc::new(callback));
+	}
+
+	pub fn on_media_action(&self, callback: impl Fn(crate::UiCommand) + 'static) {
+		*self.shared().on_media_action.borrow_mut() = Some(Rc::new(callback));
+	}
+
+	fn show_context_menu(&self) {
+		let callback = self.shared().on_context_menu.borrow().clone();
+		if let Some(callback) = callback {
+			callback();
+		}
 	}
 
 	pub fn get_selection(&self) -> Option<u32> {
@@ -420,8 +450,9 @@ impl MessageList {
 		let shared = self.shared();
 		{
 			let mut state = shared.state.borrow_mut();
-			state.top = self.view_top(&state);
+			self.capture_view(&mut state);
 			let pos = (pos as usize).min(state.rows.len());
+			let had_rows = !state.rows.is_empty();
 			let new: Vec<Row> =
 				texts.iter().enumerate().map(|(i, t)| state.new_row(keys.get(i).copied().unwrap_or(""), t)).collect();
 			state.rows.splice(pos..pos, new);
@@ -429,7 +460,7 @@ impl MessageList {
 			if let Some(sel) = state.selected.filter(|&s| s >= pos) {
 				state.selected = Some(sel + n);
 			}
-			if state.top >= pos && pos > 0 {
+			if had_rows && state.top >= pos {
 				state.top += n;
 			}
 			state.reflow();
@@ -449,7 +480,7 @@ impl MessageList {
 			if index >= state.rows.len() {
 				return;
 			}
-			state.top = self.view_top(&state);
+			self.capture_view(&mut state);
 			state.rows.remove(index);
 			state.selected = match state.selected {
 				Some(s) if s == index => None,
@@ -477,6 +508,7 @@ impl MessageList {
 			state.selected = None;
 			state.frozen = None;
 			state.top = 0;
+			state.top_offset = 0;
 			state.reflow();
 			state.expose(true);
 		}
@@ -495,9 +527,8 @@ impl MessageList {
 		let shared = self.shared();
 		{
 			let mut state = shared.state.borrow_mut();
-			state.top = self.view_top(&state);
+			self.capture_view(&mut state);
 			state.replace_keyed(keys, texts, self.panel.has_focus());
-			self.scroll_into_view(&mut state);
 		}
 		self.apply_view(&shared);
 		self.sync(&shared);
@@ -653,9 +684,8 @@ impl MessageList {
 			}
 		}
 		if changed {
-			state.top = self.view_top(&state);
+			self.capture_view(&mut state);
 			state.reflow();
-			self.scroll_into_view(&mut state);
 		}
 		drop(state);
 		if missing && shared.measure_retries.get() < 5 {
@@ -690,7 +720,7 @@ impl MessageList {
 		let thawed = {
 			let mut state = shared.state.borrow_mut();
 			state.expose(false);
-			state.top = self.view_top(&state);
+			self.capture_view(&mut state);
 			self.scroll_into_view(&mut state);
 			let focus = state.focus_id();
 			state.frozen.as_ref().is_some_and(|(id, _)| NodeId(*id) != focus)
@@ -721,7 +751,13 @@ impl MessageList {
 	}
 
 	fn view_top(&self, state: &State) -> usize {
-		state.row_at_unit(self.panel.get_view_start().1.max(0) as usize)
+		state.row_at_unit((self.panel.get_view_start().1.max(0) / state.row_height.max(1)) as usize)
+	}
+
+	fn capture_view(&self, state: &mut State) {
+		state.top = self.view_top(state);
+		state.top_offset =
+			self.panel.get_view_start().1.max(0) - state.start_of(state.top) as i32 * state.row_height.max(1);
 	}
 
 	fn apply_view(&self, shared: &Shared) {
@@ -731,15 +767,15 @@ impl MessageList {
 			let changed = state.scrollbar != shape;
 			state.scrollbar = shape;
 			state.top = state.top.min(state.rows.len().saturating_sub(1));
-			(shape.0, shape.1, state.start_of(state.top), changed)
+			(shape.0, shape.1, state.view_position(), changed)
 		};
 		let top = top.min(i32::MAX as usize) as i32;
 		if changed {
 			self.panel.set_scrollbars(ScrollBarConfig {
 				pixels_per_unit_x: 0,
-				pixels_per_unit_y: row_height,
+				pixels_per_unit_y: 1,
 				no_units_x: 0,
-				no_units_y: len.min(i32::MAX as usize) as i32,
+				no_units_y: len.saturating_mul(row_height as usize).min(i32::MAX as usize) as i32,
 				x_pos: 0,
 				y_pos: top,
 				no_refresh: true,
@@ -753,8 +789,9 @@ impl MessageList {
 	fn scroll_into_view(&self, state: &mut State) {
 		let Some(sel) = state.selected else { return };
 		let room = self.visible_units(state);
-		if sel < state.top {
+		if sel < state.top || (sel == state.top && state.top_offset > 0) {
 			state.top = sel;
+			state.top_offset = 0;
 		} else if state.start_of(sel + 1) > state.start_of(state.top) + room {
 			let end = state.start_of(sel + 1);
 			let mut top = sel;
@@ -762,6 +799,7 @@ impl MessageList {
 				top -= 1;
 			}
 			state.top = top;
+			state.top_offset = 0;
 		}
 	}
 
@@ -775,6 +813,25 @@ impl MessageList {
 			state.selected = Some(index);
 		}
 		self.after_cursor_move(&shared);
+		let callback = shared.on_selection_changed.borrow().clone();
+		if let Some(callback) = callback {
+			callback(index as u32);
+		}
+	}
+
+	fn select_by_pointer(&self, index: usize) {
+		let shared = self.shared();
+		{
+			let mut state = shared.state.borrow_mut();
+			if index >= state.rows.len() || state.selected == Some(index) {
+				return;
+			}
+			state.selected = Some(index);
+			state.frozen = None;
+			state.expose(false);
+		}
+		self.sync(&shared);
+		self.panel.refresh(false, None);
 		let callback = shared.on_selection_changed.borrow().clone();
 		if let Some(callback) = callback {
 			callback(index as u32);
@@ -807,6 +864,56 @@ impl MessageList {
 	}
 
 	fn bind_events(&self) {
+		let timer = Rc::new(Timer::new(&self.panel));
+		let target = Rc::new(Cell::new(None::<i32>));
+		let last_position = Rc::new(Cell::new(0));
+		let list = *self;
+		let (target_tick, last_tick, timer_tick) = (target.clone(), last_position.clone(), Rc::downgrade(&timer));
+		timer.on_tick(move |_| {
+			let Some(timer) = timer_tick.upgrade() else { return };
+			let Some(goal) = target_tick.get() else {
+				timer.stop();
+				return;
+			};
+			let current = list.panel.get_view_start().1;
+			// A keyboard command, resize, or scrollbar drag takes over immediately.
+			if current != last_tick.get() {
+				target_tick.set(None);
+				timer.stop();
+				return;
+			}
+			let delta = goal - current;
+			let next = if delta.abs() <= 2 { goal } else { current + delta / 3 };
+			list.panel.scroll_coords(-1, next);
+			last_tick.set(list.panel.get_view_start().1);
+			list.panel.refresh(false, None);
+			if next == goal || last_tick.get() == current {
+				target_tick.set(None);
+				timer.stop();
+			}
+		});
+		let list = *self;
+		self.panel.bind_internal(EventType::MOUSEWHEEL, move |event| {
+			if event.get_wheel_axis() != wxdragon::event::MouseWheelAxis::Vertical {
+				event.skip(true);
+				return;
+			}
+			let height = list.shared().state.borrow().row_height.max(1);
+			let distance = event.get_wheel_rotation() * height * 3 / event.get_wheel_delta().max(1);
+			let y = list.panel.get_view_start().1;
+			let max = (list.shared().state.borrow().total_units() as i32 * height
+				- list.panel.get_client_size().height)
+				.max(0);
+			let base = if last_position.get() == y { target.get().unwrap_or(y) } else { y };
+			target.set(Some((base - distance).clamp(0, max)));
+			last_position.set(y);
+			if !timer.is_running() {
+				timer.start(16, false);
+			}
+			event.skip(false);
+		});
+		let list = *self;
+		self.panel.bind_internal(EventType::CONTEXT_MENU, move |_| list.show_context_menu());
 		let list = *self;
 		self.panel.on_paint(move |_| list.paint());
 		let list = *self;
@@ -814,8 +921,7 @@ impl MessageList {
 			let shared = list.shared();
 			{
 				let mut state = shared.state.borrow_mut();
-				state.top = list.view_top(&state);
-				list.scroll_into_view(&mut state);
+				list.capture_view(&mut state);
 			}
 			list.apply_view(&shared);
 			list.panel.refresh(false, None);
@@ -899,7 +1005,7 @@ impl MessageList {
 			{
 				list.panel.set_focus();
 				if let Some(index) = list.row_at(pos.y) {
-					list.select_by_user(index);
+					list.select_by_pointer(index);
 				}
 			}
 			event.skip(true);
@@ -911,16 +1017,62 @@ impl MessageList {
 				&& let Some(index) = list.row_at(pos.y)
 			{
 				list.panel.set_focus();
-				list.select_by_user(index);
+				list.select_by_pointer(index);
 			}
 			event.skip(true);
+		});
+		let list = *self;
+		self.panel.on_mouse_left_up(move |event| {
+			if let WindowEventData::MouseButton(ref mouse) = event
+				&& let Some(pos) = mouse.get_position()
+				&& let Some(index) = list.row_at(pos.y)
+			{
+				let shared = list.shared();
+				let source = shared.looks.borrow().clone();
+				let (key, y, checkable) = {
+					let state = shared.state.borrow();
+					(
+						state.rows[index].key.clone(),
+						state.start_of(index) as i32 * state.row_height - list.panel.get_view_start().1,
+						state.checkable,
+					)
+				};
+				if let Some(look) = source.and_then(|source| source(index, &key))
+					&& let Some(font) = list.panel.get_font()
+					&& let Some(command) = super::message_art::media_command_at(
+						&ClientDC::new(&list.panel),
+						&font,
+						&look,
+						list.layout_width(),
+						y,
+						checkable,
+						pos.x,
+						pos.y,
+					) {
+					let callback = shared.on_media_action.borrow().clone();
+					if let Some(callback) = callback {
+						callback(command);
+					}
+				}
+			}
+			event.skip(true);
+		});
+		let list = *self;
+		self.panel.on_mouse_right_up(move |event| {
+			if let WindowEventData::MouseButton(ref mouse) = event
+				&& let Some(pos) = mouse.get_position()
+				&& list.row_at(pos.y).is_some()
+			{
+				list.show_context_menu();
+			}
+			event.skip(false);
 		});
 	}
 
 	fn row_at(&self, y: i32) -> Option<usize> {
 		let shared = self.shared();
 		let state = shared.state.borrow();
-		let unit = self.panel.get_view_start().1.max(0) as usize + (y.max(0) / state.row_height.max(1)) as usize;
+		let unit = ((self.panel.get_view_start().1.max(0) + y.max(0)) / state.row_height.max(1)) as usize;
 		(unit < state.total_units()).then(|| state.row_at_unit(unit))
 	}
 
@@ -1078,8 +1230,7 @@ impl MessageList {
 		let focused = self.panel.has_focus();
 		let layout_width = self.layout_width();
 		let looks = shared.looks.borrow().clone();
-		let view_unit = self.panel.get_view_start().1.max(0) as usize;
-		let mut y = -((view_unit.saturating_sub(state.start_of(state.top))) as i32) * row_height;
+		let mut y = state.start_of(state.top) as i32 * row_height - self.panel.get_view_start().1.max(0);
 		let mut index = state.top;
 		while y < height && index < state.rows.len() {
 			let row = &state.rows[index];
@@ -1171,6 +1322,27 @@ mod tests {
 		s.replace_keyed(keys, keys, false);
 		s
 	}
+	#[test]
+	fn thumbnail_reflow_preserves_the_message_and_pixel_offset_being_viewed() {
+		let mut s = st(&["a", "photo", "c"]);
+		s.row_height = 24;
+		s.rows[1].units = 8;
+		s.reflow();
+		s.top = 1;
+		s.top_offset = 57;
+		s.selected = Some(2);
+		assert_eq!(s.view_position(), 81);
+		// A preview above the viewport becomes taller after it loads.
+		s.rows[0].units = 5;
+		s.reflow();
+		assert_eq!(s.view_position(), 177);
+		assert_eq!(s.rows[s.top].key, "photo");
+		s.replace_keyed(&["older", "a", "photo", "c"], &["older", "a", "photo", "c"], false);
+		assert_eq!(s.rows[s.top].key, "photo");
+		assert_eq!(s.top_offset, 57);
+		assert_eq!(s.view_position(), 201);
+	}
+
 	#[test]
 	fn keyed_rebuild_keeps_cursor_ids_and_frozen_text() {
 		let mut s = st(&["a", "b", "c"]);

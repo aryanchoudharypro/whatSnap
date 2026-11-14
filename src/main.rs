@@ -322,6 +322,7 @@ struct AppState {
 	call_ringback_on: bool,
 	call_reconnect_sink: Option<Player>,
 	call_hotkeys: Option<wx_utils::global_hotkeys::GlobalHotkeys>,
+	tray_hotkey: Option<wx_utils::global_hotkeys::GlobalHotkeys>,
 	incoming_call_caller: Option<String>,
 	call_start_muted: bool,
 	call_connected_segment_start: Option<std::time::Instant>,
@@ -540,6 +541,7 @@ fn main() {
 		)));
 
 		let state_clone = state.clone();
+		state.borrow_mut().tray_hotkey = platform::tray::register_toggle_hotkey(&ui_tx);
 		let parts_clone = Rc::new(parts);
 		let parts_ui = parts_clone.clone();
 
@@ -958,6 +960,7 @@ pub(crate) fn new_app_state(
 		call_ringback_on: false,
 		call_reconnect_sink: None,
 		call_hotkeys: None,
+		tray_hotkey: None,
 		incoming_call_caller: None,
 		call_start_muted: false,
 		call_connected_segment_start: None,
@@ -1312,6 +1315,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		}
 		UiCommand::SubscribePresence(jid) => ui_commands::misc::subscribe_presence(state, parts, jid),
 		UiCommand::ActivateWindow => ui_commands::misc::activate_window(state, parts),
+		UiCommand::ToggleTrayWindow => ui_commands::misc::toggle_tray_window(state, parts),
 		UiCommand::OpenWhatsAppLink(link) => ui_commands::links::open_whatsapp_link(state, parts, link),
 		UiCommand::NotificationReply { jid, account, text } => {
 			ui_commands::links::notification_reply(state, parts, jid, account, text)

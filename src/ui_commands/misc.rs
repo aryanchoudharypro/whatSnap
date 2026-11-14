@@ -71,6 +71,18 @@ pub(crate) fn subscribe_presence(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
+pub(crate) fn toggle_tray_window(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if crate::platform::quit::is_quitting() {
+		return;
+	}
+	if !state.borrow().main_ui_shown || crate::platform::tray::is_hidden_to_tray() || parts.frame.is_iconized() {
+		activate_window(state, parts);
+	} else {
+		crate::platform::tray::hide_main_window(&parts.frame);
+		window_hidden(state, parts);
+	}
+}
+
 pub(crate) fn activate_window(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	use wxdragon::prelude::*;
 	// Until the chats are up the main window is kept hidden on purpose:

@@ -394,8 +394,10 @@ fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &
 		}
 		event.skip(true);
 	});
-	let drag = dragging;
+	let arrow_up = Cursor::from_stock(StockCursor::Arrow);
+	let drag = dragging.clone();
 	panel.on_mouse_left_up(move |event| {
+		panel_c.set_cursor(arrow_up.as_ref());
 		if drag.replace(false) {
 			if panel_c.has_capture() {
 				panel_c.release_mouse();
@@ -406,6 +408,26 @@ fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &
 					f(column);
 				}
 			});
+		}
+		event.skip(true);
+	});
+	let arrow_leave = Cursor::from_stock(StockCursor::Arrow);
+	let drag = dragging.clone();
+	let arrow_lost = Cursor::from_stock(StockCursor::Arrow);
+	panel.on_idle(move |event| {
+		// Capture can be taken by another window before the button-up arrives.
+		if drag.get() && !panel_c.has_capture() {
+			drag.set(false);
+			panel_c.set_cursor(arrow_lost.as_ref());
+		}
+		event.skip(true);
+	});
+	panel.on_mouse_leave(move |event| {
+		// Child controls inherit this cursor, so don't leave the entire chat
+		// showing the divider's resize cursor after the pointer moves away.
+		if !dragging.get() || !panel_c.has_capture() {
+			dragging.set(false);
+			panel_c.set_cursor(arrow_leave.as_ref());
 		}
 		event.skip(true);
 	});

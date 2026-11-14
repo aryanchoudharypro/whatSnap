@@ -248,6 +248,7 @@ pub enum UiCommand {
 	SetPresence(bool),
 	WindowHidden,
 	ActivateWindow,
+	ToggleTrayWindow,
 	OpenWhatsAppLink(String),
 	/// Text typed into a message notification's reply box.
 	NotificationReply {
