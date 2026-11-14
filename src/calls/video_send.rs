@@ -11,12 +11,12 @@ use std::{
 use windows::{
 	Win32::{
 		Media::MediaFoundation::{
-			CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncVideoForceKeyFrame,
-			ICodecAPI, IMFMediaType, IMFSample, IMFSourceReader, IMFTransform, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
-			MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK,
-			MF_E_TRANSFORM_NEED_MORE_INPUT, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
-			MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MPEG2_PROFILE, MF_MT_SUBTYPE,
-			MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+			CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize,
+			CODECAPI_AVEncVideoForceKeyFrame, ICodecAPI, IMFMediaType, IMFSample, IMFSourceReader, IMFTransform,
+			MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
+			MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, MF_E_TRANSFORM_NEED_MORE_INPUT, MF_MT_AVG_BITRATE,
+			MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MPEG2_PROFILE,
+			MF_MT_SUBTYPE, MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
 			MF_SOURCE_READERF_ENDOFSTREAM, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample,
 			MFCreateSourceReaderFromMediaSource, MFEnumDeviceSources, MFMediaType_Video,
 			MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, MFT_MESSAGE_NOTIFY_END_OF_STREAM, MFT_MESSAGE_NOTIFY_END_STREAMING,
@@ -44,7 +44,13 @@ use crate::{
 const TARGET_WIDTH: u32 = 1280;
 const TARGET_HEIGHT: u32 = 720;
 const TARGET_FPS: u32 = 30;
-const TARGET_BITRATE: u32 = 1_500_000;
+/// WhatsApp's own video cap: the server's voip_settings for a video call carry
+/// vid_rc.max_target_bitrate 1020000.
+const TARGET_BITRATE: u32 = 1_020_000;
+/// A keyframe every 60 frames, the same voip_settings' vid_rc.key_frame_interval,
+/// so a receiver that lost a reference recovers within seconds even without
+/// asking.
+const KEY_FRAME_INTERVAL: u32 = 60;
 const SCREEN_FPS: u32 = 15;
 /// A shared screen is mostly still and compresses well; WhatsApp's engine caps
 /// its screen-share bitrate below the camera's too ("[SS] tx applied screen
@@ -361,6 +367,7 @@ fn open_output(target_port: u16, fps: u32, bitrate: u32) -> crate::error::Result
 		let _ = codec_api
 			.SetValue(&CODECAPI_AVEncCommonRateControlMode, &VARIANT::from(eAVEncCommonRateControlMode_CBR.0 as u32));
 		let _ = codec_api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate));
+		let _ = codec_api.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(KEY_FRAME_INTERVAL));
 
 		encoder.ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)?;
 		encoder.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)?;
