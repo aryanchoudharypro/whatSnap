@@ -224,6 +224,16 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 			}
 		}
+		"call_video_feedback" => {
+			if let Some(data) = val.get("data") {
+				let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+				if state.borrow().active_call_id.as_deref() == Some(call_id) {
+					let loss = data.get("loss_percent").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
+					let relay = data.get("relay_bitrate_bps").and_then(|p| p.as_u64()).unwrap_or(0);
+					crate::calls::video_send::set_video_network_feedback(loss, relay);
+				}
+			}
+		}
 		"call_reconnecting" => {
 			if let Some(data) = val.get("data") {
 				let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");

@@ -14,11 +14,11 @@ use windows::{
 		Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0},
 		Media::{
 			Audio::{
-				AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-				AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMOPTIONS_NONE, AudioCategory_Communications,
-				AudioClientProperties, Endpoints::IAudioEndpointVolume, IAudioCaptureClient, IAudioClient2,
-				IAudioRenderClient, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEXTENSIBLE, eCapture,
-				eCommunications, eRender,
+				AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
+				AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMOPTIONS_NONE,
+				AudioCategory_Communications, AudioClientProperties, Endpoints::IAudioEndpointVolume,
+				IAudioCaptureClient, IAudioClient2, IAudioRenderClient, IMMDevice, IMMDeviceEnumerator,
+				MMDeviceEnumerator, WAVEFORMATEXTENSIBLE, eCapture, eCommunications, eRender,
 			},
 			KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
 			Multimedia::{KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, WAVE_FORMAT_IEEE_FLOAT},
@@ -558,12 +558,23 @@ impl CaptureDsp {
 }
 
 const PLAYOUT_REFILL_SAMPLES: usize = FRAME_SAMPLES * 2;
+/// Where playback likes to sit: the refill level plus one packet of jitter.
+const PLAYOUT_TARGET_SAMPLES: usize = PLAYOUT_REFILL_SAMPLES + FRAME_SAMPLES;
+/// Above this (smoothed) the buffer is played slightly fast to work it off.
+const PLAYOUT_CATCH_UP_ABOVE: f64 = (PLAYOUT_TARGET_SAMPLES + FRAME_SAMPLES) as f64;
+/// How much faster: 1.5%, a quarter of a semitone, not something a listener
+/// notices, and 480 ms of backlog is gone in about half a minute.
+const PLAYOUT_CATCH_UP_RATE: f64 = 1.015;
 
 struct RenderDsp {
 	channels: u16,
 	src_accum: VecDeque<f32>,
 	resample_phase: f64,
+	/// Source samples per output sample at normal speed, and the smoothed
+	/// buffer level that decides whether to play a little faster.
+	base_step: f64,
 	upsample_step: f64,
+	smoothed_level: f64,
 	max_buffered_src: usize,
 	refilling: bool,
 	played: Arc<AtomicU64>,
@@ -583,7 +594,9 @@ impl RenderDsp {
 			channels,
 			src_accum: VecDeque::new(),
 			resample_phase: 0.0,
+			base_step: NETWORK_SAMPLE_RATE as f64 / sample_rate as f64,
 			upsample_step: NETWORK_SAMPLE_RATE as f64 / sample_rate as f64,
+			smoothed_level: 0.0,
 			max_buffered_src: FRAME_SAMPLES * 8,
 			refilling: true,
 			played,
@@ -599,17 +612,24 @@ impl RenderDsp {
 		// consume out_frames*upsample_step source samples this round (advancing
 		// resample_phase by exactly that much below), not one source sample per
 		// output frame.
-		let needed =
-			self.resample_phase.floor() as usize + 1 + (out_frames as f64 * self.upsample_step).ceil() as usize;
-		while self.src_accum.len() < needed.max(PLAYOUT_REFILL_SAMPLES) {
-			match frame_rx.try_recv() {
-				Ok(frame) => self.src_accum.extend(frame),
-				Err(_) => break,
-			}
+		//
+		// Everything waiting in the channel is taken every round, so this one
+		// buffer holds the whole backlog: when it overflows the OLDEST audio
+		// goes (the channel itself would drop the newest), and a backlog left
+		// by a burst of late packets is played off slightly fast instead of
+		// sitting there as delay for the rest of the sentence.
+		while let Ok(frame) = frame_rx.try_recv() {
+			self.src_accum.extend(frame);
 		}
 		while self.src_accum.len() > self.max_buffered_src {
 			self.src_accum.pop_front();
 		}
+		self.smoothed_level += (self.src_accum.len() as f64 - self.smoothed_level) * 0.02;
+		self.upsample_step = if !self.refilling && self.smoothed_level > PLAYOUT_CATCH_UP_ABOVE {
+			self.base_step * PLAYOUT_CATCH_UP_RATE
+		} else {
+			self.base_step
+		};
 
 		if self.refilling {
 			if self.src_accum.len() < PLAYOUT_REFILL_SAMPLES {
@@ -746,6 +766,12 @@ fn run_capture_session(
 				let mut num_frames: u32 = 0;
 				let mut flags: u32 = 0;
 				capture_client.GetBuffer(&mut data_ptr, &mut num_frames, &mut flags, None, None)?;
+				if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32) != 0 {
+					// The mic dropped samples: the played sound is now paired
+					// with the wrong mic samples, so line the two up afresh.
+					echo_reference.lock().unwrap().line_up_again();
+					note_discontinuity("capture");
+				}
 
 				let silent = data_ptr.is_null() || (flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32) != 0;
 				let total_samples = num_frames as usize * wasapi.channels as usize;
@@ -941,6 +967,10 @@ fn run_echo_reference_session(
 				let mut num_frames: u32 = 0;
 				let mut flags: u32 = 0;
 				capture_client.GetBuffer(&mut data_ptr, &mut num_frames, &mut flags, None, None)?;
+				if (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32) != 0 {
+					echo_reference.lock().unwrap().line_up_again();
+					note_discontinuity("echo reference");
+				}
 				let total_samples = num_frames as usize * wasapi.channels as usize;
 				scratch.clear();
 				if data_ptr.is_null() || (flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32) != 0 {
@@ -965,6 +995,16 @@ fn run_echo_reference_session(
 		log_line("echo reference session exiting");
 	}
 	Ok(())
+}
+
+/// Logs the first few times a capture stream reports it dropped samples, then
+/// every hundredth, so a call's log shows whether glitches are happening.
+fn note_discontinuity(stream: &str) {
+	static COUNT: AtomicU64 = AtomicU64::new(0);
+	let n = COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+	if n <= 5 || n % 100 == 0 {
+		log_line(&format!("{stream} stream dropped samples (glitch {n}); echo reference lined up again"));
+	}
 }
 
 pub fn start_audio_streams(
@@ -1234,6 +1274,36 @@ mod tests {
 		tx.send(vec![0.25; FRAME_SAMPLES]).unwrap();
 		dsp.process(&mut out, &rx);
 		assert!(out.iter().all(|&s| s == 0.25), "did not resume after refilling");
+	}
+
+	#[test]
+	fn a_backlog_from_a_burst_is_played_off_and_overflow_drops_the_oldest() {
+		let mut dsp = render_dsp();
+		let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(16);
+		let mut out = vec![0.0f32; 160];
+		// A burst: eight frames at once, numbered so overflow shows which went.
+		for i in 0..10 {
+			let _ = tx.try_send(vec![i as f32; FRAME_SAMPLES]);
+		}
+		dsp.process(&mut out, &rx);
+		assert_eq!(dsp.src_accum.len(), FRAME_SAMPLES * 8 - out.len());
+		assert_eq!(out[0], 2.0, "overflow dropped the newest audio instead of the oldest");
+		// Then packets keep coming at exactly real time.
+		let mut fed = 0;
+		for round in 0..6000 {
+			if round % 6 == 0 {
+				tx.send(vec![0.5; FRAME_SAMPLES]).unwrap();
+				fed += 1;
+			}
+			dsp.process(&mut out, &rx);
+		}
+		assert!(fed > 900);
+		assert!(
+			dsp.src_accum.len() <= PLAYOUT_TARGET_SAMPLES + FRAME_SAMPLES * 2,
+			"backlog still {} samples after a minute",
+			dsp.src_accum.len()
+		);
+		assert!(!dsp.refilling, "caught up so far that it ran dry");
 	}
 
 	#[test]

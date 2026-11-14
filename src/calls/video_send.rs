@@ -3,7 +3,7 @@ use std::{
 	net::TcpStream,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicBool, Ordering},
+		atomic::{AtomicBool, AtomicU32, Ordering},
 	},
 	time::{Duration, Instant},
 };
@@ -46,6 +46,48 @@ const TARGET_HEIGHT: u32 = 720;
 const TARGET_FPS: u32 = 30;
 const TARGET_BITRATE: u32 = 1_500_000;
 const SCREEN_FPS: u32 = 15;
+/// A shared screen is mostly still and compresses well; WhatsApp's engine caps
+/// its screen-share bitrate below the camera's too ("[SS] tx applied screen
+/// share cap").
+const SCREEN_BITRATE: u32 = 1_000_000;
+/// The least the bitrate is turned down to: still a readable 720p picture.
+const MIN_BITRATE: u32 = 250_000;
+
+/// The bitrate the encoder should run at now, and the most it may for the
+/// source being sent. The backend's network feedback moves the first (see
+/// `set_video_network_feedback`); the encoder thread applies it between frames.
+static VIDEO_TARGET_BPS: AtomicU32 = AtomicU32::new(TARGET_BITRATE);
+static VIDEO_CAP_BPS: AtomicU32 = AtomicU32::new(TARGET_BITRATE);
+
+/// What the peer's reports and the relay's estimate say about our video,
+/// folded into the target bitrate the way a congestion controller does: cut
+/// hard on heavy loss, a little on some, creep back up while it is clean, and
+/// never above what the relay says the uplink carries. WhatsApp's own engine
+/// runs a full bandwidth estimator here; a fixed 1.5 Mbit/s stream on a
+/// connection that cannot carry it loses video and the audio beside it.
+pub(crate) fn set_video_network_feedback(loss_percent: u32, relay_bitrate_bps: u64) {
+	let cap = VIDEO_CAP_BPS.load(Ordering::Relaxed);
+	let current = VIDEO_TARGET_BPS.load(Ordering::Relaxed) as f64;
+	let mut next = match loss_percent {
+		l if l > 10 => current * 0.7,
+		l if l > 3 => current * 0.9,
+		l if l < 2 => current * 1.08,
+		_ => current,
+	};
+	if relay_bitrate_bps > 0 {
+		next = next.min(relay_bitrate_bps as f64 * 0.9);
+	}
+	let next = (next as u32).clamp(MIN_BITRATE, cap.max(MIN_BITRATE));
+	if next != current as u32 {
+		VIDEO_TARGET_BPS.store(next, Ordering::Relaxed);
+		log_line(&format!(
+			"Video bitrate {} -> {} kbit/s (peer reports {loss_percent}% lost, relay estimate {} kbit/s)",
+			current as u32 / 1000,
+			next / 1000,
+			relay_bitrate_bps / 1000
+		));
+	}
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum VideoSource {
@@ -194,6 +236,8 @@ struct Output {
 	encoder: IMFTransform,
 	codec_api: ICodecAPI,
 	tcp: TcpStream,
+	/// The bitrate last handed to the encoder.
+	applied_bps: u32,
 }
 
 fn pack(high: u32, low: u32) -> u64 {
@@ -266,11 +310,14 @@ fn open_session(target_port: u16, source: VideoSource, device_name: Option<&str>
 		VideoSource::Camera => open_camera(device_name)?,
 		VideoSource::Screen(target) => Capture::Screen(ScreenCapture::new(target, TARGET_WIDTH, TARGET_HEIGHT)?),
 	};
-	let fps = match source {
-		VideoSource::Camera => TARGET_FPS,
-		VideoSource::Screen(_) => SCREEN_FPS,
+	let (fps, cap) = match source {
+		VideoSource::Camera => (TARGET_FPS, TARGET_BITRATE),
+		VideoSource::Screen(_) => (SCREEN_FPS, SCREEN_BITRATE),
 	};
-	Ok(Session { capture, output: open_output(target_port, fps)? })
+	// A new source starts at its cap; feedback takes it from there.
+	VIDEO_CAP_BPS.store(cap, Ordering::Relaxed);
+	VIDEO_TARGET_BPS.store(cap, Ordering::Relaxed);
+	Ok(Session { capture, output: open_output(target_port, fps, cap)? })
 }
 
 fn open_camera(device_name: Option<&str>) -> crate::error::Result<Capture> {
@@ -295,13 +342,13 @@ fn open_camera(device_name: Option<&str>) -> crate::error::Result<Capture> {
 	}
 }
 
-fn open_output(target_port: u16, fps: u32) -> crate::error::Result<Output> {
+fn open_output(target_port: u16, fps: u32, bitrate: u32) -> crate::error::Result<Output> {
 	unsafe {
 		let encoder: IMFTransform =
 			CoCreateInstance(&windows::Win32::Media::MediaFoundation::CLSID_MSH264EncoderMFT, None, CLSCTX_ALL)?;
 
 		let output_type = build_video_type(&MFVideoFormat_H264, fps, |mt| {
-			mt.SetUINT32(&MF_MT_AVG_BITRATE, TARGET_BITRATE)?;
+			mt.SetUINT32(&MF_MT_AVG_BITRATE, bitrate)?;
 			mt.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base.0 as u32)?;
 			Ok(())
 		})?;
@@ -313,14 +360,14 @@ fn open_output(target_port: u16, fps: u32) -> crate::error::Result<Output> {
 		let codec_api: ICodecAPI = encoder.cast()?;
 		let _ = codec_api
 			.SetValue(&CODECAPI_AVEncCommonRateControlMode, &VARIANT::from(eAVEncCommonRateControlMode_CBR.0 as u32));
-		let _ = codec_api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(TARGET_BITRATE));
+		let _ = codec_api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate));
 
 		encoder.ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)?;
 		encoder.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)?;
 
 		let tcp = connect_with_retry(target_port)?;
 
-		Ok(Output { encoder, codec_api, tcp })
+		Ok(Output { encoder, codec_api, tcp, applied_bps: bitrate })
 	}
 }
 
@@ -529,6 +576,13 @@ fn screen_sample(screen: &mut ScreenCapture, frame_bytes: usize) -> crate::error
 }
 
 fn encode(output: &mut Output, captured: &IMFSample, force_keyframe: &Arc<AtomicBool>) -> crate::error::Result<()> {
+	let target = VIDEO_TARGET_BPS.load(Ordering::Relaxed);
+	if target != output.applied_bps {
+		// The Microsoft H.264 encoder takes a new mean bitrate mid-stream.
+		if unsafe { output.codec_api.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(target)) }.is_ok() {
+			output.applied_bps = target;
+		}
+	}
 	if force_keyframe.swap(false, Ordering::Relaxed) {
 		let _ = unsafe { output.codec_api.SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &VARIANT::from(true)) };
 	}
@@ -591,6 +645,26 @@ mod tests {
 	use std::{io::Read, net::TcpListener};
 
 	use super::*;
+
+	#[test]
+	fn video_bitrate_backs_off_on_loss_and_respects_the_relay_and_the_cap() {
+		VIDEO_CAP_BPS.store(SCREEN_BITRATE, Ordering::Relaxed);
+		VIDEO_TARGET_BPS.store(SCREEN_BITRATE, Ordering::Relaxed);
+		set_video_network_feedback(25, 0);
+		assert_eq!(VIDEO_TARGET_BPS.load(Ordering::Relaxed), 700_000, "heavy loss cuts 30%");
+		set_video_network_feedback(5, 0);
+		assert_eq!(VIDEO_TARGET_BPS.load(Ordering::Relaxed), 630_000, "some loss cuts 10%");
+		for _ in 0..40 {
+			set_video_network_feedback(0, 0);
+		}
+		assert_eq!(VIDEO_TARGET_BPS.load(Ordering::Relaxed), SCREEN_BITRATE, "clean reports climb back to the cap");
+		set_video_network_feedback(0, 400_000);
+		assert_eq!(VIDEO_TARGET_BPS.load(Ordering::Relaxed), 360_000, "never above the relay's estimate");
+		for _ in 0..20 {
+			set_video_network_feedback(50, 0);
+		}
+		assert_eq!(VIDEO_TARGET_BPS.load(Ordering::Relaxed), MIN_BITRATE, "never below the floor");
+	}
 
 	#[test]
 	#[ignore]

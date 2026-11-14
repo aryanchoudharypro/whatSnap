@@ -252,11 +252,29 @@ impl Decimator3 {
 // nothing has arrived for REFERENCE_MAX_WAIT (nothing is playing, or the
 // device went away) does the mic go on without, and the two are lined up
 // afresh when sound comes back.
+//
+// The output device and the mic run on clocks of their own, and either stream
+// can drop a few milliseconds when its thread is late. Pairing purely by
+// sample count lets those differences pile up: over an 81-minute call the
+// delay the echo canceller saw fell from 96 ms to 8, and once it passes zero
+// the echo reaches the mic before the played sound it is matched against and
+// cannot be cancelled at all. So the played sound queued ahead of the mic is
+// watched: its low point over the first two seconds after lining up is what
+// the canceller learned against, and whenever a later two-second low point
+// sits more than REFERENCE_DRIFT_SLACK above it, the excess is skipped, at
+// most REFERENCE_DRIFT_STEP at a time so the canceller's filter can follow.
+// A reported glitch in either stream lines the two up afresh at once.
 const REFERENCE_RING: usize = 16_384;
 const REFERENCE_MAX_AHEAD: u64 = 8000;
 const REFERENCE_MAX_WAIT: usize = 640; // 40 ms
 /// On lining up, reading starts this far behind the newest played sound.
 const REFERENCE_START_BEHIND: u64 = 80;
+/// Mic samples per drift check: two seconds.
+const REFERENCE_DRIFT_WINDOW: u64 = 32_000;
+/// Drift tolerated before it is corrected: 3 ms.
+const REFERENCE_DRIFT_SLACK: u64 = 48;
+/// The most played sound skipped per check: 4 ms.
+const REFERENCE_DRIFT_STEP: u64 = 64;
 
 pub(crate) struct EchoReference {
 	ring: Vec<f32>,
@@ -264,11 +282,26 @@ pub(crate) struct EchoReference {
 	read: u64,
 	lined_up: bool,
 	stalled_at: u64,
+	/// The lowest queue of played sound ahead of the mic seen in the current
+	/// window, the mic samples the window has covered, and the low point the
+	/// first window after lining up set as the one to keep.
+	window_low: u64,
+	window_taken: u64,
+	target_low: Option<u64>,
 }
 
 impl Default for EchoReference {
 	fn default() -> Self {
-		Self { ring: vec![0.0; REFERENCE_RING], written: 0, read: 0, lined_up: false, stalled_at: 0 }
+		Self {
+			ring: vec![0.0; REFERENCE_RING],
+			written: 0,
+			read: 0,
+			lined_up: false,
+			stalled_at: 0,
+			window_low: u64::MAX,
+			window_taken: 0,
+			target_low: None,
+		}
 	}
 }
 
@@ -291,10 +324,12 @@ impl EchoReference {
 			}
 			self.read = self.written.saturating_sub(REFERENCE_START_BEHIND).max(self.stalled_at);
 			self.lined_up = true;
+			self.restart_drift_watch();
 		}
 		if self.written - self.read > REFERENCE_MAX_AHEAD {
 			// The mic fell far behind (its thread stalled): start over.
 			self.read = self.written - REFERENCE_START_BEHIND;
+			self.restart_drift_watch();
 		}
 		let ready = ((self.written - self.read) as usize).min(want);
 		for i in 0..ready as u64 {
@@ -307,7 +342,38 @@ impl EchoReference {
 			out.resize(want, 0.0);
 			return want;
 		}
+		self.watch_drift(ready as u64);
 		ready
+	}
+
+	/// Lines the played sound up with the mic afresh, for when either stream
+	/// reports it dropped samples.
+	pub(crate) fn line_up_again(&mut self) {
+		self.lined_up = false;
+		self.stalled_at = 0;
+	}
+
+	fn restart_drift_watch(&mut self) {
+		self.window_low = u64::MAX;
+		self.window_taken = 0;
+		self.target_low = None;
+	}
+
+	fn watch_drift(&mut self, taken: u64) {
+		self.window_low = self.window_low.min(self.written - self.read);
+		self.window_taken += taken;
+		if self.window_taken < REFERENCE_DRIFT_WINDOW {
+			return;
+		}
+		match self.target_low {
+			None => self.target_low = Some(self.window_low),
+			Some(target) if self.window_low > target + REFERENCE_DRIFT_SLACK => {
+				self.read += (self.window_low - target).min(REFERENCE_DRIFT_STEP);
+			}
+			_ => {}
+		}
+		self.window_low = u64::MAX;
+		self.window_taken = 0;
 	}
 }
 
@@ -617,6 +683,52 @@ mod tests {
 		reference.push(&ramp[640..660]);
 		assert_eq!(reference.take(160, &mut out), 20);
 		assert_eq!(out[0], 640.0);
+	}
+
+	#[test]
+	fn played_sound_from_a_faster_clock_does_not_drift_away_from_the_mic() {
+		// The output device runs 250 ppm fast against the mic (worse than
+		// real hardware, to show the correction within seconds) and once
+		// delivers a 20 ms burst late. Mic samples the played sound is not
+		// ready for wait for the next round, as in CaptureDsp.
+		let mut reference = EchoReference::default();
+		let mut out = Vec::new();
+		let mut next = 0.0f32;
+		let mut mic_waiting = 0usize;
+		let mut queued = Vec::new();
+		for round in 0..3000 {
+			let extra = if round % 25 == 0 { 1 } else { 0 } + if round == 1000 { 320 } else { 0 };
+			let block: Vec<f32> = (0..160 + extra)
+				.map(|_| {
+					next += 1.0;
+					next
+				})
+				.collect();
+			reference.push(&block);
+			mic_waiting += 160;
+			mic_waiting -= reference.take(mic_waiting, &mut out);
+			queued.push(reference.written - reference.read);
+		}
+		let early = *queued[200..400].iter().min().unwrap();
+		let late = *queued[2600..].iter().min().unwrap();
+		assert!(
+			late <= early + REFERENCE_DRIFT_SLACK + REFERENCE_DRIFT_STEP,
+			"played sound queued ahead of the mic grew from {early} to {late} samples"
+		);
+		assert!(mic_waiting < 400, "{mic_waiting} mic samples left waiting");
+	}
+
+	#[test]
+	fn a_glitch_lines_the_streams_up_again() {
+		let mut reference = EchoReference::default();
+		let mut out = Vec::new();
+		let ramp: Vec<f32> = (0..4000).map(|i| i as f32).collect();
+		reference.push(&ramp[..1000]);
+		reference.take(160, &mut out);
+		reference.push(&ramp[1000..3000]);
+		reference.line_up_again();
+		assert_eq!(reference.take(160, &mut out), 80);
+		assert_eq!(out[0], 2920.0, "reads again just behind the newest sound");
 	}
 
 	#[test]

@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/purpshell/meowcaller"
 	"github.com/purpshell/meowcaller/diag"
+	"github.com/purpshell/meowcaller/rtp"
 	"github.com/purpshell/meowcaller/signaling"
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
@@ -28,6 +30,16 @@ import (
 
 func newCallDiagnosticsOptions() []meowcaller.Option {
 	var opts []meowcaller.Option
+
+	// Test builds only: start every RTP stream's sequence number here, e.g.
+	// 65000, so the 16-bit sequence wraps about a minute into a call instead
+	// of an hour in. Unset, streams start at 1 like WhatsApp's own.
+	if v := os.Getenv("WHATSNAP_TEST_RTP_SEQ_START"); v != "" {
+		if seq, err := strconv.ParseUint(v, 10, 16); err == nil {
+			rtp.InitialSequence = uint16(seq)
+			log.Printf("[CALL TEST] RTP sequence numbers start at %d", seq)
+		}
+	}
 
 	diagDir := filepath.Join(logsDir(), "call-diag")
 	if rec, err := diag.NewRecorder(diagDir); err == nil {
@@ -282,16 +294,35 @@ func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 		})
 	})
 	// What the peer's reports say about our outbound audio, so the app can
-	// size the encoder's loss protection to the network, as WhatsApp's does.
+	// size the encoder's loss protection to the network, as WhatsApp's does;
+	// and about our video, with the relay's bandwidth estimate, so the app
+	// can size the video bitrate (WhatsApp's own stack adapts it the same way).
 	go func() {
 		last := uint32(0)
+		var lastVideoLoss uint32
+		var lastRelayBitrate uint64
+		ticks := 0
 		for range time.Tick(2 * time.Second) {
 			if call.State() == meowcaller.CallPhaseEnded {
 				return
 			}
-			if loss := call.MediaStats().PeerReportedLossPercent; loss != last {
+			stats := call.MediaStats()
+			if loss := stats.PeerReportedLossPercent; loss != last {
 				last = loss
 				acc.broadcastEvent("call_loss", map[string]interface{}{"call_id": call.ID(), "percent": loss})
+			}
+			if stats.PeerReportedVideoLossPercent != lastVideoLoss || stats.RelayEstimatedBitrateBps != lastRelayBitrate {
+				lastVideoLoss, lastRelayBitrate = stats.PeerReportedVideoLossPercent, stats.RelayEstimatedBitrateBps
+				acc.broadcastEvent("call_video_feedback", map[string]interface{}{
+					"call_id":           call.ID(),
+					"loss_percent":      lastVideoLoss,
+					"relay_bitrate_bps": lastRelayBitrate,
+				})
+			}
+			if ticks++; ticks%15 == 0 {
+				log.Printf("[CALL STATS] %s audio_loss=%d%% video_loss=%d%% relay_remb=%d relay_rtcp=%d/%d rejected video_resent=%d carried_audio=%d",
+					call.ID(), stats.PeerReportedLossPercent, stats.PeerReportedVideoLossPercent, stats.RelayEstimatedBitrateBps,
+					stats.RelayRTCPReceived, stats.RelayRTCPRejected, stats.VideoPacketsResent, stats.CarriedAudioFrames)
 			}
 		}
 	}()
