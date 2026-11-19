@@ -122,6 +122,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		}
 		_ => {}
 	}
+	parts.conversations_parts.panel.layout();
 	parts.content_panel.layout();
 	if idx == 0 {
 		search_all_messages(state);

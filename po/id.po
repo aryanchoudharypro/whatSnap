@@ -6475,3 +6475,57 @@ msgstr "Faks kantor"
 msgid "iPhone"
 msgstr "iPhone"
 
+msgid "Connection is good again."
+msgstr "Koneksi kembali stabil."
+
+msgid "Couldn't receive video from"
+msgstr "Tidak dapat menerima video dari"
+
+msgid "Create call link"
+msgstr "Buat tautan panggilan"
+
+msgid "Ignore"
+msgstr "Abaikan"
+
+msgid "Join call link"
+msgstr "Gabung tautan panggilan"
+
+msgid "Poor connection. Your internet is unstable."
+msgstr "Koneksi lemah. Internet Anda tidak stabil."
+
+msgid "Poor connection: {}'s internet is unstable."
+msgstr "Koneksi lemah: internet {} tidak stabil."
+
+msgid "Very poor connection. Check your internet connection."
+msgstr "Koneksi sangat lemah. Periksa koneksi internet Anda."
+
+msgid "Your microphone is picking up sound again."
+msgstr "Mikrofon Anda kembali menangkap suara."
+
+msgid "Your microphone isn't picking up any sound. Check that it's connected and not muted in Windows."
+msgstr "Mikrofon Anda tidak menangkap suara. Pastikan mikrofon terhubung dan tidak dibisukan di Windows."
+
+msgid "didn't accept video. Your camera is off."
+msgstr "tidak menerima video. Kamera Anda mati."
+
+msgid "{} is sharing video"
+msgstr "{} membagikan video"
+
+msgid "Send voice messages in stereo"
+msgstr "Kirim pesan suara dalam stereo"
+
+msgid "Takes effect right away, also during a call, so you can hear the difference; OK keeps it and Cancel undoes it. Your microphone is sent exactly as it is (no echo cancelling, noise removal, automatic volume or limiter, and the microphone level is left alone), and the other person's sound is played without speech enhancement or bandwidth extension."
+msgstr "Langsung berlaku, termasuk saat sedang menelepon, agar Anda dapat mendengar perbedaannya; Oke untuk menyimpan dan Batal untuk mengembalikan. Suara mikrofon dikirim apa adanya (tanpa peredam gema, penghapus bising, volume otomatis, atau pembatas level, dan level mikrofon tidak diubah), serta suara lawan bicara diputar tanpa penjernihan suara atau perluasan bandwidth."
+
+msgid "Turn off all sound processing in calls"
+msgstr "Matikan semua pemrosesan suara di panggilan"
+
+msgid "Warning: voice messages sent in stereo might not play on iPhones. WhatsApp's own apps always send them in mono. Only useful with a stereo microphone."
+msgstr "Peringatan: pesan suara stereo mungkin tidak dapat diputar di iPhone. Aplikasi resmi WhatsApp selalu mengirimnya dalam mono. Hanya berguna jika Anda memakai mikrofon stereo."
+
+msgid "Send stereo in calls (experimental)"
+msgstr "Kirim stereo di panggilan (eksperimental)"
+
+msgid "Sends left and right apart while you share your screen's sound, or with a stereo microphone while all sound processing is off. Only other whatSnap users hear it in stereo; WhatsApp's own apps play it in mono. Uses a little more data."
+msgstr "Mengirim saluran kiri dan kanan secara terpisah saat Anda membagikan suara layar, atau memakai mikrofon stereo ketika semua pemrosesan suara dimatikan. Hanya pengguna whatSnap lain yang mendengarnya dalam stereo; aplikasi resmi WhatsApp memutarnya dalam mono. Menggunakan sedikit lebih banyak data."
+

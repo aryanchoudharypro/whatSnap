@@ -203,6 +203,9 @@ msgstr ""
 msgid "&Keep in chat"
 msgstr ""
 
+msgid "&Keyboard Shortcuts..."
+msgstr ""
+
 msgid "&Like"
 msgstr ""
 
@@ -554,6 +557,9 @@ msgstr ""
 msgid "A poll needs at least two options, one per line."
 msgstr ""
 
+msgid "About"
+msgstr ""
+
 msgid "About this channel"
 msgstr ""
 
@@ -569,6 +575,9 @@ msgstr ""
 msgid "Accepting..."
 msgstr ""
 
+msgid "Accessibility & Announcements"
+msgstr ""
+
 msgid "Account"
 msgstr ""
 
@@ -576,6 +585,9 @@ msgid "Account Already Linked"
 msgstr ""
 
 msgid "Accounts"
+msgstr ""
+
+msgid "Accounts..."
 msgstr ""
 
 msgid "Actions for this message's sender"
@@ -635,6 +647,9 @@ msgstr ""
 msgid "Add to l&ist..."
 msgstr ""
 
+msgid "Add whatSnap to the Windows Share Menu..."
+msgstr ""
+
 msgid "Add which group to the community?"
 msgstr ""
 
@@ -648,6 +663,9 @@ msgid "Adding to call..."
 msgstr ""
 
 msgid "Adding {}..."
+msgstr ""
+
+msgid "Advanced & Blocked Contacts"
 msgstr ""
 
 msgid "Advanced Chat Privacy"
@@ -698,10 +716,22 @@ msgstr ""
 msgid "Allow multiple answers"
 msgstr ""
 
+msgid "Allows unlocking hidden and locked chats using your Windows Hello biometric or PIN credentials."
+msgstr ""
+
+msgid "Also read your own sent messages aloud"
+msgstr ""
+
 msgid "Also save to my phone's WhatsApp contacts"
 msgstr ""
 
 msgid "An option is too long. Each option allows up to 100 characters."
+msgstr ""
+
+msgid "Announce when someone is recording a voice message"
+msgstr ""
+
+msgid "Announce when someone is typing"
 msgstr ""
 
 msgid "Announcements"
@@ -726,6 +756,9 @@ msgid "Anyone with the link can now join straight away."
 msgstr ""
 
 msgid "Anyone with this link can join {}."
+msgstr ""
+
+msgid "App Language"
 msgstr ""
 
 msgid "Approve"
@@ -816,6 +849,9 @@ msgid "Backup Failed"
 msgstr ""
 
 msgid "Backup Settings"
+msgstr ""
+
+msgid "Backup Settings..."
 msgstr ""
 
 msgid "Backup and Restore"
@@ -953,6 +989,9 @@ msgstr ""
 msgid "Call log cleared."
 msgstr ""
 
+msgid "Call notifications: show notifications for incoming calls"
+msgstr ""
+
 msgid "Call with"
 msgstr ""
 
@@ -1050,6 +1089,9 @@ msgid "Ce Soir"
 msgstr ""
 
 msgid "Change &picture..."
+msgstr ""
+
+msgid "Change Profile Photo..."
 msgstr ""
 
 msgid "Change owner"
@@ -1157,6 +1199,12 @@ msgstr ""
 msgid "Check for &Updates..."
 msgstr ""
 
+msgid "Check for updates when whatSnap starts"
+msgstr ""
+
+msgid "Check spelling in the message box (F7 goes to the next mistake)"
+msgstr ""
+
 msgid "Check the chats to add"
 msgstr ""
 
@@ -1164,6 +1212,15 @@ msgid "Checked contacts won't be able to see it"
 msgstr ""
 
 msgid "Checked contacts won't see your status updates"
+msgstr ""
+
+msgid "Choose Language"
+msgstr ""
+
+msgid "Choose Theme"
+msgstr ""
+
+msgid "Choose Who Can See My Status Updates..."
 msgstr ""
 
 msgid "Choose a folder to save the files into"
@@ -1223,6 +1280,9 @@ msgstr ""
 msgid "Choose the contacts excluded from {} first, with the button under it."
 msgstr ""
 
+msgid "Choose the language for whatSnap's interface. Changes take full effect after restarting whatSnap."
+msgstr ""
+
 msgid "Choose what kind of status update to post:"
 msgstr ""
 
@@ -1235,7 +1295,13 @@ msgstr ""
 msgid "Clea&r chat..."
 msgstr ""
 
+msgid "Clean up voice messages: reduce background noise and even out the volume"
+msgstr ""
+
 msgid "Clear"
+msgstr ""
+
+msgid "Clear About After"
 msgstr ""
 
 msgid "Clear call log?"
@@ -1293,6 +1359,9 @@ msgid "Connected to WhatsApp."
 msgstr ""
 
 msgid "Connecting..."
+msgstr ""
+
+msgid "Connection is good again."
 msgstr ""
 
 msgid "Contact"
@@ -1415,6 +1484,9 @@ msgstr ""
 msgid "Couldn't mark {} as read. Check your connection and try again."
 msgstr ""
 
+msgid "Couldn't receive video from"
+msgstr ""
+
 msgid "Couldn't restart whatSnap automatically:\n{}\n\nPlease close and reopen the app manually."
 msgstr ""
 
@@ -1461,6 +1533,9 @@ msgid "Create a poll or a quiz"
 msgstr ""
 
 msgid "Create an event people can answer"
+msgstr ""
+
+msgid "Create call link"
 msgstr ""
 
 msgid "Create channel"
@@ -1518,6 +1593,9 @@ msgid "Decline call"
 msgstr ""
 
 msgid "Default"
+msgstr ""
+
+msgid "Default Message Timer for New Chats"
 msgstr ""
 
 msgid "Delete"
@@ -1688,10 +1766,16 @@ msgstr ""
 msgid "Download"
 msgstr ""
 
+msgid "Download Quality for Photos and Videos Sent in HD"
+msgstr ""
+
 msgid "Download album ({} items remaining)"
 msgstr ""
 
 msgid "Download album ({} items remaining, {})"
+msgstr ""
+
+msgid "Download audio automatically"
 msgstr ""
 
 msgid "Download cancelled"
@@ -1703,10 +1787,19 @@ msgstr ""
 msgid "Download contact?"
 msgstr ""
 
+msgid "Download documents automatically"
+msgstr ""
+
 msgid "Download failed: {}"
 msgstr ""
 
+msgid "Download photos automatically"
+msgstr ""
+
 msgid "Download this file"
+msgstr ""
+
+msgid "Download videos automatically"
 msgstr ""
 
 msgid "Download {}%"
@@ -1799,6 +1892,9 @@ msgstr ""
 msgid "End the call before switching accounts."
 msgstr ""
 
+msgid "Enter is send: the Enter key sends your message"
+msgstr ""
+
 msgid "Enter or paste an emoji:"
 msgstr ""
 
@@ -1826,6 +1922,9 @@ msgstr ""
 msgid "Exit fullscreen"
 msgstr ""
 
+msgid "Experimental: keep the camera on while sharing the screen (applies to the next call)"
+msgstr ""
+
 msgid "Export &text only (Markdown)..."
 msgstr ""
 
@@ -1839,6 +1938,9 @@ msgid "Export just the message text as a Markdown file, no media"
 msgstr ""
 
 msgid "Export this chat's transcript and media"
+msgstr ""
+
+msgid "Export your whatSnap preferences (shortcuts, notifications, audio settings, theme, and chat options) to a JSON file. Your chats, contacts, media, and account sessions are not included."
 msgstr ""
 
 msgid "Exporting chat text..."
@@ -1997,10 +2099,16 @@ msgstr ""
 msgid "Group name is required."
 msgstr ""
 
+msgid "Group notifications: show notifications for new group messages"
+msgstr ""
+
 msgid "Group removed from the community."
 msgstr ""
 
 msgid "Group settings updated."
+msgstr ""
+
+msgid "Group sounds: play sounds for new group messages"
 msgstr ""
 
 msgid "Group video call in"
@@ -2013,6 +2121,9 @@ msgid "Group:"
 msgstr ""
 
 msgid "Groups"
+msgstr ""
+
+msgid "Groups & Calls"
 msgstr ""
 
 msgid "Groups in Common"
@@ -2039,6 +2150,9 @@ msgstr ""
 msgid "Hide message content: notifications from this chat don't show what the message says"
 msgstr ""
 
+msgid "Hide phone numbers in groups: show Unknown member for people with no saved name or profile name"
+msgstr ""
+
 msgid "Home"
 msgstr ""
 
@@ -2055,6 +2169,9 @@ msgid "How this computer alerts you about this chat, without changing your phone
 msgstr ""
 
 msgid "I'd like you to be an admin of my WhatsApp channel."
+msgstr ""
+
+msgid "Ignore"
 msgstr ""
 
 msgid "In group call with"
@@ -2078,6 +2195,9 @@ msgstr ""
 msgid "Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen."
 msgstr ""
 
+msgid "Incoming call sounds: play the ringtone for incoming calls"
+msgstr ""
+
 msgid "Incoming call..."
 msgstr ""
 
@@ -2085,6 +2205,9 @@ msgid "Incoming group call from"
 msgstr ""
 
 msgid "Incoming group video call from"
+msgstr ""
+
+msgid "Incoming sounds: play a sound for new messages"
 msgstr ""
 
 msgid "Incoming video call from"
@@ -2156,6 +2279,9 @@ msgstr ""
 msgid "Join call"
 msgstr ""
 
+msgid "Join call link"
+msgstr ""
+
 msgid "Join group"
 msgstr ""
 
@@ -2178,6 +2304,9 @@ msgid "Joining group..."
 msgstr ""
 
 msgid "Keep"
+msgstr ""
+
+msgid "Keep my place in the message list instead of jumping to the newest message"
 msgstr ""
 
 msgid "Keep this message from disappearing, for everyone"
@@ -2219,6 +2348,9 @@ msgstr ""
 msgid "Let this message disappear like the others"
 msgstr ""
 
+msgid "Like WhatsApp Web: removes background noise and brings quiet speech up to a steady, loud level. Off sends the raw mic signal."
+msgstr ""
+
 msgid "Like removed."
 msgstr ""
 
@@ -2226,6 +2358,9 @@ msgid "Liked."
 msgstr ""
 
 msgid "Link copied."
+msgstr ""
+
+msgid "Linked Accounts"
 msgstr ""
 
 msgid "Linked accounts"
@@ -2324,6 +2459,9 @@ msgstr ""
 msgid "Log Out"
 msgstr ""
 
+msgid "Log Out..."
+msgstr ""
+
 msgid "Log out of WhatsApp on this computer? You'll need to scan a QR code or re-enter your phone number to use whatSnap again."
 msgstr ""
 
@@ -2390,6 +2528,9 @@ msgstr ""
 msgid "Manage &Lists..."
 msgstr ""
 
+msgid "Manage Blocked Contacts..."
+msgstr ""
+
 msgid "Manage Lists"
 msgstr ""
 
@@ -2415,6 +2556,15 @@ msgid "Maya Blue"
 msgstr ""
 
 msgid "Media"
+msgstr ""
+
+msgid "Media Auto-Download"
+msgstr ""
+
+msgid "Media Quality"
+msgstr ""
+
+msgid "Media Upload Quality"
 msgstr ""
 
 msgid "Medium Red Violet"
@@ -2489,6 +2639,9 @@ msgstr ""
 msgid "Message kept."
 msgstr ""
 
+msgid "Message notifications: show desktop notifications for new messages"
+msgstr ""
+
 msgid "Message pinned."
 msgstr ""
 
@@ -2514,6 +2667,9 @@ msgid "Messages can only be scheduled in one-on-one chats and groups."
 msgstr ""
 
 msgid "Messages members reported to the admins"
+msgstr ""
+
+msgid "Messaging & Navigation"
 msgstr ""
 
 msgid "Microphone"
@@ -2568,6 +2724,9 @@ msgid "Mute"
 msgstr ""
 
 msgid "Mute microphone"
+msgstr ""
+
+msgid "Mute microphone by default when placing or joining calls"
 msgstr ""
 
 msgid "Mute notifications from this chat"
@@ -2727,6 +2886,9 @@ msgid "No groups in common"
 msgstr ""
 
 msgid "No locked chats found"
+msgstr ""
+
+msgid "No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on"
 msgstr ""
 
 msgid "No messages are pinned in this chat."
@@ -2948,6 +3110,9 @@ msgstr ""
 msgid "Outgoing group video call in"
 msgstr ""
 
+msgid "Outgoing sounds: play sounds for messages you send"
+msgstr ""
+
 msgid "Outgoing video call to"
 msgstr ""
 
@@ -3086,6 +3251,9 @@ msgstr ""
 msgid "Play"
 msgstr ""
 
+msgid "Play next status update automatically"
+msgstr ""
+
 msgid "Play next update &automatically"
 msgstr ""
 
@@ -3117,6 +3285,12 @@ msgid "Poll"
 msgstr ""
 
 msgid "Polo Blue"
+msgstr ""
+
+msgid "Poor connection. Your internet is unstable."
+msgstr ""
+
+msgid "Poor connection: {}'s internet is unstable."
 msgstr ""
 
 msgid "Post &Status"
@@ -3212,6 +3386,9 @@ msgstr ""
 msgid "Question"
 msgstr ""
 
+msgid "Quiet Hours & Screen Reader"
+msgstr ""
+
 msgid "Quit whatSnap"
 msgstr ""
 
@@ -3278,6 +3455,9 @@ msgstr ""
 msgid "Reacted {}."
 msgstr ""
 
+msgid "Reaction notifications: show notifications for reactions to your messages"
+msgstr ""
+
 msgid "Reaction removed by {}"
 msgstr ""
 
@@ -3296,7 +3476,13 @@ msgstr ""
 msgid "Read more"
 msgstr ""
 
+msgid "Read new messages aloud in the open chat (Alt+L turns it on or off for one chat)"
+msgstr ""
+
 msgid "Read new messages aloud while this chat is open (Alt+L)"
+msgstr ""
+
+msgid "Read receipts: if turned off, you won't send or receive read receipts. They're always sent in groups."
 msgstr ""
 
 msgid "Recent"
@@ -3363,6 +3549,9 @@ msgid "Remove Group"
 msgstr ""
 
 msgid "Remove Member"
+msgstr ""
+
+msgid "Remove Profile Photo..."
 msgstr ""
 
 msgid "Remove admin"
@@ -3441,6 +3630,12 @@ msgid "Rename List"
 msgstr ""
 
 msgid "Replace Text With Emoji"
+msgstr ""
+
+msgid "Replace Text With Emoji: See Help..."
+msgstr ""
+
+msgid "Replace text with emoji as you type, like :-) or (y)"
 msgstr ""
 
 msgid "Replace text with emoji turns these into emoji as soon as you type their last character. Press Backspace straight after to get the text back. You can turn it off on the Chats tab of Settings."
@@ -3539,6 +3734,12 @@ msgstr ""
 msgid "Restore Settings"
 msgstr ""
 
+msgid "Restore Settings..."
+msgstr ""
+
+msgid "Restore your whatSnap preferences from a previously saved JSON backup file. This will update your current settings."
+msgstr ""
+
 msgid "Restoring settings will overwrite your current settings. Do you want to continue?"
 msgstr ""
 
@@ -3632,6 +3833,9 @@ msgstr ""
 msgid "Saving..."
 msgstr ""
 
+msgid "Say when a word you type is misspelled"
+msgstr ""
+
 msgid "Scan this QR Code with WhatsApp:"
 msgstr ""
 
@@ -3663,6 +3867,9 @@ msgid "Scorpion"
 msgstr ""
 
 msgid "Screen"
+msgstr ""
+
+msgid "Screen Sharing"
 msgstr ""
 
 msgid "Screen sharing isn't ready yet - wait for the call to connect."
@@ -3711,6 +3918,9 @@ msgid "Searching..."
 msgstr ""
 
 msgid "Secret Code Required"
+msgstr ""
+
+msgid "Security Notifications"
 msgstr ""
 
 msgid "Security code with {}"
@@ -3857,6 +4067,9 @@ msgstr ""
 msgid "Send reply"
 msgstr ""
 
+msgid "Send stereo in calls (experimental)"
+msgstr ""
+
 msgid "Send this message now? It won't be sent again at the scheduled time."
 msgstr ""
 
@@ -3876,6 +4089,9 @@ msgid "Send to (up to {})"
 msgstr ""
 
 msgid "Send voice message"
+msgstr ""
+
+msgid "Send voice messages in stereo"
 msgstr ""
 
 msgid "Send {}"
@@ -3926,6 +4142,9 @@ msgstr ""
 msgid "Sending: {}"
 msgstr ""
 
+msgid "Sends left and right apart while you share your screen's sound, or with a stereo microphone while all sound processing is off. Only other whatSnap users hear it in stereo; WhatsApp's own apps play it in mono. Uses a little more data."
+msgstr ""
+
 msgid "Sent"
 msgstr ""
 
@@ -3974,10 +4193,28 @@ msgstr ""
 msgid "Sharing"
 msgstr ""
 
+msgid "Show a button to message Meta AI in New Chat"
+msgstr ""
+
+msgid "Show an icon in the notification area; closing minimizes to it"
+msgstr ""
+
+msgid "Show frequent contacts in the Calls tab"
+msgstr ""
+
 msgid "Show or stop showing this chat under Favorites"
 msgstr ""
 
+msgid "Show previews: message text in notifications"
+msgstr ""
+
+msgid "Show security notifications: say in a chat when a contact's security code changes"
+msgstr ""
+
 msgid "Show the main window"
+msgstr ""
+
+msgid "Silence Unknown Callers"
 msgstr ""
 
 msgid "Similar channels..."
@@ -4013,6 +4250,9 @@ msgstr ""
 msgid "Speaker for calls"
 msgstr ""
 
+msgid "Speakers"
+msgstr ""
+
 msgid "Speed 1x"
 msgstr ""
 
@@ -4020,6 +4260,9 @@ msgid "Speed {}x"
 msgstr ""
 
 msgid "Spell check is off. Turn it on in Settings, on the Chats tab."
+msgstr ""
+
+msgid "Spelling"
 msgstr ""
 
 msgid "Spelling Language"
@@ -4055,10 +4298,19 @@ msgstr ""
 msgid "Start a new group"
 msgstr ""
 
+msgid "Start maximized"
+msgstr ""
+
 msgid "Start time, like 18:30 (optional)"
 msgstr ""
 
+msgid "Start whatSnap when Windows starts"
+msgstr ""
+
 msgid "Starting group call in {}"
+msgstr ""
+
+msgid "Startup & Window"
 msgstr ""
 
 msgid "Status"
@@ -4196,10 +4448,16 @@ msgstr ""
 msgid "Switched to {}."
 msgstr ""
 
+msgid "System Default follows your Windows system-wide light or dark mode setting. Light and Dark themes provide dedicated color schemes."
+msgstr ""
+
 msgid "Take this message off your starred messages"
 msgstr ""
 
 msgid "Take this sticker off your favorites"
+msgstr ""
+
+msgid "Takes effect right away, also during a call, so you can hear the difference; OK keeps it and Cancel undoes it. Your microphone is sent exactly as it is (no echo cancelling, noise removal, automatic volume or limiter, and the microphone level is left alone), and the other person's sound is played without speech enhancement or bandwidth extension."
 msgstr ""
 
 msgid "Tawny Port"
@@ -4259,6 +4517,9 @@ msgstr ""
 msgid "The video couldn't be played."
 msgstr ""
 
+msgid "Theme"
+msgstr ""
+
 msgid "These apply while another account is on screen. Each chat's own notification settings still count, and the account on screen always uses the normal settings."
 msgstr ""
 
@@ -4290,6 +4551,9 @@ msgid "This group"
 msgstr ""
 
 msgid "This invite to be an admin of {} has expired."
+msgstr ""
+
+msgid "This is not your username or phone number. This name will be visible to your WhatsApp contacts."
 msgstr ""
 
 msgid "This is the first status update."
@@ -4337,6 +4601,12 @@ msgstr ""
 msgid "Turn off"
 msgstr ""
 
+msgid "Turn off all sound processing in calls"
+msgstr ""
+
+msgid "Turn off link previews: links you send go without a preview, on all your devices"
+msgstr ""
+
 msgid "Turn on"
 msgstr ""
 
@@ -4365,6 +4635,9 @@ msgid "Type an update"
 msgstr ""
 
 msgid "Type {} for {} {}. Example: \"{}\" becomes \"{}\"."
+msgstr ""
+
+msgid "Typing a letter in the message list starts a message (message shortcuts then need Alt)"
 msgstr ""
 
 msgid "Un&block contact"
@@ -4472,6 +4745,9 @@ msgstr ""
 msgid "Unstar messages"
 msgstr ""
 
+msgid "Updates & Troubleshooting"
+msgstr ""
+
 msgid "Upload cancelled."
 msgstr ""
 
@@ -4484,10 +4760,22 @@ msgstr ""
 msgid "Use this spelling"
 msgstr ""
 
+msgid "Used for notification sounds, message tones and voice message playback."
+msgstr ""
+
+msgid "Used for voice/video calls and recording voice messages."
+msgstr ""
+
+msgid "Verbose backend logging, for troubleshooting connection issues (takes effect next time whatSnap starts)"
+msgstr ""
+
 msgid "Verified channel"
 msgstr ""
 
 msgid "Verify Security Code"
+msgstr ""
+
+msgid "Very poor connection. Check your internet connection."
 msgstr ""
 
 msgid "Video"
@@ -4571,6 +4859,9 @@ msgstr ""
 msgid "Voice message sent."
 msgstr ""
 
+msgid "Voice messages are always downloaded automatically. Other media downloads by itself only from contacts and chats you've written in."
+msgstr ""
+
 msgid "Voice note"
 msgstr ""
 
@@ -4625,6 +4916,9 @@ msgstr ""
 msgid "Waiting for someone in the call to let you in..."
 msgstr ""
 
+msgid "Warning: voice messages sent in stereo might not play on iPhones. WhatsApp's own apps always send them in mono. Only useful with a stereo microphone."
+msgstr ""
+
 msgid "Wasabi"
 msgstr ""
 
@@ -4661,10 +4955,19 @@ msgstr ""
 msgid "WhatsApp hasn't turned on scheduling messages for your account."
 msgstr ""
 
+msgid "WhatsApp protects your conversations with end-to-end encryption. Turn this on to get notified when a contact's security code changes."
+msgstr ""
+
 msgid "WhatsApp sends these at the time shown, even when this computer is off."
 msgstr ""
 
 msgid "When a message comes in"
+msgstr ""
+
+msgid "When enabled, calls begin with your microphone muted. You can unmute at any time during the call."
+msgstr ""
+
+msgid "When enabled, frequently called contacts are displayed at the top of the Calls tab."
 msgstr ""
 
 msgid "When someone calls"
@@ -4677,6 +4980,24 @@ msgid "Who &reacted..."
 msgstr ""
 
 msgid "Who &voted..."
+msgstr ""
+
+msgid "Who Can Add Me to Groups"
+msgstr ""
+
+msgid "Who Can See My About"
+msgstr ""
+
+msgid "Who Can See My Info"
+msgstr ""
+
+msgid "Who Can See My Last Seen"
+msgstr ""
+
+msgid "Who Can See My Profile Photo"
+msgstr ""
+
+msgid "Who Can See When I'm Online"
 msgstr ""
 
 msgid "Who can see your status updates:"
@@ -4793,6 +5114,12 @@ msgstr ""
 msgid "Your lists: none yet"
 msgstr ""
 
+msgid "Your microphone is picking up sound again."
+msgstr ""
+
+msgid "Your microphone isn't picking up any sound. Check that it's connected and not muted in Windows."
+msgstr ""
+
 msgid "Your personal messages are end-to-end encrypted."
 msgstr ""
 
@@ -4881,6 +5208,9 @@ msgid "declined the call."
 msgstr ""
 
 msgid "delivered"
+msgstr ""
+
+msgid "didn't accept video. Your camera is off."
 msgstr ""
 
 msgid "didn't answer."
@@ -5051,9 +5381,6 @@ msgstr ""
 msgid "voice call from"
 msgstr ""
 
-msgid "wants to switch to video. Turn on your camera (Ctrl+Shift+V) to switch to video."
-msgstr ""
-
 msgid "whatSnap couldn't be added to the Share menu. Try again, or reinstall whatSnap."
 msgstr ""
 
@@ -5061,6 +5388,9 @@ msgid "whatSnap for Windows"
 msgstr ""
 
 msgid "whatSnap is already running, but this copy can't reach it. It may have been started as administrator. Close whatSnap in Task Manager, then start it again."
+msgstr ""
+
+msgid "whatSnap is linked to WhatsApp on your phone as one of its linked devices. Accounts switches between, adds and removes accounts, and sets how each one alerts you. Log Out unlinks the account on screen from this computer. Both close Settings."
 msgstr ""
 
 msgid "whatSnap was logged out of WhatsApp: {}"
@@ -5154,6 +5484,9 @@ msgid "{} is on a phone call and can't hear you right now."
 msgstr ""
 
 msgid "{} is recording audio..."
+msgstr ""
+
+msgid "{} is sharing video"
 msgstr ""
 
 msgid "{} is typing..."

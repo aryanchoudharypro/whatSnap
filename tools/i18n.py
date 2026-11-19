@@ -85,6 +85,15 @@ def collect_code_strings():
     ):
         found.add(unescape_rust(s))
 
+    sd = open("src/ui/dialogs/settings_dialog.rs", encoding="utf-8").read()
+    for pat in (
+        r"notify_switch\(\s*(" + LIT + r")\s*,?\s*\)",
+        r"(?:setting_switch|setting_note|section_header|setting_button)\([^;()]*,\s*(" + LIT + r")\s*,?\s*\)",
+        r"visibility_combo\([^;()]*,\s*(" + LIT + r")\s*,",
+    ):
+        for m in re.finditer(pat, sd):
+            found.add(unescape_rust(m.group(1)))
+
     found.update([
         "Mobile", "iPhone", "Main", "Home fax", "Work fax", "Home", "Work",
         "Pager", "Email", "Description", "Business name",
