@@ -64,8 +64,12 @@ pub(crate) fn active_call_row(s: &AppState) -> Option<(String, String)> {
 	if s.call_shows_incoming() || s.call_peer_name.is_empty() {
 		return None;
 	}
-	let kind = if s.call_video.video_call { "Video call with {}" } else { "Call with {}" };
-	let label = format!("{}{}", crate::i18n::tr_fmt(kind, &[&s.call_peer_name]), active_call_suffix());
+	let label = if s.call_video.video_call {
+		crate::i18n::tr_fmt("Video call with {}", &[&s.call_peer_name])
+	} else {
+		crate::i18n::tr_fmt("Call with {}", &[&s.call_peer_name])
+	};
+	let label = format!("{}{}", label, active_call_suffix());
 	Some((label, format!("{JOIN_ROW_PREFIX}{call_id}")))
 }
 
