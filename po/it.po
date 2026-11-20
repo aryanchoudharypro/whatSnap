@@ -1,0 +1,6365 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: it\n"
+"X-Language-Name: Italiano\n"
+
+msgid "Chats"
+msgstr "Chat"
+
+msgid "Status"
+msgstr "Stato"
+
+msgid "Starred Messages"
+msgstr "Messaggi importanti"
+
+msgid "Archived Chats"
+msgstr "Chat archiviate"
+
+msgid "Communities"
+msgstr "Community"
+
+msgid "Channels"
+msgstr "Canali"
+
+msgid "Calls"
+msgstr "Chiamate"
+
+msgid "Account"
+msgstr "Account"
+
+msgid "Go"
+msgstr "Vai"
+
+msgid "Conversation"
+msgstr "Conversazione"
+
+msgid "Voice"
+msgstr "Vocale"
+
+msgid "Call"
+msgstr "Chiamata"
+
+msgid "unread"
+msgstr "non letti"
+
+msgid "Main Navigation"
+msgstr "Navigazione principale"
+
+msgid "Cannot move left"
+msgstr "Impossibile spostare a sinistra"
+
+msgid "Cannot move right"
+msgstr "Impossibile spostare a destra"
+
+msgid "Moved between"
+msgstr "Spostato tra"
+
+msgid "and"
+msgstr "e"
+
+msgid "Moved before"
+msgstr "Spostato prima di"
+
+msgid "Moved after"
+msgstr "Spostato dopo"
+
+msgid "Moved"
+msgstr "Spostato"
+
+msgid "&Account"
+msgstr "&Account"
+
+msgid "&Go"
+msgstr "&Vai"
+
+msgid "&Chats"
+msgstr "&Chat"
+
+msgid "C&onversation"
+msgstr "C&onversazione"
+
+msgid "Call&s"
+msgstr "C&hiamate"
+
+msgid "&Settings..."
+msgstr "&Impostazioni..."
+
+msgid "A&ccounts..."
+msgstr "&Account..."
+
+msgid "&Reconnect Now"
+msgstr "&Riconnetti ora"
+
+msgid "&Blocked Contacts..."
+msgstr "Contatti &bloccati..."
+
+msgid "Check for &Updates..."
+msgstr "Verifica a&ggiornamenti..."
+
+msgid "Log &Out"
+msgstr "&Disconnetti"
+
+msgid "&Status"
+msgstr "&Stato"
+
+msgid "S&tarred Messages"
+msgstr "&Messaggi importanti"
+
+msgid "&Archived Chats"
+msgstr "Chat a&rchiviate"
+
+msgid "C&ommunities"
+msgstr "C&ommunity"
+
+msgid "C&hannels"
+msgstr "Ca&nali"
+
+msgid "&Calls"
+msgstr "Chiama&te"
+
+msgid "&New Chat"
+msgstr "&Nuova chat"
+
+msgid "New &Group"
+msgstr "Nuovo &gruppo"
+
+msgid "New C&ommunity..."
+msgstr "Nuova c&ommunity..."
+
+msgid "&Search"
+msgstr "&Cerca"
+
+msgid "Manage &Lists..."
+msgstr "Gestisci &liste..."
+
+msgid "Toggle &Mute"
+msgstr "Attiva/disattiva &microfono"
+
+msgid "&End Call"
+msgstr "&Termina chiamata"
+
+msgid "&Create Call Link..."
+msgstr "&Crea link di chiamata..."
+
+msgid "&Join Call Link..."
+msgstr "&Partecipa da link di chiamata..."
+
+msgid "&Open whatSnap"
+msgstr "&Apri whatSnap"
+
+msgid "Show the main window"
+msgstr "Mostra la finestra principale"
+
+msgid "E&xit"
+msgstr "&Esci"
+
+msgid "Quit whatSnap"
+msgstr "Chiudi whatSnap"
+
+msgid "Search in &Chat"
+msgstr "Cerca nella &chat"
+
+msgid "&Mute Chat"
+msgstr "&Silenzia chat"
+
+msgid "&Archive Chat"
+msgstr "&Archivia chat"
+
+msgid "&Pin Chat"
+msgstr "&Fissa chat"
+
+msgid "&Lock Chat"
+msgstr "&Blocca chat"
+
+msgid "Mark as &Unread"
+msgstr "Segna come &non letta"
+
+msgid "Mark as Read"
+msgstr "Segna come letta"
+
+msgid "Chat &Info"
+msgstr "Inf&o chat"
+
+msgid "&Star Message"
+msgstr "Segna come &importante"
+
+msgid "Sc&hedule Message..."
+msgstr "&Programma messaggio..."
+
+msgid "Scheduled Messa&ges..."
+msgstr "Messaggi pro&grammati..."
+
+msgid "Jump to Message Fi&eld"
+msgstr "Vai al campo &messaggio"
+
+msgid "Jump to &Messages List"
+msgstr "Vai all'e&lenco messaggi"
+
+msgid "Announce Chat Sta&tus"
+msgstr "Annuncia lo s&tato della chat"
+
+msgid "Read Ne&w Messages Aloud"
+msgstr "Leggi ad alta &voce i nuovi messaggi"
+
+msgid "Em&oji..."
+msgstr "&Emoji..."
+
+msgid "Ne&xt Spelling Error"
+msgstr "Errore ortografico s&uccessivo"
+
+msgid "Stic&kers..."
+msgstr "Stic&ker..."
+
+msgid "Go to &Date..."
+msgstr "Vai alla &data..."
+
+msgid "Pi&nned Messages..."
+msgstr "Messaggi fissat&i..."
+
+msgid "Business Catalo&gue..."
+msgstr "Catalo&go aziendale..."
+
+msgid "&Disappearing Messages..."
+msgstr "Messaggi effime&ri..."
+
+msgid "Ad&vanced Chat Privacy..."
+msgstr "Privac&y avanzata della chat..."
+
+msgid "&Report..."
+msgstr "S&egnala..."
+
+msgid "&Block or Unblock Contact"
+msgstr "Blocca o sblocca &contatto"
+
+msgid "&Contact info"
+msgstr "Info &contatto"
+
+msgid "C&hannel info"
+msgstr "Info c&anale"
+
+msgid "&Pin chat"
+msgstr "&Fissa chat"
+
+msgid "Un&pin chat"
+msgstr "&Rimuovi chat fissata"
+
+msgid "&Archive chat"
+msgstr "&Archivia chat"
+
+msgid "&Unarchive chat"
+msgstr "&Estrai chat dall'archivio"
+
+msgid "&Lock chat"
+msgstr "&Blocca chat"
+
+msgid "Un&lock chat"
+msgstr "S&blocca chat"
+
+msgid "Mark as &read"
+msgstr "Segna come &letta"
+
+msgid "Mark as &unread"
+msgstr "Segna come &non letta"
+
+msgid "Add to fa&vorites"
+msgstr "Aggiungi ai pre&feriti"
+
+msgid "Remove from fa&vorites"
+msgstr "Rimuovi dai pre&feriti"
+
+msgid "Add to l&ist..."
+msgstr "Aggiungi a una l&ista..."
+
+msgid "&Export chat..."
+msgstr "&Esporta chat..."
+
+msgid "Export &text only (Markdown)..."
+msgstr "Esporta solo il &testo (Markdown)..."
+
+msgid "Leave &group..."
+msgstr "Abbandona il &gruppo..."
+
+msgid "Clea&r chat..."
+msgstr "S&vuota chat..."
+
+msgid "Re&port..."
+msgstr "Se&gnala..."
+
+msgid "&Block contact..."
+msgstr "Bl&occa contatto..."
+
+msgid "Un&block contact"
+msgstr "Sbl&occa contatto"
+
+msgid "&Delete chat..."
+msgstr "&Elimina chat..."
+
+msgid "&Mute notifications"
+msgstr "&Silenzia notifiche"
+
+msgid "&Unmute notifications"
+msgstr "&Riattiva notifiche"
+
+msgid "Open settings"
+msgstr "Apri le impostazioni"
+
+msgid "Switch between, add and remove WhatsApp accounts"
+msgstr "Passa da un account WhatsApp all'altro, aggiungili e rimuovili"
+
+msgid "Retry connecting to WhatsApp right away"
+msgstr "Riprova subito la connessione a WhatsApp"
+
+msgid "See and change who you have blocked"
+msgstr "Vedi e modifica chi hai bloccato"
+
+msgid "See if a newer version of whatSnap is out"
+msgstr "Controlla se è uscita una nuova versione di whatSnap"
+
+msgid "Log out of WhatsApp on this device"
+msgstr "Esci da WhatsApp su questo dispositivo"
+
+msgid "Jump to the chat list"
+msgstr "Vai all'elenco delle chat"
+
+msgid "Jump to Status"
+msgstr "Vai allo Stato"
+
+msgid "Jump to Starred Messages"
+msgstr "Vai ai Messaggi importanti"
+
+msgid "Jump to Archived Chats"
+msgstr "Vai alle Chat archiviate"
+
+msgid "Jump to Communities"
+msgstr "Vai alle Community"
+
+msgid "Jump to the channels you follow"
+msgstr "Vai ai canali che segui"
+
+msgid "Jump to Calls"
+msgstr "Vai alle Chiamate"
+
+msgid "Start a new chat"
+msgstr "Inizia una nuova chat"
+
+msgid "Start a new group"
+msgstr "Crea un nuovo gruppo"
+
+msgid "Start a community to bring groups together"
+msgstr "Crea una community per riunire più gruppi"
+
+msgid "Search chats"
+msgstr "Cerca nelle chat"
+
+msgid "Make, rename or delete your chat lists"
+msgstr "Crea, rinomina o elimina le tue liste di chat"
+
+msgid "Mute/unmute the microphone during a call"
+msgstr "Attiva o disattiva il microfono durante una chiamata"
+
+msgid "End the active call"
+msgstr "Termina la chiamata in corso"
+
+msgid "Make a link anyone can use to join a call"
+msgstr "Crea un link che chiunque può usare per partecipare a una chiamata"
+
+msgid "Join a call from a link someone shared"
+msgstr "Partecipa a una chiamata da un link che qualcuno ha condiviso"
+
+msgid "Open this file"
+msgstr "Apri questo file"
+
+msgid "Save this file to a chosen location"
+msgstr "Salva questo file nella posizione che scegli"
+
+msgid "Download this file"
+msgstr "Scarica questo file"
+
+msgid "Open info for the open chat"
+msgstr "Apri le info della chat aperta"
+
+msgid "Move focus to the message box, or back to where you were"
+msgstr "Sposta il focus sul campo del messaggio, o torna dov'eri"
+
+msgid "Move focus to the messages list"
+msgstr "Sposta il focus sull'elenco dei messaggi"
+
+msgid "Say the open chat's status: online, typing and so on"
+msgstr "Annuncia lo stato della chat aperta: online, sta scrivendo e così via"
+
+msgid "Turn reading new messages aloud on or off for the open chat"
+msgstr "Attiva o disattiva la lettura ad alta voce dei nuovi messaggi per la chat aperta"
+
+msgid "Pick an emoji to put in the message box"
+msgstr "Scegli un'emoji da inserire nel campo del messaggio"
+
+msgid "Pick a sticker to send: favorites, recent ones or WhatsApp's own packs"
+msgstr "Scegli uno sticker da inviare: preferiti, recenti o i pacchetti di WhatsApp"
+
+msgid "Select the next misspelled word in the message box and offer its fixes"
+msgstr "Seleziona la prossima parola sbagliata nel campo del messaggio e proponi le correzioni"
+
+msgid "Search within the open chat"
+msgstr "Cerca nella chat aperta"
+
+msgid "Jump to the messages of a date in the open chat"
+msgstr "Vai ai messaggi di una certa data nella chat aperta"
+
+msgid "See and go to the open chat's pinned messages"
+msgstr "Vedi i messaggi fissati della chat aperta e vai a uno di essi"
+
+msgid "Browse the products of the business you're chatting with"
+msgstr "Sfoglia i prodotti dell'attività con cui stai chattando"
+
+msgid "Pick a date and time for the message in the message box to be sent"
+msgstr "Scegli data e ora in cui inviare il messaggio presente nel campo del messaggio"
+
+msgid "See, send now or delete the open chat's scheduled messages"
+msgstr "Vedi, invia subito o elimina i messaggi programmati della chat aperta"
+
+msgid "Mute the open chat"
+msgstr "Silenzia la chat aperta"
+
+msgid "Archive the open chat"
+msgstr "Archivia la chat aperta"
+
+msgid "Pin the open chat"
+msgstr "Fissa la chat aperta"
+
+msgid "Lock or unlock the open chat"
+msgstr "Blocca o sblocca la chat aperta"
+
+msgid "Toggle read/unread on the open chat"
+msgstr "Segna la chat aperta come letta o non letta"
+
+msgid "Turn disappearing messages on or off for the open chat"
+msgstr "Attiva o disattiva i messaggi effimeri per la chat aperta"
+
+msgid "Turn advanced chat privacy on or off for the open chat"
+msgstr "Attiva o disattiva la privacy avanzata per la chat aperta"
+
+msgid "Report the open chat's contact or group to WhatsApp"
+msgstr "Segnala a WhatsApp il contatto o il gruppo della chat aperta"
+
+msgid "Block or unblock the open chat's contact"
+msgstr "Blocca o sblocca il contatto della chat aperta"
+
+msgid "Star the selected message"
+msgstr "Segna come importante il messaggio selezionato"
+
+msgid "See this contact's info, call them, or edit or delete the contact"
+msgstr "Vedi le info di questo contatto, chiamalo, oppure modifica o elimina il contatto"
+
+msgid "See this channel's details without opening it"
+msgstr "Vedi i dettagli di questo canale senza aprirlo"
+
+msgid "Pin or unpin chat"
+msgstr "Fissa la chat o rimuovila dalle fissate"
+
+msgid "Archive or unarchive chat"
+msgstr "Archivia la chat o estraila dall'archivio"
+
+msgid "Lock or unlock chat"
+msgstr "Blocca o sblocca la chat"
+
+msgid "Mark chat as read or unread"
+msgstr "Segna la chat come letta o non letta"
+
+msgid "Show or stop showing this chat under Favorites"
+msgstr "Mostra o smetti di mostrare questa chat tra i Preferiti"
+
+msgid "Choose which of your lists this chat is in"
+msgstr "Scegli in quali delle tue liste si trova questa chat"
+
+msgid "Export this chat's transcript and media"
+msgstr "Esporta la trascrizione e i media di questa chat"
+
+msgid "Export just the message text as a Markdown file, no media"
+msgstr "Esporta solo il testo dei messaggi in un file Markdown, senza media"
+
+msgid "Leave this group"
+msgstr "Abbandona questo gruppo"
+
+msgid "Delete this chat's messages, keeping the chat itself"
+msgstr "Elimina i messaggi di questa chat, mantenendo la chat"
+
+msgid "Report this group to WhatsApp"
+msgstr "Segnala questo gruppo a WhatsApp"
+
+msgid "Report this contact to WhatsApp"
+msgstr "Segnala questo contatto a WhatsApp"
+
+msgid "Let this contact message and call you again"
+msgstr "Permetti di nuovo a questo contatto di scriverti e chiamarti"
+
+msgid "Stop this contact messaging and calling you"
+msgstr "Impedisci a questo contatto di scriverti e chiamarti"
+
+msgid "Delete chat history"
+msgstr "Elimina la cronologia della chat"
+
+msgid "Mute or unmute notifications"
+msgstr "Silenzia o riattiva le notifiche"
+
+msgid "Choose how long to mute this chat"
+msgstr "Scegli per quanto tempo silenziare questa chat"
+
+msgid "Start Recording"
+msgstr "Avvia registrazione"
+
+msgid "Pause Recording"
+msgstr "Metti in pausa la registrazione"
+
+msgid "Play/Pause Voice Preview"
+msgstr "Riproduci/Pausa anteprima vocale"
+
+msgid "Discard Voice Recording"
+msgstr "Scarta registrazione vocale"
+
+msgid "Send Voice Message"
+msgstr "Invia messaggio vocale"
+
+msgid "Voice message: back 5 seconds"
+msgstr "Messaggio vocale: indietro di 5 secondi"
+
+msgid "Voice message: forward 5 seconds"
+msgstr "Messaggio vocale: avanti di 5 secondi"
+
+msgid "Voice message: stop"
+msgstr "Messaggio vocale: stop"
+
+msgid "Voice message: slower"
+msgstr "Messaggio vocale: più lento"
+
+msgid "Voice message: faster"
+msgstr "Messaggio vocale: più veloce"
+
+msgid "Answer Incoming Call"
+msgstr "Rispondi alla chiamata in arrivo"
+
+msgid "Reject Incoming Call"
+msgstr "Rifiuta la chiamata in arrivo"
+
+msgid "Reply"
+msgstr "Rispondi"
+
+msgid "Edit"
+msgstr "Modifica"
+
+msgid "Star or unstar"
+msgstr "Segna o togli importante"
+
+msgid "Forward"
+msgstr "Inoltra"
+
+msgid "Vote in poll"
+msgstr "Vota nel sondaggio"
+
+msgid "Delete"
+msgstr "Elimina"
+
+msgid "Selection mode on or off"
+msgstr "Modalità selezione sì/no"
+
+msgid "View Message Text"
+msgstr "Visualizza testo del messaggio"
+
+msgid "Status: Initializing..."
+msgstr "Stato: inizializzazione..."
+
+msgid "Status: Not logged in"
+msgstr "Stato: accesso non effettuato"
+
+msgid "Status: Connecting..."
+msgstr "Stato: connessione in corso..."
+
+msgid "Status: Connected"
+msgstr "Stato: connesso"
+
+msgid "Status: Connected (Downloading messages)"
+msgstr "Stato: connesso (download dei messaggi)"
+
+msgid "Status: Connected (Syncing older messages)"
+msgstr "Stato: connesso (sincronizzazione dei messaggi meno recenti)"
+
+msgid "Status: Connected (Syncing paused. Open WhatsApp on your phone to continue syncing.)"
+msgstr "Stato: connesso (sincronizzazione in pausa. Apri WhatsApp sul telefono per continuare.)"
+
+msgid "Connected to WhatsApp."
+msgstr "Connesso a WhatsApp."
+
+msgid "&Open"
+msgstr "&Apri"
+
+msgid "&Save as..."
+msgstr "&Salva con nome..."
+
+msgid "&Download"
+msgstr "&Scarica"
+
+msgid "Open"
+msgstr "Apri"
+
+msgid "Save as"
+msgstr "Salva con nome"
+
+msgid "Save as..."
+msgstr "Salva con nome..."
+
+msgid "Download"
+msgstr "Scarica"
+
+msgid "Save"
+msgstr "Salva"
+
+msgid "Cancel"
+msgstr "Annulla"
+
+msgid "Close"
+msgstr "Chiudi"
+
+msgid "Send"
+msgstr "Invia"
+
+msgid "Discard"
+msgstr "Scarta"
+
+msgid "Create"
+msgstr "Crea"
+
+msgid "Add"
+msgstr "Aggiungi"
+
+msgid "Remove"
+msgstr "Rimuovi"
+
+msgid "Copy"
+msgstr "Copia"
+
+msgid "Star"
+msgstr "Importante"
+
+msgid "Keep"
+msgstr "Mantieni"
+
+msgid "Mute"
+msgstr "Silenzia"
+
+msgid "Mark as read"
+msgstr "Segna come letto"
+
+msgid "Search"
+msgstr "Cerca"
+
+msgid "Search unread chats"
+msgstr "Cerca nelle chat non lette"
+
+msgid "Search favourite chats"
+msgstr "Cerca nelle chat preferite"
+
+msgid "Search group chats"
+msgstr "Cerca nelle chat di gruppo"
+
+msgid "Search status updates"
+msgstr "Cerca negli aggiornamenti di stato"
+
+msgid "Search starred messages"
+msgstr "Cerca nei messaggi importanti"
+
+msgid "Search or enter phone number to place call"
+msgstr "Cerca o inserisci un numero di telefono da chiamare"
+
+msgid "Search or start a new chat"
+msgstr "Cerca o inizia una nuova chat"
+
+msgid "Filters"
+msgstr "Filtri"
+
+msgid "All chats"
+msgstr "Tutte le chat"
+
+msgid "Unread"
+msgstr "Non lette"
+
+msgid "Favorites"
+msgstr "Preferiti"
+
+msgid "Groups"
+msgstr "Gruppi"
+
+msgid "New Chat"
+msgstr "Nuova chat"
+
+msgid "New Group"
+msgstr "Nuovo gruppo"
+
+msgid "Status Updates"
+msgstr "Aggiornamenti di stato"
+
+msgid "Recent Calls"
+msgstr "Chiamate recenti"
+
+msgid "Post Status Update..."
+msgstr "Pubblica aggiornamento di stato..."
+
+msgid "Find channels..."
+msgstr "Trova canali..."
+
+msgid "Create channel..."
+msgstr "Crea canale..."
+
+msgid "Locked Chats"
+msgstr "Chat bloccate"
+
+msgid "Hide Locked Chats"
+msgstr "Nascondi chat bloccate"
+
+msgid "Post Photo/Video Status..."
+msgstr "Pubblica foto/video nello stato..."
+
+msgid "Status Privacy..."
+msgstr "Privacy dello stato..."
+
+msgid "Video call"
+msgstr "Videochiamata"
+
+msgid "Conversation data"
+msgstr "Dati della conversazione"
+
+msgid "Search in conversation"
+msgstr "Cerca nella conversazione"
+
+msgid "Join call"
+msgstr "Partecipa alla chiamata"
+
+msgid "Incoming call..."
+msgstr "Chiamata in arrivo..."
+
+msgid "Open call window"
+msgstr "Apri finestra della chiamata"
+
+msgid "Answer"
+msgstr "Rispondi"
+
+msgid "Decline"
+msgstr "Rifiuta"
+
+msgid "Close search"
+msgstr "Chiudi ricerca"
+
+msgid "Search conversation"
+msgstr "Cerca nella conversazione"
+
+msgid "Messages"
+msgstr "Messaggi"
+
+msgid "Play voice message"
+msgstr "Riproduci messaggio vocale"
+
+msgid "Read more"
+msgstr "Leggi tutto"
+
+msgid "Retry send"
+msgstr "Riprova invio"
+
+msgid "Emoji and stickers"
+msgstr "Emoji e sticker"
+
+msgid "Type a message"
+msgstr "Scrivi un messaggio"
+
+msgid "You blocked this contact. Click to unblock."
+msgstr "Hai bloccato questo contatto. Fai clic per sbloccarlo."
+
+msgid "Add attachment"
+msgstr "Aggiungi allegato"
+
+msgid "Cancel edit"
+msgstr "Annulla modifica"
+
+msgid "Remove quote"
+msgstr "Rimuovi citazione"
+
+msgid "Send message"
+msgstr "Invia messaggio"
+
+msgid "Record voice message"
+msgstr "Registra messaggio vocale"
+
+msgid "Send voice message"
+msgstr "Invia messaggio vocale"
+
+msgid "Caption"
+msgstr "Didascalia"
+
+msgid "Add more files"
+msgstr "Aggiungi altri file"
+
+msgid "Send attachment"
+msgstr "Invia allegato"
+
+msgid "Discard voice message"
+msgstr "Scarta messaggio vocale"
+
+msgid "Pause recording"
+msgstr "Metti in pausa la registrazione"
+
+msgid "Play preview"
+msgstr "Riproduci anteprima"
+
+msgid "View once"
+msgstr "Visualizza una volta"
+
+msgid "&View once"
+msgstr "&Visualizza una volta"
+
+msgid "0 selected"
+msgstr "0 selezionati"
+
+msgid "Search name or number"
+msgstr "Cerca nome o numero"
+
+msgid "New Contact"
+msgstr "Nuovo contatto"
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "Surname"
+msgstr "Cognome"
+
+msgid "Phone Number"
+msgstr "Numero di telefono"
+
+msgid "Also save to my phone's WhatsApp contacts"
+msgstr "Salva anche nei contatti WhatsApp del mio telefono"
+
+msgid "Message Meta AI"
+msgstr "Scrivi a Meta AI"
+
+msgid "Group name"
+msgstr "Nome del gruppo"
+
+msgid "Contacts"
+msgstr "Contatti"
+
+msgid "Search contacts"
+msgstr "Cerca contatti"
+
+msgid "Extra number (optional)"
+msgstr "Numero aggiuntivo (facoltativo)"
+
+msgid "Create group"
+msgstr "Crea gruppo"
+
+msgid "Blocked Contacts"
+msgstr "Contatti bloccati"
+
+msgid "Blocked contacts"
+msgstr "Contatti bloccati"
+
+msgid "Unblock"
+msgstr "Sblocca"
+
+msgid "Block a contact..."
+msgstr "Blocca un contatto..."
+
+msgid "Blocked contacts will no longer be able to call you or send you messages."
+msgstr "I contatti bloccati non potranno più chiamarti né inviarti messaggi."
+
+msgid "Accounts"
+msgstr "Account"
+
+msgid "Linked accounts"
+msgstr "Account collegati"
+
+msgid "&Switch"
+msgstr "&Passa a questo"
+
+msgid "&Add Account..."
+msgstr "&Aggiungi account..."
+
+msgid "Re&name..."
+msgstr "&Rinomina..."
+
+msgid "N&otifications..."
+msgstr "&Notifiche..."
+
+msgid "&Remove..."
+msgstr "R&imuovi..."
+
+msgid "When a message comes in"
+msgstr "Quando arriva un messaggio"
+
+msgid "When someone calls"
+msgstr "Quando qualcuno chiama"
+
+msgid "These apply while another account is on screen. Each chat's own notification settings still count, and the account on screen always uses the normal settings."
+msgstr "Queste impostazioni valgono mentre sullo schermo c'è un altro account. Le impostazioni di notifica delle singole chat restano valide, e l'account sullo schermo usa sempre le impostazioni normali."
+
+msgid "Notification and sound"
+msgstr "Notifica e suono"
+
+msgid "Notification only, no sound"
+msgstr "Solo notifica, senza suono"
+
+msgid "Sound only, no notification"
+msgstr "Solo suono, senza notifica"
+
+msgid "Off"
+msgstr "Disattivato"
+
+msgid "On"
+msgstr "Attivato"
+
+msgid "Switch to this account and ring"
+msgstr "Passa a questo account e suona"
+
+msgid "Notification only"
+msgstr "Solo notifica"
+
+msgid "Question"
+msgstr "Domanda"
+
+msgid "Create poll"
+msgstr "Crea sondaggio"
+
+msgid "Options, one per line (2 to 12)"
+msgstr "Opzioni, una per riga (da 2 a 12)"
+
+msgid "Allow multiple answers"
+msgstr "Consenti più risposte"
+
+msgid "Quiz (one correct answer)"
+msgstr "Quiz (una sola risposta corretta)"
+
+msgid "What to share"
+msgstr "Cosa condividere"
+
+msgid "Share"
+msgstr "Condividi"
+
+msgid "Search chats and contacts"
+msgstr "Cerca chat e contatti"
+
+msgid "Send to"
+msgstr "Invia a"
+
+msgid "Caption (optional)"
+msgstr "Didascalia (facoltativa)"
+
+msgid "Message"
+msgstr "Messaggio"
+
+msgid "Date"
+msgstr "Data"
+
+msgid "Hour"
+msgstr "Ora"
+
+msgid "Minute"
+msgstr "Minuti"
+
+msgid "Schedule message"
+msgstr "Programma messaggio"
+
+msgid "Scheduled messages: loading"
+msgstr "Messaggi programmati: caricamento"
+
+msgid "Send now"
+msgstr "Invia ora"
+
+msgid "Copy text"
+msgstr "Copia testo"
+
+msgid "Post &Status"
+msgstr "Pubblica &stato"
+
+msgid "Selected &file:"
+msgstr "&File selezionato:"
+
+msgid "&Caption (optional):"
+msgstr "&Didascalia (facoltativa):"
+
+msgid "&Type a status update:"
+msgstr "&Scrivi un aggiornamento di stato:"
+
+msgid "Insert &Emoji..."
+msgstr "Inserisci &emoji..."
+
+msgid "Colour:"
+msgstr "Colore:"
+
+msgid "&Next Colour"
+msgstr "&Colore successivo"
+
+msgid "Font:"
+msgstr "Carattere:"
+
+msgid "Next &Font"
+msgstr "Carattere succ&essivo"
+
+msgid "Visible to your configured status audience."
+msgstr "Visibile al pubblico che hai impostato per lo stato."
+
+msgid "Status &Privacy..."
+msgstr "&Privacy dello stato..."
+
+msgid "Microphone"
+msgstr "Microfono"
+
+msgid "Speaker"
+msgstr "Altoparlante"
+
+msgid "Camera"
+msgstr "Fotocamera"
+
+msgid "Accept call"
+msgstr "Accetta chiamata"
+
+msgid "Decline call"
+msgstr "Rifiuta chiamata"
+
+msgid "Dismiss"
+msgstr "Ignora"
+
+msgid "Mute microphone"
+msgstr "Disattiva microfono"
+
+msgid "Turn camera on"
+msgstr "Accendi fotocamera"
+
+msgid "Share screen"
+msgstr "Condividi schermo"
+
+msgid "Device settings"
+msgstr "Impostazioni dispositivi"
+
+msgid "Add participant"
+msgstr "Aggiungi partecipante"
+
+msgid "Raise hand"
+msgstr "Alza la mano"
+
+msgid "React..."
+msgstr "Reagisci..."
+
+msgid "End call"
+msgstr "Termina chiamata"
+
+msgid "Call back"
+msgstr "Richiama"
+
+msgid "People"
+msgstr "Persone"
+
+msgid "Let in"
+msgstr "Fai entrare"
+
+msgid "Don't let in"
+msgstr "Non fare entrare"
+
+msgid "Approve new participants"
+msgstr "Approva i nuovi partecipanti"
+
+msgid "Call info"
+msgstr "Info chiamata"
+
+msgid "WhatsApp Login"
+msgstr "Accesso a WhatsApp"
+
+msgid "Scan this QR Code with WhatsApp:"
+msgstr "Scansiona questo codice QR con WhatsApp:"
+
+msgid "Loading QR Code..."
+msgstr "Caricamento codice QR..."
+
+msgid "Loading new QR Code..."
+msgstr "Caricamento nuovo codice QR..."
+
+msgid "Reload QR Code"
+msgstr "Ricarica codice QR"
+
+msgid "Country:"
+msgstr "Paese:"
+
+msgid "Enter phone number:"
+msgstr "Inserisci il numero di telefono:"
+
+msgid "Continue"
+msgstr "Continua"
+
+msgid "Connect with QR Code"
+msgstr "Collegati con codice QR"
+
+msgid "Enter this pairing code in WhatsApp on your phone:"
+msgstr "Inserisci questo codice di collegamento in WhatsApp sul telefono:"
+
+msgid "Back to Phone Number Login"
+msgstr "Torna all'accesso con numero di telefono"
+
+msgid "Settings"
+msgstr "Impostazioni"
+
+msgid "General"
+msgstr "Generali"
+
+msgid "Personalization"
+msgstr "Personalizzazione"
+
+msgid "Storage & Media"
+msgstr "Spazio e media"
+
+msgid "Input & Output"
+msgstr "Ingresso e uscita"
+
+msgid "Chat Lock"
+msgstr "Blocco chat"
+
+msgid "Backup and Restore"
+msgstr "Backup e ripristino"
+
+msgid "OK"
+msgstr "OK"
+
+msgid "Startup & Window"
+msgstr "Avvio e finestra"
+
+msgid "Start whatSnap when Windows starts"
+msgstr "Avvia whatSnap all'avvio di Windows"
+
+msgid "Show an icon in the notification area; closing minimizes to it"
+msgstr "Mostra un'icona nell'area di notifica; chiudendo, il programma si riduce lì"
+
+msgid "Start maximized"
+msgstr "Avvia ingrandito"
+
+msgid "Accessibility & Announcements"
+msgstr "Accessibilità e annunci"
+
+msgid "Announce when someone is typing"
+msgstr "Annuncia quando qualcuno sta scrivendo"
+
+msgid "Announce when someone is recording a voice message"
+msgstr "Annuncia quando qualcuno sta registrando un messaggio vocale"
+
+msgid "Show a button to message Meta AI in New Chat"
+msgstr "Mostra un pulsante per scrivere a Meta AI in Nuova chat"
+
+msgid "Updates & Troubleshooting"
+msgstr "Aggiornamenti e risoluzione problemi"
+
+msgid "Check for updates when whatSnap starts"
+msgstr "Controlla gli aggiornamenti all'avvio di whatSnap"
+
+msgid "Updates"
+msgstr "Aggiornamenti"
+
+msgid "Stable releases"
+msgstr "Versioni stabili"
+
+msgid "Development builds"
+msgstr "Versioni di sviluppo"
+
+msgid "Verbose backend logging, for troubleshooting connection issues (takes effect next time whatSnap starts)"
+msgstr "Registro dettagliato del backend, per risolvere problemi di connessione (ha effetto al prossimo avvio di whatSnap)"
+
+msgid "&Keyboard Shortcuts..."
+msgstr "&Scorciatoie da tastiera..."
+
+msgid "Add whatSnap to the Windows Share Menu..."
+msgstr "Aggiungi whatSnap al menu Condividi di Windows..."
+
+msgid "Security Notifications"
+msgstr "Notifiche di sicurezza"
+
+msgid "Show security notifications: say in a chat when a contact's security code changes"
+msgstr "Mostra notifiche di sicurezza: avvisa in chat quando cambia il codice di sicurezza di un contatto"
+
+msgid "WhatsApp protects your conversations with end-to-end encryption. Turn this on to get notified when a contact's security code changes."
+msgstr "WhatsApp protegge le tue conversazioni con la crittografia end-to-end. Attiva questa opzione per essere avvisato quando cambia il codice di sicurezza di un contatto."
+
+msgid "Linked Accounts"
+msgstr "Account collegati"
+
+msgid "whatSnap is linked to WhatsApp on your phone as one of its linked devices. Accounts switches between, adds and removes accounts, and sets how each one alerts you. Log Out unlinks the account on screen from this computer. Both close Settings."
+msgstr "whatSnap è collegato a WhatsApp sul tuo telefono come uno dei dispositivi collegati. Account permette di passare da un account all'altro, aggiungerli, rimuoverli e scegliere come ognuno ti avvisa. Disconnetti scollega da questo computer l'account sullo schermo. Entrambi chiudono le Impostazioni."
+
+msgid "Accounts..."
+msgstr "Account..."
+
+msgid "Log Out..."
+msgstr "Disconnetti..."
+
+msgid "Messaging & Navigation"
+msgstr "Messaggi e navigazione"
+
+msgid "Enter is send: the Enter key sends your message"
+msgstr "Invio per inviare: il tasto Invio invia il messaggio"
+
+msgid "Hide phone numbers in groups: show Unknown member for people with no saved name or profile name"
+msgstr "Nascondi i numeri di telefono nei gruppi: mostra Membro sconosciuto per chi non ha un nome salvato o un nome profilo"
+
+msgid "Typing a letter in the message list starts a message (message shortcuts then need Alt)"
+msgstr "Scrivere una lettera nell'elenco messaggi inizia un messaggio (le scorciatoie dei messaggi richiedono allora Alt)"
+
+msgid "Keep my place in the message list instead of jumping to the newest message"
+msgstr "Mantieni la mia posizione nell'elenco messaggi invece di saltare al messaggio più recente"
+
+msgid "Replace text with emoji as you type, like :-) or (y)"
+msgstr "Sostituisci il testo con le emoji mentre scrivi, come :-) o (y)"
+
+msgid "Replace Text With Emoji: See Help..."
+msgstr "Sostituzione testo con emoji: vedi la Guida..."
+
+msgid "Spelling"
+msgstr "Ortografia"
+
+msgid "Check spelling in the message box (F7 goes to the next mistake)"
+msgstr "Controlla l'ortografia nel campo del messaggio (F7 va all'errore successivo)"
+
+msgid "Say when a word you type is misspelled"
+msgstr "Avvisa quando una parola che scrivi è sbagliata"
+
+msgid "Spelling Language"
+msgstr "Lingua del controllo ortografico"
+
+msgid "Windows default"
+msgstr "Predefinita di Windows"
+
+msgid "Play next status update automatically"
+msgstr "Riproduci automaticamente l'aggiornamento di stato successivo"
+
+msgid "Notifications"
+msgstr "Notifiche"
+
+msgid "Message notifications: show desktop notifications for new messages"
+msgstr "Notifiche dei messaggi: mostra notifiche sul desktop per i nuovi messaggi"
+
+msgid "Show previews: message text in notifications"
+msgstr "Mostra anteprima: testo del messaggio nelle notifiche"
+
+msgid "Reaction notifications: show notifications for reactions to your messages"
+msgstr "Notifiche delle reazioni: mostra notifiche per le reazioni ai tuoi messaggi"
+
+msgid "Incoming sounds: play a sound for new messages"
+msgstr "Suoni in arrivo: riproduci un suono per i nuovi messaggi"
+
+msgid "Message notification tone"
+msgstr "Tono di notifica dei messaggi"
+
+msgid "Outgoing sounds: play sounds for messages you send"
+msgstr "Suoni in uscita: riproduci suoni per i messaggi che invii"
+
+msgid "Group notifications: show notifications for new group messages"
+msgstr "Notifiche dei gruppi: mostra notifiche per i nuovi messaggi dei gruppi"
+
+msgid "Group sounds: play sounds for new group messages"
+msgstr "Suoni dei gruppi: riproduci suoni per i nuovi messaggi dei gruppi"
+
+msgid "Group notification tone"
+msgstr "Tono di notifica dei gruppi"
+
+msgid "Call notifications: show notifications for incoming calls"
+msgstr "Notifiche delle chiamate: mostra notifiche per le chiamate in arrivo"
+
+msgid "Incoming call sounds: play the ringtone for incoming calls"
+msgstr "Suoni delle chiamate in arrivo: riproduci la suoneria per le chiamate in arrivo"
+
+msgid "Call ringtone"
+msgstr "Suoneria delle chiamate"
+
+msgid "Group call ringtone"
+msgstr "Suoneria delle chiamate di gruppo"
+
+msgid "Quiet Hours & Screen Reader"
+msgstr "Ore di silenzio e screen reader"
+
+msgid "No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on"
+msgstr "Nessun suono dei messaggi quando sono attivi il Non disturbare di Windows, un gioco a schermo intero o una presentazione"
+
+msgid "Read new messages aloud in the open chat (Alt+L turns it on or off for one chat)"
+msgstr "Leggi ad alta voce i nuovi messaggi nella chat aperta (Alt+L lo attiva o disattiva per una singola chat)"
+
+msgid "Also read your own sent messages aloud"
+msgstr "Leggi ad alta voce anche i messaggi che invii"
+
+msgid "Theme"
+msgstr "Tema"
+
+msgid "Choose Theme"
+msgstr "Scegli il tema"
+
+msgid "Light"
+msgstr "Chiaro"
+
+msgid "Dark"
+msgstr "Scuro"
+
+msgid "System Default follows your Windows system-wide light or dark mode setting. Light and Dark themes provide dedicated color schemes."
+msgstr "Predefinito di sistema segue l'impostazione chiaro o scuro di Windows. I temi Chiaro e Scuro hanno combinazioni di colori dedicate."
+
+msgid "App Language"
+msgstr "Lingua dell'app"
+
+msgid "Choose Language"
+msgstr "Scegli la lingua"
+
+msgid "System Default"
+msgstr "Predefinita di sistema"
+
+msgid "English"
+msgstr "English"
+
+msgid "Bahasa Indonesia"
+msgstr "Bahasa Indonesia"
+
+msgid "Choose the language for whatSnap's interface. Changes take full effect after restarting whatSnap."
+msgstr "Scegli la lingua dell'interfaccia di whatSnap. Le modifiche hanno pieno effetto dopo il riavvio di whatSnap."
+
+msgid "Profile"
+msgstr "Profilo"
+
+msgid "Profile Photo"
+msgstr "Foto profilo"
+
+msgid "Change Profile Photo..."
+msgstr "Cambia foto profilo..."
+
+msgid "Remove Profile Photo..."
+msgstr "Rimuovi foto profilo..."
+
+msgid "This is not your username or phone number. This name will be visible to your WhatsApp contacts."
+msgstr "Questo non è il tuo nome utente né il tuo numero di telefono. Questo nome sarà visibile ai tuoi contatti WhatsApp."
+
+msgid "About"
+msgstr "Info"
+
+msgid "Clear About After"
+msgstr "Cancella le info dopo"
+
+msgid "Never"
+msgstr "Mai"
+
+msgid "30 Minutes"
+msgstr "30 minuti"
+
+msgid "1 Hour"
+msgstr "1 ora"
+
+msgid "2 Hours"
+msgstr "2 ore"
+
+msgid "4 Hours"
+msgstr "4 ore"
+
+msgid "8 Hours"
+msgstr "8 ore"
+
+msgid "24 Hours"
+msgstr "24 ore"
+
+msgid "7 Days"
+msgstr "7 giorni"
+
+msgid "90 Days"
+msgstr "90 giorni"
+
+msgid "Privacy"
+msgstr "Privacy"
+
+msgid "Disappearing Messages"
+msgstr "Messaggi effimeri"
+
+msgid "Default Message Timer for New Chats"
+msgstr "Timer predefinito dei messaggi per le nuove chat"
+
+msgid "Who Can See My Info"
+msgstr "Chi può vedere le mie informazioni"
+
+msgid "Who Can See My Last Seen"
+msgstr "Chi può vedere il mio ultimo accesso"
+
+msgid "Who Can See When I'm Online"
+msgstr "Chi può vedere quando sono online"
+
+msgid "Who Can See My Profile Photo"
+msgstr "Chi può vedere la mia foto profilo"
+
+msgid "Who Can See My About"
+msgstr "Chi può vedere le mie info"
+
+msgid "Everyone"
+msgstr "Tutti"
+
+msgid "My Contacts"
+msgstr "I miei contatti"
+
+msgid "My Contacts Except..."
+msgstr "I miei contatti tranne..."
+
+msgid "Nobody"
+msgstr "Nessuno"
+
+msgid "Same as Last Seen"
+msgstr "Come l'ultimo accesso"
+
+msgid "Choose Contacts Excluded From Last Seen..."
+msgstr "Scegli i contatti esclusi dall'ultimo accesso..."
+
+msgid "Choose Contacts Excluded From Profile Photo..."
+msgstr "Scegli i contatti esclusi dalla foto profilo..."
+
+msgid "Choose Contacts Excluded From About..."
+msgstr "Scegli i contatti esclusi dalle info..."
+
+msgid "Choose Contacts Excluded From Groups..."
+msgstr "Scegli i contatti esclusi dai gruppi..."
+
+msgid "Read receipts: if turned off, you won't send or receive read receipts. They're always sent in groups."
+msgstr "Conferme di lettura: se le disattivi, non invierai né riceverai conferme di lettura. Nei gruppi vengono sempre inviate."
+
+msgid "Status Privacy"
+msgstr "Privacy dello stato"
+
+msgid "Choose Who Can See My Status Updates..."
+msgstr "Scegli chi può vedere i miei aggiornamenti di stato..."
+
+msgid "Groups & Calls"
+msgstr "Gruppi e chiamate"
+
+msgid "Who Can Add Me to Groups"
+msgstr "Chi può aggiungermi ai gruppi"
+
+msgid "Silence Unknown Callers"
+msgstr "Silenzia chiamate da sconosciuti"
+
+msgid "Advanced & Blocked Contacts"
+msgstr "Avanzate e contatti bloccati"
+
+msgid "Turn off link previews: links you send go without a preview, on all your devices"
+msgstr "Disattiva le anteprime dei link: i link che invii partono senza anteprima, su tutti i tuoi dispositivi"
+
+msgid "Manage Blocked Contacts..."
+msgstr "Gestisci contatti bloccati..."
+
+msgid "Media Auto-Download"
+msgstr "Download automatico dei media"
+
+msgid "Download photos automatically"
+msgstr "Scarica automaticamente le foto"
+
+msgid "Download audio automatically"
+msgstr "Scarica automaticamente l'audio"
+
+msgid "Download videos automatically"
+msgstr "Scarica automaticamente i video"
+
+msgid "Download documents automatically"
+msgstr "Scarica automaticamente i documenti"
+
+msgid "Voice messages are always downloaded automatically. Other media downloads by itself only from contacts and chats you've written in."
+msgstr "I messaggi vocali vengono sempre scaricati automaticamente. Gli altri media si scaricano da soli solo dai contatti e dalle chat in cui hai scritto."
+
+msgid "Media Quality"
+msgstr "Qualità dei media"
+
+msgid "Download Quality for Photos and Videos Sent in HD"
+msgstr "Qualità di download per foto e video inviati in HD"
+
+msgid "Media Upload Quality"
+msgstr "Qualità di caricamento dei media"
+
+msgid "Standard Quality"
+msgstr "Qualità standard"
+
+msgid "HD Quality"
+msgstr "Qualità HD"
+
+msgid "Microphone (calls and voice notes)"
+msgstr "Microfono (chiamate e note vocali)"
+
+msgid "Used for voice/video calls and recording voice messages."
+msgstr "Usato per le chiamate vocali e video e per registrare i messaggi vocali."
+
+msgid "Clean up voice messages: reduce background noise and even out the volume"
+msgstr "Pulisci i messaggi vocali: riduci il rumore di fondo e uniforma il volume"
+
+msgid "Like WhatsApp Web: removes background noise and brings quiet speech up to a steady, loud level. Off sends the raw mic signal."
+msgstr "Come WhatsApp Web: toglie il rumore di fondo e porta il parlato debole a un livello costante e forte. Se disattivato, invia il segnale del microfono così com'è."
+
+msgid "Speakers"
+msgstr "Altoparlanti"
+
+msgid "Speaker for alerts and voice messages"
+msgstr "Altoparlante per avvisi e messaggi vocali"
+
+msgid "Used for notification sounds, message tones and voice message playback."
+msgstr "Usato per i suoni di notifica, i toni dei messaggi e la riproduzione dei messaggi vocali."
+
+msgid "Speaker for calls"
+msgstr "Altoparlante per le chiamate"
+
+msgid "Mute microphone by default when placing or joining calls"
+msgstr "Disattiva il microfono in partenza quando avvii o partecipi a una chiamata"
+
+msgid "When enabled, calls begin with your microphone muted. You can unmute at any time during the call."
+msgstr "Se attivato, le chiamate iniziano con il microfono disattivato. Puoi riattivarlo in qualsiasi momento durante la chiamata."
+
+msgid "Show frequent contacts in the Calls tab"
+msgstr "Mostra i contatti frequenti nella scheda Chiamate"
+
+msgid "When enabled, frequently called contacts are displayed at the top of the Calls tab."
+msgstr "Se attivato, i contatti chiamati più spesso vengono mostrati in cima alla scheda Chiamate."
+
+msgid "Screen Sharing"
+msgstr "Condivisione schermo"
+
+msgid "Experimental: keep the camera on while sharing the screen (applies to the next call)"
+msgstr "Sperimentale: tieni accesa la fotocamera mentre condividi lo schermo (vale dalla prossima chiamata)"
+
+msgid "Unlock locked chats with Windows Hello (fingerprint, face or PIN) instead of the secret code"
+msgstr "Sblocca le chat bloccate con Windows Hello (impronta, volto o PIN) invece del codice segreto"
+
+msgid "Allows unlocking hidden and locked chats using your Windows Hello biometric or PIN credentials."
+msgstr "Permette di sbloccare le chat nascoste e bloccate con il riconoscimento biometrico o il PIN di Windows Hello."
+
+msgid "Backup Settings"
+msgstr "Backup delle impostazioni"
+
+msgid "Export your whatSnap preferences (shortcuts, notifications, audio settings, theme, and chat options) to a JSON file. Your chats, contacts, media, and account sessions are not included."
+msgstr "Esporta le preferenze di whatSnap (scorciatoie, notifiche, impostazioni audio, tema e opzioni delle chat) in un file JSON. Chat, contatti, media e sessioni degli account non sono inclusi."
+
+msgid "Backup Settings..."
+msgstr "Backup delle impostazioni..."
+
+msgid "Restore Settings"
+msgstr "Ripristina impostazioni"
+
+msgid "Restore your whatSnap preferences from a previously saved JSON backup file. This will update your current settings."
+msgstr "Ripristina le preferenze di whatSnap da un file JSON di backup salvato in precedenza. Le impostazioni attuali verranno aggiornate."
+
+msgid "Restore Settings..."
+msgstr "Ripristina impostazioni..."
+
+msgid "Sounds"
+msgstr "Suoni"
+
+msgid "Keyboard Shortcuts"
+msgstr "Scorciatoie da tastiera"
+
+msgid "Who Can See My Status"
+msgstr "Chi può vedere il mio stato"
+
+msgid "Read Receipts"
+msgstr "Conferme di lettura"
+
+msgid "Disappearing Messages Default Timer"
+msgstr "Timer predefinito dei messaggi effimeri"
+
+msgid "Default"
+msgstr "Predefinito"
+
+msgid "Alert"
+msgstr "Avviso"
+
+msgid "Custom sound file"
+msgstr "File audio personalizzato"
+
+msgid "None"
+msgstr "Nessuno"
+
+msgid "Choose a sound file"
+msgstr "Scegli un file audio"
+
+msgid "Choose Message Tone File..."
+msgstr "Scegli il file del tono dei messaggi..."
+
+msgid "Choose Group Tone File..."
+msgstr "Scegli il file del tono dei gruppi..."
+
+msgid "Choose Call Ringtone File..."
+msgstr "Scegli il file della suoneria delle chiamate..."
+
+msgid "Choose Group Call Ringtone File..."
+msgstr "Scegli il file della suoneria delle chiamate di gruppo..."
+
+msgid "Choose Notification Tone File..."
+msgstr "Scegli il file del tono di notifica..."
+
+msgid "Choose Ringtone File..."
+msgstr "Scegli il file della suoneria..."
+
+msgid "Choose Sound File..."
+msgstr "Scegli il file audio..."
+
+msgid "Connecting..."
+msgstr "Connessione in corso..."
+
+msgid "Connected."
+msgstr "Connesso."
+
+msgid "Reconnecting..."
+msgstr "Riconnessione in corso..."
+
+msgid "Reconnected."
+msgstr "Riconnesso."
+
+msgid "Call connected."
+msgstr "Chiamata connessa."
+
+msgid "Call ended."
+msgstr "Chiamata terminata."
+
+msgid "That call has ended."
+msgstr "Quella chiamata è terminata."
+
+msgid "Joining call..."
+msgstr "Ingresso nella chiamata..."
+
+msgid "You're already in a call."
+msgstr "Sei già in una chiamata."
+
+msgid "Failed to start audio stream."
+msgstr "Impossibile avviare il flusso audio."
+
+msgid "Microphone changed."
+msgstr "Microfono cambiato."
+
+msgid "Speaker changed."
+msgstr "Altoparlante cambiato."
+
+msgid "Camera changed."
+msgstr "Fotocamera cambiata."
+
+msgid "Audio and video settings opened."
+msgstr "Impostazioni audio e video aperte."
+
+msgid "Audio and video settings closed."
+msgstr "Impostazioni audio e video chiuse."
+
+msgid "Stopped"
+msgstr "Fermo"
+
+msgid "Sending vote..."
+msgstr "Invio del voto..."
+
+msgid "Sending your answer..."
+msgstr "Invio della risposta..."
+
+msgid "Sending event..."
+msgstr "Invio dell'evento..."
+
+msgid "Sending sticker..."
+msgstr "Invio dello sticker..."
+
+msgid "Added to favorite stickers."
+msgstr "Aggiunto agli sticker preferiti."
+
+msgid "Removed from favorite stickers."
+msgstr "Rimosso dagli sticker preferiti."
+
+msgid "Exporting chat text..."
+msgstr "Esportazione del testo della chat..."
+
+msgid "Posting status update..."
+msgstr "Pubblicazione dell'aggiornamento di stato..."
+
+msgid "Retrying send..."
+msgstr "Nuovo tentativo di invio..."
+
+msgid "Status privacy saved."
+msgstr "Privacy dello stato salvata."
+
+msgid "Saving who sees your status..."
+msgstr "Salvataggio di chi vede il tuo stato..."
+
+msgid "Choose at least one contact to share with."
+msgstr "Scegli almeno un contatto con cui condividere."
+
+msgid "No answer chosen."
+msgstr "Nessuna risposta scelta."
+
+msgid "Not a poll or event."
+msgstr "Non è un sondaggio né un evento."
+
+msgid "Type a reply"
+msgstr "Scrivi una risposta"
+
+msgid "  Paused"
+msgstr "  In pausa"
+
+msgid "  Playing preview"
+msgstr "  Anteprima in riproduzione"
+
+msgid " (Admin)"
+msgstr " (Amministratore)"
+
+msgid " (Super Admin)"
+msgstr " (Super amministratore)"
+
+msgid " You liked this."
+msgstr " Ti è piaciuto."
+
+msgid "&Add chats..."
+msgstr "&Aggiungi chat..."
+
+msgid "&Add list..."
+msgstr "&Aggiungi lista..."
+
+msgid "&Add to contacts"
+msgstr "&Aggiungi ai contatti"
+
+msgid "&Audio"
+msgstr "&Audio"
+
+msgid "&Call"
+msgstr "&Chiama"
+
+msgid "&Chats..."
+msgstr "&Chat..."
+
+msgid "&Contact"
+msgstr "C&ontatto"
+
+msgid "&Copy"
+msgstr "&Copia"
+
+msgid "&Copy\tCtrl+C"
+msgstr "&Copia\tCtrl+C"
+
+msgid "&Copy Code"
+msgstr "&Copia codice"
+
+msgid "&Copy Link"
+msgstr "&Copia link"
+
+msgid "&Copy Number"
+msgstr "&Copia numero"
+
+msgid "&Copy text\tCtrl+C"
+msgstr "&Copia testo\tCtrl+C"
+
+msgid "&Delete"
+msgstr "&Elimina"
+
+msgid "&Delete Repeated Word"
+msgstr "&Elimina parola ripetuta"
+
+msgid "&Delete call\tDel"
+msgstr "&Elimina chiamata\tCanc"
+
+msgid "&Delete channel..."
+msgstr "&Elimina canale..."
+
+msgid "&Delete..."
+msgstr "&Elimina..."
+
+msgid "&Dismiss as admin"
+msgstr "&Rimuovi come amministratore"
+
+msgid "&Document"
+msgstr "&Documento"
+
+msgid "&Edit"
+msgstr "&Modifica"
+
+msgid "&Edit name and description..."
+msgstr "&Modifica nome e descrizione..."
+
+msgid "&Event"
+msgstr "E&vento"
+
+msgid "&Followers and admins..."
+msgstr "&Follower e amministratori..."
+
+msgid "&Forward..."
+msgstr "&Inoltra..."
+
+msgid "&Go to message"
+msgstr "&Vai al messaggio"
+
+msgid "&Insert emoji"
+msgstr "&Inserisci emoji"
+
+msgid "&Invite admins..."
+msgstr "&Invita amministratori..."
+
+msgid "&Join call"
+msgstr "&Partecipa alla chiamata"
+
+msgid "&Keep in chat"
+msgstr "&Mantieni nella chat"
+
+msgid "&Like"
+msgstr "Mi &piace"
+
+msgid "&Message Number"
+msgstr "&Scrivi al numero"
+
+msgid "&Mute"
+msgstr "&Silenzia"
+
+msgid "&Next"
+msgstr "&Successivo"
+
+msgid "&Notify normally"
+msgstr "&Notifica normalmente"
+
+msgid "&Open Link"
+msgstr "&Apri link"
+
+msgid "&Open chat"
+msgstr "&Apri chat"
+
+msgid "&Paste"
+msgstr "&Incolla"
+
+msgid "&Photos and videos"
+msgstr "&Foto e video"
+
+msgid "&Position"
+msgstr "&Posizione"
+
+msgid "&Previous"
+msgstr "&Precedente"
+
+msgid "&React..."
+msgstr "&Reagisci..."
+
+msgid "&Remove"
+msgstr "&Rimuovi"
+
+msgid "&Remove picture"
+msgstr "&Rimuovi immagine"
+
+msgid "&Rename..."
+msgstr "&Rinomina..."
+
+msgid "&Reply"
+msgstr "&Rispondi"
+
+msgid "&Reply..."
+msgstr "&Rispondi..."
+
+msgid "&Save voice message..."
+msgstr "&Salva messaggio vocale..."
+
+msgid "&Schedule message..."
+msgstr "&Programma messaggio..."
+
+msgid "&Send"
+msgstr "&Invia"
+
+msgid "&Send sticker"
+msgstr "&Invia sticker"
+
+msgid "&Silent"
+msgstr "&Silenzioso"
+
+msgid "&Star"
+msgstr "Segna come &importante"
+
+msgid "&Star all"
+msgstr "Segna &tutti come importanti"
+
+msgid "&Sticker"
+msgstr "S&ticker"
+
+msgid "&Undo"
+msgstr "&Annulla"
+
+msgid "&Unstar"
+msgstr "&Togli importante"
+
+msgid "&Unstar\tDel"
+msgstr "&Togli importante\tCanc"
+
+msgid "&Unstar all"
+msgstr "&Togli importante a tutti"
+
+msgid "&Verify security code"
+msgstr "&Verifica codice di sicurezza"
+
+msgid "&Video call"
+msgstr "&Videochiamata"
+
+msgid "&View status"
+msgstr "&Vedi stato"
+
+msgid "&Viewed by"
+msgstr "&Visto da"
+
+msgid "&Viewed by..."
+msgstr "&Visto da..."
+
+msgid "&Viewed by: no one yet"
+msgstr "&Visto da: ancora nessuno"
+
+msgid "&Volume"
+msgstr "&Volume"
+
+msgid "(No spelling suggestions)"
+msgstr "(Nessun suggerimento ortografico)"
+
+msgid "(your reaction)"
+msgstr "(la tua reazione)"
+
+msgid ", 1 mention"
+msgstr ", 1 menzione"
+
+msgid ", animated"
+msgstr ", animato"
+
+msgid ", copies a code"
+msgstr ", copia un codice"
+
+msgid ", kept"
+msgstr ", mantenuto"
+
+msgid ", link"
+msgstr ", link"
+
+msgid ", not linked yet"
+msgstr ", non ancora collegato"
+
+msgid ", notifications off"
+msgstr ", notifiche disattivate"
+
+msgid ", on screen"
+msgstr ", sullo schermo"
+
+msgid ", only works on your phone"
+msgstr ", funziona solo sul telefono"
+
+msgid ", pinned"
+msgstr ", fissata"
+
+msgid ", starred"
+msgstr ", importante"
+
+msgid "1 channel."
+msgstr "1 canale."
+
+msgid "1 follower"
+msgstr "1 follower"
+
+msgid "1 sticker."
+msgstr "1 sticker."
+
+msgid "1 unread message"
+msgstr "1 messaggio non letto"
+
+msgid "< Back"
+msgstr "< Indietro"
+
+msgid "A message that isn't on this computer"
+msgstr "Un messaggio che non è su questo computer"
+
+msgid "A poll can have at most 12 options."
+msgstr "Un sondaggio può avere al massimo 12 opzioni."
+
+msgid "A poll needs at least two options, one per line."
+msgstr "Un sondaggio richiede almeno due opzioni, una per riga."
+
+msgid "About this channel"
+msgstr "Info su questo canale"
+
+msgid "About/Status"
+msgstr "Info/Stato"
+
+msgid "Accept"
+msgstr "Accetta"
+
+msgid "Accepting..."
+msgstr "Accettazione..."
+
+msgid "Account Already Linked"
+msgstr "Account già collegato"
+
+msgid "Actions for this message's sender"
+msgstr "Azioni per il mittente di questo messaggio"
+
+msgid "Add &photo/video status update..."
+msgstr "Aggiungi aggiornamento di stato con &foto/video..."
+
+msgid "Add &text status update..."
+msgstr "Aggiungi aggiornamento di stato di &testo..."
+
+msgid "Add Account"
+msgstr "Aggiungi account"
+
+msgid "Add Contact"
+msgstr "Aggiungi contatto"
+
+msgid "Add Existing Group"
+msgstr "Aggiungi gruppo esistente"
+
+msgid "Add contact"
+msgstr "Aggiungi contatto"
+
+msgid "Add existing group..."
+msgstr "Aggiungi gruppo esistente..."
+
+msgid "Add group members"
+msgstr "Aggiungi membri al gruppo"
+
+msgid "Add member"
+msgstr "Aggiungi membro"
+
+msgid "Add to &favorite stickers"
+msgstr "Aggiungi agli sticker &preferiti"
+
+msgid "Add which group to the community?"
+msgstr "Quale gruppo aggiungere alla community?"
+
+msgid "Adding to call..."
+msgstr "Aggiunta alla chiamata..."
+
+msgid "Advanced Chat Privacy"
+msgstr "Privacy avanzata della chat"
+
+msgid "Advanced chat privacy..."
+msgstr "Privacy avanzata della chat..."
+
+msgid "Alert exactly like an unarchived chat"
+msgstr "Avvisa esattamente come una chat non archiviata"
+
+msgid "Album"
+msgstr "Album"
+
+msgid "All (recommended)"
+msgstr "Tutti (consigliato)"
+
+msgid "All contacts"
+msgstr "Tutti i contatti"
+
+msgid "All files"
+msgstr "Tutti i file"
+
+msgid "All scheduled messages have been sent or deleted"
+msgstr "Tutti i messaggi programmati sono stati inviati o eliminati"
+
+msgid "All starred messages unstarred."
+msgstr "Tolto importante a tutti i messaggi."
+
+msgid "Allow guests"
+msgstr "Consenti ospiti"
+
+msgid "An option is too long. Each option allows up to 100 characters."
+msgstr "Un'opzione è troppo lunga. Ogni opzione può avere al massimo 100 caratteri."
+
+msgid "Announcements"
+msgstr "Annunci"
+
+msgid "Answer event"
+msgstr "Rispondi all'evento"
+
+msgid "Answer quiz"
+msgstr "Rispondi al quiz"
+
+msgid "Approve"
+msgstr "Approva"
+
+msgid "Approve new members"
+msgstr "Approva i nuovi membri"
+
+msgid "Archived"
+msgstr "Archiviata"
+
+msgid "Archived a&lerts"
+msgstr "Avvisi delle chat archivi&ate"
+
+msgid "Ask your phone to send this message again"
+msgstr "Chiedi al telefono di inviare di nuovo questo messaggio"
+
+msgid "At least one contact must be selected."
+msgstr "Seleziona almeno un contatto."
+
+msgid "At least one participant must be selected."
+msgstr "Seleziona almeno un partecipante."
+
+msgid "Attach a contact from your WhatsApp contacts"
+msgstr "Allega un contatto dai tuoi contatti WhatsApp"
+
+msgid "Attach contact"
+msgstr "Allega contatto"
+
+msgid "Audio"
+msgstr "Audio"
+
+msgid "Availability"
+msgstr "Disponibilità"
+
+msgid "Backup Complete"
+msgstr "Backup completato"
+
+msgid "Backup Failed"
+msgstr "Backup non riuscito"
+
+msgid "Block contact"
+msgstr "Blocca contatto"
+
+msgid "Block contact..."
+msgstr "Blocca contatto..."
+
+msgid "Blocked contact"
+msgstr "Contatto bloccato"
+
+msgid "Blocked contacts: none"
+msgstr "Contatti bloccati: nessuno"
+
+msgid "Blocked: Yes\n"
+msgstr "Bloccato: sì\n"
+
+msgid "Blocked: yes"
+msgstr "Bloccato: sì"
+
+msgid "Busy, on another call with"
+msgstr "Occupato, in un'altra chiamata con"
+
+msgid "Busy, on another call."
+msgstr "Occupato, in un'altra chiamata."
+
+msgid "Buttons"
+msgstr "Pulsanti"
+
+msgid "C&hannel post"
+msgstr "&Post del canale"
+
+msgid "C&lear call log..."
+msgstr "&Cancella registro chiamate..."
+
+msgid "Call Link"
+msgstr "Link di chiamata"
+
+msgid "Call cancelled with"
+msgstr "Chiamata annullata con"
+
+msgid "Call cancelled."
+msgstr "Chiamata annullata."
+
+msgid "Call declined with"
+msgstr "Chiamata rifiutata con"
+
+msgid "Call declined."
+msgstr "Chiamata rifiutata."
+
+msgid "Call deleted."
+msgstr "Chiamata eliminata."
+
+msgid "Call ended"
+msgstr "Chiamata terminata"
+
+msgid "Call ended with"
+msgstr "Chiamata terminata con"
+
+msgid "Call with"
+msgstr "Chiamata con"
+
+msgid "Call ended. Connection lost with"
+msgstr "Chiamata terminata. Connessione persa con"
+
+msgid "Call ended. Connection lost."
+msgstr "Chiamata terminata. Connessione persa."
+
+msgid "Call link:"
+msgstr "Link di chiamata:"
+
+msgid "Call log cleared."
+msgstr "Registro chiamate cancellato."
+
+msgid "Calling"
+msgstr "Chiamata a"
+
+msgid "Calling..."
+msgstr "Chiamata in corso..."
+
+msgid "Camera must be turned on to share your screen. Turn your camera on first."
+msgstr "Per condividere lo schermo la fotocamera deve essere accesa. Accendi prima la fotocamera."
+
+msgid "Camera off."
+msgstr "Fotocamera spenta."
+
+msgid "Camera off. Screen sharing stopped."
+msgstr "Fotocamera spenta. Condivisione schermo interrotta."
+
+msgid "Camera on."
+msgstr "Fotocamera accesa."
+
+msgid "Can't connect to WhatsApp."
+msgstr "Impossibile connettersi a WhatsApp."
+
+msgid "Cancel invite"
+msgstr "Annulla invito"
+
+msgid "Cancel invite..."
+msgstr "Annulla invito..."
+
+msgid "Cancel this upload? The message will be removed from the chat."
+msgstr "Annullare questo caricamento? Il messaggio verrà rimosso dalla chat."
+
+msgid "Cancel upload"
+msgstr "Annulla caricamento"
+
+msgid "Cancel upload, 0% complete"
+msgstr "Annulla caricamento, 0% completato"
+
+msgid "Catalogue"
+msgstr "Catalogo"
+
+msgid "Category:"
+msgstr "Categoria:"
+
+msgid "Change &picture..."
+msgstr "Cambia &immagine..."
+
+msgid "Change owner"
+msgstr "Cambia proprietario"
+
+msgid "Change the channel's name and description"
+msgstr "Cambia nome e descrizione del canale"
+
+msgid "Change the tag shown next to your name in this group"
+msgstr "Cambia l'etichetta mostrata accanto al tuo nome in questo gruppo"
+
+msgid "Changing the channel picture..."
+msgstr "Modifica dell'immagine del canale..."
+
+msgid "Channel"
+msgstr "Canale"
+
+msgid "Channel admin invite"
+msgstr "Invito come amministratore del canale"
+
+msgid "Channel info"
+msgstr "Info canale"
+
+msgid "Channel name"
+msgstr "Nome del canale"
+
+msgid "Channels are read-only. Only admins can post updates."
+msgstr "I canali sono di sola lettura. Solo gli amministratori possono pubblicare aggiornamenti."
+
+msgid "Channels are read-only. Only admins can post."
+msgstr "I canali sono di sola lettura. Solo gli amministratori possono pubblicare."
+
+msgid "Channels show vote totals, not who voted. Admins can see voters from the Channel post menu."
+msgstr "I canali mostrano il totale dei voti, non chi ha votato. Gli amministratori possono vedere chi ha votato dal menu Post del canale."
+
+msgid "Chat cleared."
+msgstr "Chat svuotata."
+
+msgid "Chat history"
+msgstr "Cronologia chat"
+
+msgid "Chat overview"
+msgstr "Panoramica della chat"
+
+msgid "Check the chats to add"
+msgstr "Seleziona le chat da aggiungere"
+
+msgid "Checked contacts won't be able to see it"
+msgstr "I contatti selezionati non potranno vederlo"
+
+msgid "Checked contacts won't see your status updates"
+msgstr "I contatti selezionati non vedranno i tuoi aggiornamenti di stato"
+
+msgid "Choose a folder to save the files into"
+msgstr "Scegli una cartella in cui salvare i file"
+
+msgid "Choose a new picture for the channel"
+msgstr "Scegli una nuova immagine per il canale"
+
+msgid "Choose a photo or video to post as status"
+msgstr "Scegli una foto o un video da pubblicare come stato"
+
+msgid "Choose a picture for the channel"
+msgstr "Scegli un'immagine per il canale"
+
+msgid "Choose a profile photo"
+msgstr "Scegli una foto profilo"
+
+msgid "Choose a sticker to send"
+msgstr "Scegli uno sticker da inviare"
+
+msgid "Choose an emoji to insert:"
+msgstr "Scegli un'emoji da inserire:"
+
+msgid "Choose at least one chat to send to."
+msgstr "Scegli almeno una chat a cui inviare."
+
+msgid "Choose audio files to send"
+msgstr "Scegli i file audio da inviare"
+
+msgid "Choose files to send as documents"
+msgstr "Scegli i file da inviare come documenti"
+
+msgid "Choose one answer"
+msgstr "Scegli una risposta"
+
+msgid "Choose one or more answers"
+msgstr "Scegli una o più risposte"
+
+msgid "Choose photos or videos to send"
+msgstr "Scegli foto o video da inviare"
+
+msgid "Choose picture (optional)..."
+msgstr "Scegli immagine (facoltativa)..."
+
+msgid "Choose what kind of status update to post:"
+msgstr "Scegli che tipo di aggiornamento di stato pubblicare:"
+
+msgid "Choose who sees your status updates"
+msgstr "Scegli chi vede i tuoi aggiornamenti di stato"
+
+msgid "Clear"
+msgstr "Cancella"
+
+msgid "Clear call log?"
+msgstr "Cancellare il registro chiamate?"
+
+msgid "Code copied."
+msgstr "Codice copiato."
+
+msgid "Community"
+msgstr "Community"
+
+msgid "Community deactivated."
+msgstr "Community disattivata."
+
+msgid "Community name:"
+msgstr "Nome della community:"
+
+msgid "Compare the security code with this member to check your chat is end-to-end encrypted"
+msgstr "Confronta il codice di sicurezza con questo membro per verificare che la chat sia crittografata end-to-end"
+
+msgid "Compose a new text status update"
+msgstr "Scrivi un nuovo aggiornamento di stato di testo"
+
+msgid "Confirm Clear Chat"
+msgstr "Conferma svuotamento chat"
+
+msgid "Confirm Delete"
+msgstr "Conferma eliminazione"
+
+msgid "Connected"
+msgstr "Connesso"
+
+msgid "Contact"
+msgstr "Contatto"
+
+msgid "Contact Details"
+msgstr "Dettagli contatto"
+
+msgid "Contact Info"
+msgstr "Info contatto"
+
+msgid "Contact blocked."
+msgstr "Contatto bloccato."
+
+msgid "Contact deleted."
+msgstr "Contatto eliminato."
+
+msgid "Copied file to clipboard."
+msgstr "File copiato negli appunti."
+
+msgid "Copied message text to clipboard."
+msgstr "Testo del messaggio copiato negli appunti."
+
+msgid "Copied phone number to clipboard."
+msgstr "Numero di telefono copiato negli appunti."
+
+msgid "Copied voice message to clipboard."
+msgstr "Messaggio vocale copiato negli appunti."
+
+msgid "Copy Nu&mber"
+msgstr "Copia nu&mero"
+
+msgid "Copy all p&hotos"
+msgstr "Copia tutte le f&oto"
+
+msgid "Copy all photos to clipboard"
+msgstr "Copia tutte le foto negli appunti"
+
+msgid "Copy code"
+msgstr "Copia codice"
+
+msgid "Copy link"
+msgstr "Copia link"
+
+msgid "Copy message text or file to clipboard"
+msgstr "Copia negli appunti il testo o il file del messaggio"
+
+msgid "Copy message text to clipboard"
+msgstr "Copia negli appunti il testo del messaggio"
+
+msgid "Copy phone number to clipboard"
+msgstr "Copia negli appunti il numero di telefono"
+
+msgid "Could not load voice message"
+msgstr "Impossibile caricare il messaggio vocale"
+
+msgid "Could not play voice message"
+msgstr "Impossibile riprodurre il messaggio vocale"
+
+msgid "Couldn't add that person to the call."
+msgstr "Impossibile aggiungere quella persona alla chiamata."
+
+msgid "Couldn't copy the code."
+msgstr "Impossibile copiare il codice."
+
+msgid "Couldn't copy the link."
+msgstr "Impossibile copiare il link."
+
+msgid "Couldn't copy to clipboard."
+msgstr "Impossibile copiare negli appunti."
+
+msgid "Couldn't send the message history."
+msgstr "Impossibile inviare la cronologia dei messaggi."
+
+msgid "Couldn't share the screen on this call."
+msgstr "Impossibile condividere lo schermo in questa chiamata."
+
+msgid "Couldn't turn the camera on for this call."
+msgstr "Impossibile accendere la fotocamera in questa chiamata."
+
+msgid "Couldn't work out when this message can be scheduled."
+msgstr "Impossibile capire quando si può programmare questo messaggio."
+
+msgid "Create Call Link"
+msgstr "Crea link di chiamata"
+
+msgid "Create a poll or a quiz"
+msgstr "Crea un sondaggio o un quiz"
+
+msgid "Create an event people can answer"
+msgstr "Crea un evento a cui le persone possono rispondere"
+
+msgid "Create event"
+msgstr "Crea evento"
+
+msgid "Creating channel..."
+msgstr "Creazione del canale..."
+
+msgid "Creating community..."
+msgstr "Creazione della community..."
+
+msgid "Cu&t"
+msgstr "&Taglia"
+
+msgid "D&elete"
+msgstr "&Elimina"
+
+msgid "Date to go to, as year-month-day, like 2026-03-27:"
+msgstr "Data a cui andare, come anno-mese-giorno, per esempio 2026-03-27:"
+
+msgid "Date, like 2026-10-05 (optional)"
+msgstr "Data, per esempio 2026-10-05 (facoltativa)"
+
+msgid "Deactivate"
+msgstr "Disattiva"
+
+msgid "Deactivate Community"
+msgstr "Disattiva community"
+
+msgid "Deactivate community..."
+msgstr "Disattiva community..."
+
+msgid "Delete &contact..."
+msgstr "Elimina &contatto..."
+
+msgid "Delete Contact"
+msgstr "Elimina contatto"
+
+msgid "Delete List"
+msgstr "Elimina lista"
+
+msgid "Delete Status"
+msgstr "Elimina stato"
+
+msgid "Delete channel"
+msgstr "Elimina canale"
+
+msgid "Delete chat and exit group"
+msgstr "Elimina chat ed esci dal gruppo"
+
+msgid "Delete chat only"
+msgstr "Elimina solo la chat"
+
+msgid "Delete contact"
+msgstr "Elimina contatto"
+
+msgid "Delete for everyone"
+msgstr "Elimina per tutti"
+
+msgid "Delete for me"
+msgstr "Elimina per me"
+
+msgid "Delete message"
+msgstr "Elimina messaggio"
+
+msgid "Delete message?"
+msgstr "Eliminare il messaggio?"
+
+msgid "Delete messages?"
+msgstr "Eliminare i messaggi?"
+
+msgid "Delete one of your status updates for everyone"
+msgstr "Elimina per tutti uno dei tuoi aggiornamenti di stato"
+
+msgid "Delete scheduled message?"
+msgstr "Eliminare il messaggio programmato?"
+
+msgid "Delete the channel for everyone"
+msgstr "Elimina il canale per tutti"
+
+msgid "Delete the word said twice"
+msgstr "Elimina la parola detta due volte"
+
+msgid "Delete this call from your call log"
+msgstr "Elimina questa chiamata dal registro chiamate"
+
+msgid "Delete this channel? It will be removed for all its followers, along with all its updates. This can't be undone."
+msgstr "Eliminare questo canale? Verrà rimosso per tutti i follower, insieme a tutti i suoi aggiornamenti. L'operazione non si può annullare."
+
+msgid "Delete this contact from your contacts and your phone's"
+msgstr "Elimina questo contatto dai tuoi contatti e da quelli del telefono"
+
+msgid "Delete this status update? It will be deleted for everyone who received it."
+msgstr "Eliminare questo aggiornamento di stato? Verrà eliminato per tutti quelli che l'hanno ricevuto."
+
+msgid "Delete which status update?"
+msgstr "Quale aggiornamento di stato eliminare?"
+
+msgid "Deleting channel..."
+msgstr "Eliminazione del canale..."
+
+msgid "Deleting contact..."
+msgstr "Eliminazione del contatto..."
+
+msgid "Deleting scheduled message..."
+msgstr "Eliminazione del messaggio programmato..."
+
+msgid "Deleting..."
+msgstr "Eliminazione..."
+
+msgid "Delivered"
+msgstr "Consegnato"
+
+msgid "Delivered at"
+msgstr "Consegnato alle"
+
+msgid "Delivered to"
+msgstr "Consegnato a"
+
+msgid "Description (optional)"
+msgstr "Descrizione (facoltativa)"
+
+msgid "Dismiss admin"
+msgstr "Rimuovi amministratore"
+
+msgid "Document"
+msgstr "Documento"
+
+msgid "Documents"
+msgstr "Documenti"
+
+msgid "Don't allow messages forwarded many times"
+msgstr "Non consentire i messaggi inoltrati molte volte"
+
+msgid "Done"
+msgstr "Fatto"
+
+msgid "Download cancelled"
+msgstr "Download annullato"
+
+msgid "Downloading file before copying to clipboard..."
+msgstr "Download del file prima di copiarlo negli appunti..."
+
+msgid "Draft: "
+msgstr "Bozza: "
+
+msgid "Duration: "
+msgstr "Durata: "
+
+msgid "Edit Contact"
+msgstr "Modifica contatto"
+
+msgid "Edit contact"
+msgstr "Modifica contatto"
+
+msgid "Edit member &tag"
+msgstr "Modifica &etichetta del membro"
+
+msgid "Edit message"
+msgstr "Modifica messaggio"
+
+msgid "Edited "
+msgstr "Modificato "
+
+msgid "Edited at"
+msgstr "Modificato alle"
+
+msgid "Editing cancelled - message can't be empty."
+msgstr "Modifica annullata: il messaggio non può essere vuoto."
+
+msgid "Editing cancelled - no changes made."
+msgstr "Modifica annullata: nessuna modifica fatta."
+
+msgid "Editing cancelled."
+msgstr "Modifica annullata."
+
+msgid "Editing message. Press Enter to save, Escape to cancel."
+msgstr "Modifica del messaggio. Premi Invio per salvare, Esc per annullare."
+
+msgid "Emoji"
+msgstr "Emoji"
+
+msgid "End"
+msgstr "Fine"
+
+msgid "End the call before switching accounts."
+msgstr "Termina la chiamata prima di cambiare account."
+
+msgid "Enter or paste an emoji:"
+msgstr "Scrivi o incolla un'emoji:"
+
+msgid "Enter your WhatsApp Secret Code configured on your phone:"
+msgstr "Inserisci il codice segreto di WhatsApp impostato sul telefono:"
+
+msgid "Entire screen"
+msgstr "Schermo intero"
+
+msgid "Error"
+msgstr "Errore"
+
+msgid "Event"
+msgstr "Evento"
+
+msgid "Event name"
+msgstr "Nome dell'evento"
+
+msgid "Exit fullscreen"
+msgstr "Esci da schermo intero"
+
+msgid "Export chat as"
+msgstr "Esporta chat come"
+
+msgid "Export chat text as"
+msgstr "Esporta testo della chat come"
+
+msgid "Exporting chat, this may take a while for chats with a lot of media..."
+msgstr "Esportazione della chat, potrebbe volerci un po' per le chat con molti media..."
+
+msgid "Failed to answer call."
+msgstr "Impossibile rispondere alla chiamata."
+
+msgid "Failed to copy file to clipboard."
+msgstr "Impossibile copiare il file negli appunti."
+
+msgid "Failed to parse settings"
+msgstr "Impossibile leggere le impostazioni"
+
+msgid "Failed to place call."
+msgstr "Impossibile avviare la chiamata."
+
+msgid "Failed to resume recording."
+msgstr "Impossibile riprendere la registrazione."
+
+msgid "Failed to send"
+msgstr "Invio non riuscito"
+
+msgid "Failed to start microphone recording."
+msgstr "Impossibile avviare la registrazione dal microfono."
+
+msgid "File"
+msgstr "File"
+
+msgid "Files"
+msgstr "File"
+
+msgid "Files attached"
+msgstr "File allegati"
+
+msgid "Find channels"
+msgstr "Trova canali"
+
+msgid "Follow"
+msgstr "Segui"
+
+msgid "Forward Message"
+msgstr "Inoltra messaggio"
+
+msgid "Forward message to"
+msgstr "Inoltra messaggio a"
+
+msgid "Forward message to another contact"
+msgstr "Inoltra il messaggio a un altro contatto"
+
+msgid "Forward messages to"
+msgstr "Inoltra messaggi a"
+
+msgid "Forward this message to contacts or groups"
+msgstr "Inoltra questo messaggio a contatti o gruppi"
+
+msgid "Frequent contacts"
+msgstr "Contatti frequenti"
+
+msgid "Fullscreen"
+msgstr "Schermo intero"
+
+msgid "Getting a fresh copy from the poster's phone. It will show when it arrives."
+msgstr "Sto chiedendo una copia aggiornata al telefono di chi l'ha pubblicato. Comparirà quando arriva."
+
+msgid "Give the channel a name."
+msgstr "Dai un nome al canale."
+
+msgid "Go to Date"
+msgstr "Vai alla data"
+
+msgid "Go to a pinned message:"
+msgstr "Vai a un messaggio fissato:"
+
+msgid "Go to message"
+msgstr "Vai al messaggio"
+
+msgid "Going on now"
+msgstr "In corso ora"
+
+msgid "Group"
+msgstr "Gruppo"
+
+msgid "Group Info"
+msgstr "Info gruppo"
+
+msgid "Group Invite"
+msgstr "Invito al gruppo"
+
+msgid "Group added to the community."
+msgstr "Gruppo aggiunto alla community."
+
+msgid "Group description"
+msgstr "Descrizione del gruppo"
+
+msgid "Group invite link"
+msgstr "Link di invito al gruppo"
+
+msgid "Group name is required."
+msgstr "Il nome del gruppo è obbligatorio."
+
+msgid "Group removed from the community."
+msgstr "Gruppo rimosso dalla community."
+
+msgid "Group settings updated."
+msgstr "Impostazioni del gruppo aggiornate."
+
+msgid "Group video call"
+msgstr "Videochiamata di gruppo"
+
+msgid "Group voice call"
+msgstr "Chiamata vocale di gruppo"
+
+msgid "Group:"
+msgstr "Gruppo:"
+
+msgid "Groups in Common"
+msgstr "Gruppi in comune"
+
+msgid "Groups in common"
+msgstr "Gruppi in comune"
+
+msgid "Groups in this community"
+msgstr "Gruppi in questa community"
+
+msgid "Guests you're bringing"
+msgstr "Ospiti che porti"
+
+msgid "Hide device settings"
+msgstr "Nascondi impostazioni dispositivi"
+
+msgid "Hide message content: notifications from this chat don't show what the message says"
+msgstr "Nascondi il contenuto dei messaggi: le notifiche di questa chat non mostrano cosa dice il messaggio"
+
+msgid "How this archived chat alerts you about new messages"
+msgstr "Come questa chat archiviata ti avvisa dei nuovi messaggi"
+
+msgid "How this computer alerts you about this chat, without changing your phone"
+msgstr "Come questo computer ti avvisa per questa chat, senza cambiare il telefono"
+
+msgid "In group call with"
+msgstr "In chiamata di gruppo con"
+
+msgid "In group call. No one else is here yet."
+msgstr "In chiamata di gruppo. Non c'è ancora nessun altro."
+
+msgid "Incoming call"
+msgstr "Chiamata in arrivo"
+
+msgid "Incoming call from"
+msgstr "Chiamata in arrivo da"
+
+msgid "Incoming group call from"
+msgstr "Chiamata di gruppo in arrivo da"
+
+msgid "Incoming group video call from"
+msgstr "Videochiamata di gruppo in arrivo da"
+
+msgid "Incoming video call from"
+msgstr "Videochiamata in arrivo da"
+
+msgid "Incoming voice call from"
+msgstr "Chiamata vocale in arrivo da"
+
+msgid "Incorrect Secret Code.\n\nPlease check your secret code and try again."
+msgstr "Codice segreto errato.\n\nControlla il codice segreto e riprova."
+
+msgid "Insert Emoji"
+msgstr "Inserisci emoji"
+
+msgid "Invalid JSON"
+msgstr "JSON non valido"
+
+msgid "Invalid Settings File"
+msgstr "File di impostazioni non valido"
+
+msgid "Invite admins"
+msgstr "Invita amministratori"
+
+msgid "Invite link"
+msgstr "Link di invito"
+
+msgid "Invite link..."
+msgstr "Link di invito..."
+
+msgid "Invite people to be admins of the channel"
+msgstr "Invita persone a diventare amministratori del canale"
+
+msgid "Item code"
+msgstr "Codice articolo"
+
+msgid "Items"
+msgstr "Articoli"
+
+msgid "JSON files (*.json)|*.json|All files (*.*)|*.*"
+msgstr "File JSON (*.json)|*.json|Tutti i file (*.*)|*.*"
+
+msgid "Join Call Link"
+msgstr "Partecipa da link di chiamata"
+
+msgid "Join Request"
+msgstr "Richiesta di partecipazione"
+
+msgid "Join Requests"
+msgstr "Richieste di partecipazione"
+
+msgid "Join group"
+msgstr "Entra nel gruppo"
+
+msgid "Join requests..."
+msgstr "Richieste di partecipazione..."
+
+msgid "Join this group call"
+msgstr "Partecipa a questa chiamata di gruppo"
+
+msgid "Joining group..."
+msgstr "Ingresso nel gruppo..."
+
+msgid "Keep this message from disappearing, for everyone"
+msgstr "Impedisci che questo messaggio scompaia, per tutti"
+
+msgid "Keep this message pinned for:"
+msgstr "Mantieni fissato questo messaggio per:"
+
+msgid "Keep this sticker in your favorites to send it again"
+msgstr "Tieni questo sticker tra i preferiti per inviarlo di nuovo"
+
+msgid "Leave Group"
+msgstr "Abbandona gruppo"
+
+msgid "Leave call"
+msgstr "Lascia la chiamata"
+
+msgid "Let this member change group info and settings and manage members"
+msgstr "Permetti a questo membro di modificare info e impostazioni del gruppo e di gestire i membri"
+
+msgid "Let this message disappear like the others"
+msgstr "Lascia che questo messaggio scompaia come gli altri"
+
+msgid "Like removed."
+msgstr "Mi piace rimosso."
+
+msgid "Liked."
+msgstr "Mi piace."
+
+msgid "Link copied."
+msgstr "Link copiato."
+
+msgid "Linked groups"
+msgstr "Gruppi collegati"
+
+msgid "Links"
+msgstr "Link"
+
+msgid "List name:"
+msgstr "Nome della lista:"
+
+msgid "Lists"
+msgstr "Liste"
+
+msgid "Live location"
+msgstr "Posizione in tempo reale"
+
+msgid "Loading catalogue..."
+msgstr "Caricamento del catalogo..."
+
+msgid "Loading followers..."
+msgstr "Caricamento dei follower..."
+
+msgid "Loading pending admin invites..."
+msgstr "Caricamento degli inviti come amministratore in attesa..."
+
+msgid "Loading status privacy settings..."
+msgstr "Caricamento delle impostazioni di privacy dello stato..."
+
+msgid "Loading voice message..."
+msgstr "Caricamento del messaggio vocale..."
+
+msgid "Loading..."
+msgstr "Caricamento..."
+
+msgid "Location"
+msgstr "Posizione"
+
+msgid "Location (optional)"
+msgstr "Luogo (facoltativo)"
+
+msgid "Lock this chat"
+msgstr "Blocca questa chat"
+
+msgid "Locked"
+msgstr "Bloccata"
+
+msgid "Locked chats hidden."
+msgstr "Chat bloccate nascoste."
+
+msgid "Locked chats shown."
+msgstr "Chat bloccate mostrate."
+
+msgid "Log Out"
+msgstr "Disconnetti"
+
+msgid "Log out of WhatsApp on this computer? You'll need to scan a QR code or re-enter your phone number to use whatSnap again."
+msgstr "Disconnettere WhatsApp da questo computer? Per usare di nuovo whatSnap dovrai scansionare un codice QR o reinserire il numero di telefono."
+
+msgid "Logged Out"
+msgstr "Disconnesso"
+
+msgid "Looking for chats, contacts or messages…"
+msgstr "Ricerca di chat, contatti o messaggi…"
+
+msgid "Lower hand"
+msgstr "Abbassa la mano"
+
+msgid "Make Group Admin"
+msgstr "Nomina amministratore del gruppo"
+
+msgid "Make admin"
+msgstr "Nomina amministratore"
+
+msgid "Make admin..."
+msgstr "Nomina amministratore..."
+
+msgid "Make group &admin"
+msgstr "Nomina &amministratore del gruppo"
+
+msgid "Make group admin"
+msgstr "Nomina amministratore del gruppo"
+
+msgid "Make owner..."
+msgstr "Nomina proprietario..."
+
+msgid "Make this admin an ordinary member again"
+msgstr "Rendi di nuovo questo amministratore un membro normale"
+
+msgid "Manage Lists"
+msgstr "Gestisci liste"
+
+msgid "Manage channel..."
+msgstr "Gestisci canale..."
+
+msgid "Markdown file (*.md)|*.md"
+msgstr "File Markdown (*.md)|*.md"
+
+msgid "Media"
+msgstr "Media"
+
+msgid "Member changes"
+msgstr "Modifiche ai membri"
+
+msgid "Member changes, newest first"
+msgstr "Modifiche ai membri, dalla più recente"
+
+msgid "Members"
+msgstr "Membri"
+
+msgid "Members can report messages to admins"
+msgstr "I membri possono segnalare messaggi agli amministratori"
+
+msgid "Members who join after you schedule a message will not receive it."
+msgstr "I membri che entrano dopo che hai programmato un messaggio non lo riceveranno."
+
+msgid "Message &Info"
+msgstr "&Info messaggio"
+
+msgid "Message Info"
+msgstr "Info messaggio"
+
+msgid "Message Num&ber"
+msgstr "Scrivi al num&ero"
+
+msgid "Message Text"
+msgstr "Testo del messaggio"
+
+msgid "Message buttons"
+msgstr "Pulsanti del messaggio"
+
+msgid "Message can't be edited."
+msgstr "Il messaggio non può essere modificato."
+
+msgid "Message can't be starred."
+msgstr "Il messaggio non può essere segnato come importante."
+
+msgid "Message deleted."
+msgstr "Messaggio eliminato."
+
+msgid "Message edited."
+msgstr "Messaggio modificato."
+
+msgid "Message forwarded."
+msgstr "Messaggio inoltrato."
+
+msgid "Message kept."
+msgstr "Messaggio mantenuto."
+
+msgid "Message pinned."
+msgstr "Messaggio fissato."
+
+msgid "Message starred."
+msgstr "Messaggio segnato come importante."
+
+msgid "Message text copied to clipboard."
+msgstr "Testo del messaggio copiato negli appunti."
+
+msgid "Message unkept."
+msgstr "Messaggio non più mantenuto."
+
+msgid "Message unpinned."
+msgstr "Messaggio non più fissato."
+
+msgid "Message unstarred."
+msgstr "Messaggio tolto dagli importanti."
+
+msgid "Messages can only be scheduled in one-on-one chats and groups."
+msgstr "I messaggi si possono programmare solo nelle chat singole e nei gruppi."
+
+msgid "Messages members reported to the admins"
+msgstr "Messaggi che i membri hanno segnalato agli amministratori"
+
+msgid "More channels"
+msgstr "Altri canali"
+
+msgid "Mute notifications from this chat"
+msgstr "Silenzia le notifiche di questa chat"
+
+msgid "Muted"
+msgstr "Silenziata"
+
+msgid "Muted status updates are listed last"
+msgstr "Gli aggiornamenti di stato silenziati sono elencati per ultimi"
+
+msgid "Muted updates"
+msgstr "Aggiornamenti silenziati"
+
+msgid "My status"
+msgstr "Il mio stato"
+
+msgid "My status: No updates. Click or press Enter to add"
+msgstr "Il mio stato: nessun aggiornamento. Fai clic o premi Invio per aggiungerne uno"
+
+msgid "Name for this account in whatSnap (leave empty to use its WhatsApp name):"
+msgstr "Nome di questo account in whatSnap (lascia vuoto per usare il nome WhatsApp):"
+
+msgid "Name is required."
+msgstr "Il nome è obbligatorio."
+
+msgid "Never mark this word again"
+msgstr "Non segnalare più questa parola"
+
+msgid "New"
+msgstr "Nuovo"
+
+msgid "New Community"
+msgstr "Nuova community"
+
+msgid "New List"
+msgstr "Nuova lista"
+
+msgid "New List..."
+msgstr "Nuova lista..."
+
+msgid "New account"
+msgstr "Nuovo account"
+
+msgid "New message"
+msgstr "Nuovo messaggio"
+
+msgid "New reaction"
+msgstr "Nuova reazione"
+
+msgid "New, muted"
+msgstr "Nuovo, silenziato"
+
+msgid "No Secret Code configured.\n\nTo lock or unlock chats on linked devices, you must first create a Secret Code in WhatsApp on your primary phone:\n\n1. Open WhatsApp on your phone\n2. Go to Settings > Privacy > Chat Lock\n3. Tap 'Secret Code' and set a code.\n\nOnce set, it will sync to this device automatically."
+msgstr "Nessun codice segreto impostato.\n\nPer bloccare o sbloccare le chat sui dispositivi collegati, devi prima creare un codice segreto in WhatsApp sul telefono principale:\n\n1. Apri WhatsApp sul telefono\n2. Vai in Impostazioni > Privacy > Blocco chat\n3. Tocca 'Codice segreto' e imposta un codice.\n\nUna volta impostato, verrà sincronizzato automaticamente su questo dispositivo."
+
+msgid "No active call."
+msgstr "Nessuna chiamata attiva."
+
+msgid "No answer with"
+msgstr "Nessuna risposta da"
+
+msgid "No answer."
+msgstr "Nessuna risposta."
+
+msgid "No archived chats"
+msgstr "Nessuna chat archiviata"
+
+msgid "No channels"
+msgstr "Nessun canale"
+
+msgid "No channels in this category."
+msgstr "Nessun canale in questa categoria."
+
+msgid "No chat open."
+msgstr "Nessuna chat aperta."
+
+msgid "No chats, contacts or messages found"
+msgstr "Nessuna chat, contatto o messaggio trovato"
+
+msgid "No emoji found."
+msgstr "Nessuna emoji trovata."
+
+msgid "No favorite stickers yet."
+msgstr "Ancora nessuno sticker preferito."
+
+msgid "No favourite chats"
+msgstr "Nessuna chat preferita"
+
+msgid "No groups found"
+msgstr "Nessun gruppo trovato"
+
+msgid "No groups in common"
+msgstr "Nessun gruppo in comune"
+
+msgid "No locked chats found"
+msgstr "Nessuna chat bloccata trovata"
+
+msgid "No messages are pinned in this chat."
+msgstr "Nessun messaggio fissato in questa chat."
+
+msgid "No messages have been reported to the admins."
+msgstr "Nessun messaggio è stato segnalato agli amministratori."
+
+msgid "No more channels."
+msgstr "Nessun altro canale."
+
+msgid "No one else is here yet."
+msgstr "Non c'è ancora nessun altro."
+
+msgid "No one has joined, left or been added or removed."
+msgstr "Nessuno è entrato, uscito, stato aggiunto o rimosso."
+
+msgid "No one has seen this status update yet."
+msgstr "Nessuno ha ancora visto questo aggiornamento di stato."
+
+msgid "No one is asking to join."
+msgstr "Nessuno chiede di entrare."
+
+msgid "No receipt information available."
+msgstr "Nessuna informazione sulle conferme disponibile."
+
+msgid "No recent stickers."
+msgstr "Nessuno sticker recente."
+
+msgid "No recent updates from contacts"
+msgstr "Nessun aggiornamento recente dai contatti"
+
+msgid "No recommended channels."
+msgstr "Nessun canale consigliato."
+
+msgid "No response - the call could not be answered."
+msgstr "Nessuna risposta: non è stato possibile rispondere alla chiamata."
+
+msgid "No results"
+msgstr "Nessun risultato"
+
+msgid "No results found"
+msgstr "Nessun risultato trovato"
+
+msgid "No similar channels found."
+msgstr "Nessun canale simile trovato."
+
+msgid "No sound and no notification for this chat"
+msgstr "Nessun suono e nessuna notifica per questa chat"
+
+msgid "No sound is reaching you from the call. Check your internet connection."
+msgstr "Non ti arriva nessun suono dalla chiamata. Controlla la connessione a Internet."
+
+msgid "No spelling errors"
+msgstr "Nessun errore di ortografia"
+
+msgid "No starred messages"
+msgstr "Nessun messaggio importante"
+
+msgid "No text to copy."
+msgstr "Nessun testo da copiare."
+
+msgid "No unread chats"
+msgstr "Nessuna chat non letta"
+
+msgid "No votes yet."
+msgstr "Ancora nessun voto."
+
+msgid "Not available"
+msgstr "Non disponibile"
+
+msgid "Not set"
+msgstr "Non impostato"
+
+msgid "Notification se&ttings..."
+msgstr "Impostazioni &notifiche..."
+
+msgid "Notification tone"
+msgstr "Tono di notifica"
+
+msgid "Only admins can add members"
+msgstr "Solo gli amministratori possono aggiungere membri"
+
+msgid "Only admins can edit group info"
+msgstr "Solo gli amministratori possono modificare le info del gruppo"
+
+msgid "Only admins can send messages"
+msgstr "Solo gli amministratori possono inviare messaggi"
+
+msgid "Only admins can send messages to this group"
+msgstr "Solo gli amministratori possono inviare messaggi a questo gruppo"
+
+msgid "Only admins can send messages to this group."
+msgstr "Solo gli amministratori possono inviare messaggi a questo gruppo."
+
+msgid "Only checked contacts will see your status updates"
+msgstr "Solo i contatti selezionati vedranno i tuoi aggiornamenti di stato"
+
+msgid "Only contacts can be blocked."
+msgstr "Si possono bloccare solo i contatti."
+
+msgid "Open &Website"
+msgstr "Apri &sito web"
+
+msgid "Open Chat"
+msgstr "Apri chat"
+
+msgid "Open Link"
+msgstr "Apri link"
+
+msgid "Open a one-on-one chat with this message's sender"
+msgstr "Apri una chat singola con il mittente di questo messaggio"
+
+msgid "Open album"
+msgstr "Apri album"
+
+msgid "Open c&hat"
+msgstr "Apri c&hat"
+
+msgid "Open channel"
+msgstr "Apri canale"
+
+msgid "Open group"
+msgstr "Apri gruppo"
+
+msgid "Open in &another app"
+msgstr "Apri in un'&altra app"
+
+msgid "Open the chat at this message"
+msgstr "Apri la chat a questo messaggio"
+
+msgid "Open the conversation with this contact"
+msgstr "Apri la conversazione con questo contatto"
+
+msgid "Open the group this call is in"
+msgstr "Apri il gruppo di questa chiamata"
+
+msgid "Open your chat with this member"
+msgstr "Apri la tua chat con questo membro"
+
+msgid "Order"
+msgstr "Ordine"
+
+msgid "Order details"
+msgstr "Dettagli dell'ordine"
+
+msgid "Other emoji..."
+msgstr "Altre emoji..."
+
+msgid "Outgoing call to"
+msgstr "Chiamata in uscita a"
+
+msgid "Outgoing group call in"
+msgstr "Chiamata di gruppo in uscita in"
+
+msgid "Outgoing group video call in"
+msgstr "Videochiamata di gruppo in uscita in"
+
+msgid "Outgoing video call to"
+msgstr "Videochiamata in uscita a"
+
+msgid "Overview"
+msgstr "Panoramica"
+
+msgid "P&oll"
+msgstr "S&ondaggio"
+
+msgid "Pa&use"
+msgstr "Pa&usa"
+
+msgid "Pasted files"
+msgstr "File incollati"
+
+msgid "Pause"
+msgstr "Pausa"
+
+msgid "Pause preview"
+msgstr "Metti in pausa l'anteprima"
+
+msgid "Pause voice message"
+msgstr "Metti in pausa il messaggio vocale"
+
+msgid "Paused"
+msgstr "In pausa"
+
+msgid "Pe&nding admin invites..."
+msgstr "Inviti come amministratore in a&ttesa..."
+
+msgid "Pending"
+msgstr "In attesa"
+
+msgid "Permanently delete your whole call history"
+msgstr "Elimina per sempre tutta la cronologia delle chiamate"
+
+msgid "Phone number must have at least 7 digits."
+msgstr "Il numero di telefono deve avere almeno 7 cifre."
+
+msgid "Photo"
+msgstr "Foto"
+
+msgid "Photo or video status update..."
+msgstr "Aggiornamento di stato con foto o video..."
+
+msgid "Photos"
+msgstr "Foto"
+
+msgid "Photos and videos"
+msgstr "Foto e video"
+
+msgid "Pi&n..."
+msgstr "&Fissa..."
+
+msgid "Pick a chat on the left to start messaging."
+msgstr "Scegli una chat a sinistra per iniziare a scrivere."
+
+msgid "Pick a date and time for this message to be sent"
+msgstr "Scegli data e ora in cui inviare questo messaggio"
+
+msgid "Pictures|*.jpg;*.jpeg;*.png;*.gif"
+msgstr "Immagini|*.jpg;*.jpeg;*.png;*.gif"
+
+msgid "Pin Message"
+msgstr "Fissa messaggio"
+
+msgid "Pin or unpin this post at the top of the channel"
+msgstr "Fissa o rimuovi questo post in cima al canale"
+
+msgid "Pin this message at the top of the chat for everyone"
+msgstr "Fissa questo messaggio in cima alla chat per tutti"
+
+msgid "Pin this post, or see who reacted or voted"
+msgstr "Fissa questo post, o vedi chi ha reagito o votato"
+
+msgid "Pinned"
+msgstr "Fissato"
+
+msgid "Pinned Messages"
+msgstr "Messaggi fissati"
+
+msgid "Place a video call"
+msgstr "Avvia una videochiamata"
+
+msgid "Place a voice call"
+msgstr "Avvia una chiamata vocale"
+
+msgid "Placing call..."
+msgstr "Avvio della chiamata..."
+
+msgid "Placing group call..."
+msgstr "Avvio della chiamata di gruppo..."
+
+msgid "Placing video call..."
+msgstr "Avvio della videochiamata..."
+
+msgid "Play"
+msgstr "Riproduci"
+
+msgid "Play next update &automatically"
+msgstr "Riproduci automaticamente l'aggiornamento s&uccessivo"
+
+msgid "Play the message sound but show no notification"
+msgstr "Riproduci il suono del messaggio ma non mostrare la notifica"
+
+msgid "Played"
+msgstr "Riprodotto"
+
+msgid "Played at"
+msgstr "Riprodotto alle"
+
+msgid "Played by"
+msgstr "Riprodotto da"
+
+msgid "Playing"
+msgstr "In riproduzione"
+
+msgid "Playing voice preview."
+msgstr "Riproduzione dell'anteprima vocale."
+
+msgid "Poll"
+msgstr "Sondaggio"
+
+msgid "Post &photo/video status update..."
+msgstr "Pubblica aggiornamento di stato con &foto/video..."
+
+msgid "Post &text status update..."
+msgstr "Pubblica aggiornamento di stato di &testo..."
+
+msgid "Post Status"
+msgstr "Pubblica stato"
+
+msgid "Post Text Status"
+msgstr "Pubblica stato di testo"
+
+msgid "Post text status. Type your status update, press Next Colour or Next Font to style, or Ctrl+Enter to post."
+msgstr "Pubblica stato di testo. Scrivi il tuo aggiornamento di stato, premi Colore successivo o Carattere successivo per lo stile, o Ctrl+Invio per pubblicare."
+
+msgid "Preview"
+msgstr "Anteprima"
+
+msgid "Price"
+msgstr "Prezzo"
+
+msgid "Product details"
+msgstr "Dettagli del prodotto"
+
+msgid "Product link is in the message box. Add your question and send."
+msgstr "Il link al prodotto è nel campo del messaggio. Aggiungi la tua domanda e invia."
+
+msgid "Put Link in &Message Box"
+msgstr "Metti il link nel campo del &messaggio"
+
+msgid "QR Code expired. Click Reload to get a new code:"
+msgstr "Codice QR scaduto. Fai clic su Ricarica per avere un nuovo codice:"
+
+msgid "QR code expired. Click Reload QR Code to try again."
+msgstr "Codice QR scaduto. Fai clic su Ricarica codice QR per riprovare."
+
+msgid "QR code updated"
+msgstr "Codice QR aggiornato"
+
+msgid "Quiz"
+msgstr "Quiz"
+
+msgid "Quiz, choose one answer; you can't change it afterwards"
+msgstr "Quiz, scegli una risposta; poi non potrai cambiarla"
+
+msgid "Quoted message removed."
+msgstr "Messaggio citato rimosso."
+
+msgid "Re&quest again"
+msgstr "Ric&hiedi di nuovo"
+
+msgid "Rea&ct..."
+msgstr "Rea&gisci..."
+
+msgid "React"
+msgstr "Reagisci"
+
+msgid "React to Status"
+msgstr "Reagisci allo stato"
+
+msgid "React to message"
+msgstr "Reagisci al messaggio"
+
+msgid "React to their latest status update"
+msgstr "Reagisci al suo ultimo aggiornamento di stato"
+
+msgid "React with Emoji"
+msgstr "Reagisci con un'emoji"
+
+msgid "React with:"
+msgstr "Reagisci con:"
+
+msgid "React:"
+msgstr "Reazione:"
+
+msgid "Reaction removed."
+msgstr "Reazione rimossa."
+
+msgid "Read"
+msgstr "Letto"
+
+msgid "Read at"
+msgstr "Letto alle"
+
+msgid "Read by"
+msgstr "Letto da"
+
+msgid "Read new messages aloud while this chat is open (Alt+L)"
+msgstr "Leggi ad alta voce i nuovi messaggi mentre questa chat è aperta (Alt+L)"
+
+msgid "Recent"
+msgstr "Recenti"
+
+msgid "Recent calls"
+msgstr "Chiamate recenti"
+
+msgid "Recent updates"
+msgstr "Aggiornamenti recenti"
+
+msgid "Recently used"
+msgstr "Usati di recente"
+
+msgid "Recording voice message..."
+msgstr "Registrazione del messaggio vocale..."
+
+msgid "Reject"
+msgstr "Rifiuta"
+
+msgid "Remove Account"
+msgstr "Rimuovi account"
+
+msgid "Remove Group"
+msgstr "Rimuovi gruppo"
+
+msgid "Remove Member"
+msgstr "Rimuovi membro"
+
+msgid "Remove admin"
+msgstr "Rimuovi amministratore"
+
+msgid "Remove all messages from starred messages"
+msgstr "Togli tutti i messaggi dagli importanti"
+
+msgid "Remove as admin"
+msgstr "Rimuovi come amministratore"
+
+msgid "Remove from &favorite stickers"
+msgstr "Rimuovi dagli sticker &preferiti"
+
+msgid "Remove from community..."
+msgstr "Rimuovi dalla community..."
+
+msgid "Remove reaction"
+msgstr "Rimuovi reazione"
+
+msgid "Remove the channel's picture"
+msgstr "Rimuovi l'immagine del canale"
+
+msgid "Remove this member from the group"
+msgstr "Rimuovi questo membro dal gruppo"
+
+msgid "Remove your profile photo?"
+msgstr "Rimuovere la foto profilo?"
+
+msgid "Removing your tag..."
+msgstr "Rimozione della tua etichetta..."
+
+msgid "Rename Account"
+msgstr "Rinomina account"
+
+msgid "Rename List"
+msgstr "Rinomina lista"
+
+msgid "Replace Text With Emoji"
+msgstr "Sostituzione testo con emoji"
+
+msgid "Reply to message"
+msgstr "Rispondi al messaggio"
+
+msgid "Reply to their latest status update in a chat with them"
+msgstr "Rispondi al suo ultimo aggiornamento di stato nella chat con questa persona"
+
+msgid "Report"
+msgstr "Segnala"
+
+msgid "Report and exit group"
+msgstr "Segnala ed esci dal gruppo"
+
+msgid "Report this message to WhatsApp"
+msgstr "Segnala questo messaggio a WhatsApp"
+
+msgid "Report to group &admins"
+msgstr "Segnala agli &amministratori del gruppo"
+
+msgid "Report to group admins"
+msgstr "Segnala agli amministratori del gruppo"
+
+msgid "Reported messages"
+msgstr "Messaggi segnalati"
+
+msgid "Reported messages..."
+msgstr "Messaggi segnalati..."
+
+msgid "Reported."
+msgstr "Segnalato."
+
+msgid "Reporting..."
+msgstr "Segnalazione..."
+
+msgid "Requested this message from your phone"
+msgstr "Hai chiesto questo messaggio al telefono"
+
+msgid "Requests"
+msgstr "Richieste"
+
+msgid "Res&ume"
+msgstr "Ri&prendi"
+
+msgid "Reset link"
+msgstr "Reimposta link"
+
+msgid "Reset this group's invite link? The current link will stop working, and anyone who has it won't be able to join with it."
+msgstr "Reimpostare il link di invito di questo gruppo? Il link attuale smetterà di funzionare e chi lo ha non potrà più usarlo per entrare."
+
+msgid "Restart Required"
+msgstr "Riavvio necessario"
+
+msgid "Restore Complete"
+msgstr "Ripristino completato"
+
+msgid "Restore Failed"
+msgstr "Ripristino non riuscito"
+
+msgid "Restoring settings will overwrite your current settings. Do you want to continue?"
+msgstr "Il ripristino sovrascriverà le impostazioni attuali. Vuoi continuare?"
+
+msgid "Restricted Chat"
+msgstr "Chat con restrizioni"
+
+msgid "Restricted chat (changed on your phone)"
+msgstr "Chat con restrizioni (modificata sul telefono)"
+
+msgid "Resume recording"
+msgstr "Riprendi registrazione"
+
+msgid "Retry &send"
+msgstr "Riprova l'&invio"
+
+msgid "Retry sending this message"
+msgstr "Riprova a inviare questo messaggio"
+
+msgid "Ringing"
+msgstr "Squilla"
+
+msgid "Ringing..."
+msgstr "Squilla..."
+
+msgid "Ringtone"
+msgstr "Suoneria"
+
+msgid "Sale price"
+msgstr "Prezzo scontato"
+
+msgid "Save all media"
+msgstr "Salva tutti i media"
+
+msgid "Save all photos"
+msgstr "Salva tutte le foto"
+
+msgid "Save all videos"
+msgstr "Salva tutti i video"
+
+msgid "Save file as"
+msgstr "Salva file come"
+
+msgid "Save name and description"
+msgstr "Salva nome e descrizione"
+
+msgid "Save settings"
+msgstr "Salva impostazioni"
+
+msgid "Save this member as a contact"
+msgstr "Salva questo membro come contatto"
+
+msgid "Save voice message to device"
+msgstr "Salva il messaggio vocale sul dispositivo"
+
+msgid "Saving..."
+msgstr "Salvataggio..."
+
+msgid "Scheduled messages"
+msgstr "Messaggi programmati"
+
+msgid "Scheduled messages: none"
+msgstr "Messaggi programmati: nessuno"
+
+msgid "Scheduling message..."
+msgstr "Programmazione del messaggio..."
+
+msgid "Screen"
+msgstr "Schermo"
+
+msgid "Screen sharing isn't ready yet - wait for the call to connect."
+msgstr "La condivisione dello schermo non è ancora pronta: aspetta che la chiamata si connetta."
+
+msgid "Search a contact to add to the call, then press Enter"
+msgstr "Cerca un contatto da aggiungere alla chiamata, poi premi Invio"
+
+msgid "Search a contact to block, then press Enter"
+msgstr "Cerca un contatto da bloccare, poi premi Invio"
+
+msgid "Search channels, then press Enter"
+msgstr "Cerca canali, poi premi Invio"
+
+msgid "Search contacts or chats:"
+msgstr "Cerca contatti o chat:"
+
+msgid "Search emoji"
+msgstr "Cerca emoji"
+
+msgid "Search members"
+msgstr "Cerca membri"
+
+msgid "Searching..."
+msgstr "Ricerca..."
+
+msgid "Secret Code Required"
+msgstr "Codice segreto richiesto"
+
+msgid "See and cancel admin invites not accepted yet"
+msgstr "Vedi e annulla gli inviti come amministratore non ancora accettati"
+
+msgid "See member changes"
+msgstr "Vedi le modifiche ai membri"
+
+msgid "See this member's info, call them, or save them as a contact"
+msgstr "Vedi le info di questo membro, chiamalo o salvalo come contatto"
+
+msgid "See who follows the channel, and manage its admins"
+msgstr "Vedi chi segue il canale e gestisci i suoi amministratori"
+
+msgid "See who has seen one of your status updates, and their reactions"
+msgstr "Vedi chi ha visto uno dei tuoi aggiornamenti di stato e le sue reazioni"
+
+msgid "See who has seen:"
+msgstr "Vedi chi ha visto:"
+
+msgid "See who reacted to this post"
+msgstr "Vedi chi ha reagito a questo post"
+
+msgid "See who voted for each option"
+msgstr "Vedi chi ha votato ogni opzione"
+
+msgid "Select A&ll"
+msgstr "Seleziona &tutto"
+
+msgid "Select all"
+msgstr "Seleziona tutto"
+
+msgid "Select a contact or call from the list first."
+msgstr "Seleziona prima un contatto o una chiamata dall'elenco."
+
+msgid "Select a link to open:"
+msgstr "Seleziona un link da aprire:"
+
+msgid "Select a reaction emoji:"
+msgstr "Seleziona un'emoji di reazione:"
+
+msgid "Select folder to save all media into"
+msgstr "Seleziona la cartella in cui salvare tutti i media"
+
+msgid "Select folder to save all photos into"
+msgstr "Seleziona la cartella in cui salvare tutte le foto"
+
+msgid "Select folder to save all videos into"
+msgstr "Seleziona la cartella in cui salvare tutti i video"
+
+msgid "Select messages"
+msgstr "Seleziona messaggi"
+
+msgid "Select someone in the call first."
+msgstr "Seleziona prima qualcuno nella chiamata."
+
+msgid "Select someone who wants to join first."
+msgstr "Seleziona prima qualcuno che vuole entrare."
+
+msgid "Selection mode off."
+msgstr "Modalità selezione disattivata."
+
+msgid "Selection mode. Press Space to select a message. 0 messages selected."
+msgstr "Modalità selezione. Premi Spazio per selezionare un messaggio. 0 messaggi selezionati."
+
+msgid "Send Message History"
+msgstr "Invia cronologia messaggi"
+
+msgid "Send Pasted Files"
+msgstr "Invia file incollati"
+
+msgid "Send a favorite, recent or WhatsApp sticker, or a sticker file"
+msgstr "Invia uno sticker preferito, recente o di WhatsApp, oppure un file sticker"
+
+msgid "Send a sticker &file (.webp)..."
+msgstr "Invia un &file sticker (.webp)..."
+
+msgid "Send any file as a document, photos at full quality"
+msgstr "Invia qualsiasi file come documento, foto a qualità piena"
+
+msgid "Send as:"
+msgstr "Invia come:"
+
+msgid "Send audio files to play in the chat"
+msgstr "Invia file audio da riprodurre nella chat"
+
+msgid "Send call link"
+msgstr "Invia link di chiamata"
+
+msgid "Send invite link"
+msgstr "Invia link di invito"
+
+msgid "Send link..."
+msgstr "Invia link..."
+
+msgid "Send message &history"
+msgstr "Invia &cronologia messaggi"
+
+msgid "Send or cancel the voice message before switching accounts."
+msgstr "Invia o annulla il messaggio vocale prima di cambiare account."
+
+msgid "Send photos and videos"
+msgstr "Invia foto e video"
+
+msgid "Send reply"
+msgstr "Invia risposta"
+
+msgid "Send this message now? It won't be sent again at the scheduled time."
+msgstr "Inviare ora questo messaggio? Non verrà inviato di nuovo all'ora programmata."
+
+msgid "Send this message to the group's admins to review"
+msgstr "Invia questo messaggio agli amministratori del gruppo perché lo esaminino"
+
+msgid "Send this message to the group's admins to review? The sender won't be told who reported it."
+msgstr "Inviare questo messaggio agli amministratori del gruppo perché lo esaminino? Il mittente non saprà chi l'ha segnalato."
+
+msgid "Send this new member recent messages from before they joined"
+msgstr "Invia a questo nuovo membro i messaggi recenti di prima del suo ingresso"
+
+msgid "Sending admin invites..."
+msgstr "Invio degli inviti come amministratore..."
+
+msgid "Sending poll..."
+msgstr "Invio del sondaggio..."
+
+msgid "Sending quiz..."
+msgstr "Invio del quiz..."
+
+msgid "Sending to the admins..."
+msgstr "Invio agli amministratori..."
+
+msgid "Sending..."
+msgstr "Invio..."
+
+msgid "Sent"
+msgstr "Inviato"
+
+msgid "Sent at"
+msgstr "Inviato alle"
+
+msgid "Sent to"
+msgstr "Inviato a"
+
+msgid "Sent to the group's admins."
+msgstr "Inviato agli amministratori del gruppo."
+
+msgid "Set tag"
+msgstr "Imposta etichetta"
+
+msgid "Setting your tag..."
+msgstr "Impostazione della tua etichetta..."
+
+msgid "Settings backup must be a JSON object"
+msgstr "Il backup delle impostazioni deve essere un oggetto JSON"
+
+msgid "Share recent messages with people added"
+msgstr "Condividi i messaggi recenti con le persone aggiunte"
+
+msgid "Share screen and sound"
+msgstr "Condividi schermo e audio"
+
+msgid "Share screen only"
+msgstr "Condividi solo lo schermo"
+
+msgid "Sharing"
+msgstr "Condivisione"
+
+msgid "Similar channels..."
+msgstr "Canali simili..."
+
+msgid "Someone"
+msgstr "Qualcuno"
+
+msgid "Someone in the call muted you."
+msgstr "Qualcuno nella chiamata ti ha disattivato il microfono."
+
+msgid "Something went wrong."
+msgstr "Qualcosa è andato storto."
+
+msgid "Sound &only"
+msgstr "Solo s&uono"
+
+msgid "Sound from the call isn't getting through."
+msgstr "L'audio della chiamata non arriva."
+
+msgid "Sound on"
+msgstr "Audio attivo"
+
+msgid "Speed 1x"
+msgstr "Velocità 1x"
+
+msgid "Spell check is off. Turn it on in Settings, on the Chats tab."
+msgstr "Il controllo ortografico è disattivato. Attivalo nelle Impostazioni, nella scheda Chat."
+
+msgid "Star or unstar this message"
+msgstr "Segna o togli importante su questo messaggio"
+
+msgid "Starred"
+msgstr "Importante"
+
+msgid "Starred messages"
+msgstr "Messaggi importanti"
+
+msgid "Start a call with this message's sender"
+msgstr "Avvia una chiamata con il mittente di questo messaggio"
+
+msgid "Start a chat with this phone number"
+msgstr "Inizia una chat con questo numero di telefono"
+
+msgid "Start time, like 18:30 (optional)"
+msgstr "Ora di inizio, per esempio 18:30 (facoltativa)"
+
+msgid "Status &privacy..."
+msgstr "&Privacy dello stato..."
+
+msgid "Status &update"
+msgstr "&Aggiornamento di stato"
+
+msgid "Status update cannot be empty."
+msgstr "L'aggiornamento di stato non può essere vuoto."
+
+msgid "Status update deleted."
+msgstr "Aggiornamento di stato eliminato."
+
+msgid "Status: Connected (Syncing...)"
+msgstr "Stato: connesso (sincronizzazione...)"
+
+msgid "Status: My Contacts Except..."
+msgstr "Stato: i miei contatti tranne..."
+
+msgid "Status: Only Share With..."
+msgstr "Stato: condividi solo con..."
+
+msgid "Sticker"
+msgstr "Sticker"
+
+msgid "Stickers"
+msgstr "Sticker"
+
+msgid "Stickers (*.webp)|*.webp"
+msgstr "Sticker (*.webp)|*.webp"
+
+msgid "Stickers from:"
+msgstr "Sticker da:"
+
+msgid "Stop marking this word until whatSnap restarts"
+msgstr "Non segnalare più questa parola fino al riavvio di whatSnap"
+
+msgid "Stop sharing screen"
+msgstr "Interrompi condivisione schermo"
+
+msgid "Stopped sharing your screen."
+msgstr "Hai smesso di condividere lo schermo."
+
+msgid "Switch Account"
+msgstr "Cambia account"
+
+msgid "Take this message off your starred messages"
+msgstr "Togli questo messaggio dai messaggi importanti"
+
+msgid "Take this sticker off your favorites"
+msgstr "Togli questo sticker dai preferiti"
+
+msgid "Text"
+msgstr "Testo"
+
+msgid "Text status update..."
+msgstr "Aggiornamento di stato di testo..."
+
+msgid "Text that turns into emoji"
+msgstr "Testo che diventa emoji"
+
+msgid "That is not a date. Use year-month-day, like 2026-03-27."
+msgstr "Non è una data. Usa anno-mese-giorno, per esempio 2026-03-27."
+
+msgid "That isn't a WhatsApp call link."
+msgstr "Non è un link di chiamata WhatsApp."
+
+msgid "That message isn't on this computer, so it can't be shown."
+msgstr "Quel messaggio non è su questo computer, quindi non si può mostrare."
+
+msgid "The camera isn't ready yet - wait for the call to connect."
+msgstr "La fotocamera non è ancora pronta: aspetta che la chiamata si connetta."
+
+msgid "The channel"
+msgstr "Il canale"
+
+msgid "The file does not appear to contain whatSnap settings"
+msgstr "Il file non sembra contenere impostazioni di whatSnap"
+
+msgid "The interface language was changed. Restart whatSnap now so the change takes full effect?"
+msgstr "La lingua dell'interfaccia è cambiata. Riavviare ora whatSnap perché la modifica abbia pieno effetto?"
+
+msgid "The message is empty."
+msgstr "Il messaggio è vuoto."
+
+msgid "The notification tone is shared with WhatsApp on your other computers, unless it is a custom sound file; the rest only change this computer. To mute this chat on all your devices, use Mute in its menu."
+msgstr "Il tono di notifica è condiviso con WhatsApp sugli altri tuoi computer, a meno che non sia un file audio personalizzato; il resto cambia solo questo computer. Per silenziare questa chat su tutti i tuoi dispositivi, usa Silenzia nel suo menu."
+
+msgid "The other person"
+msgstr "L'altra persona"
+
+msgid "The question is too long. Polls allow up to 255 characters."
+msgstr "La domanda è troppo lunga. I sondaggi consentono al massimo 255 caratteri."
+
+msgid "The video couldn't be decoded. The file may be damaged."
+msgstr "Impossibile decodificare il video. Il file potrebbe essere danneggiato."
+
+msgid "The video couldn't be played."
+msgstr "Impossibile riprodurre il video."
+
+msgid "This button only works in WhatsApp on your phone."
+msgstr "Questo pulsante funziona solo in WhatsApp sul telefono."
+
+msgid "This channel is suspended"
+msgstr "Questo canale è sospeso"
+
+msgid "This chat has no message box."
+msgstr "Questa chat non ha un campo per i messaggi."
+
+msgid "This chat has no scheduled messages."
+msgstr "Questa chat non ha messaggi programmati."
+
+msgid "This group"
+msgstr "Questo gruppo"
+
+msgid "This is the first status update."
+msgstr "Questo è il primo aggiornamento di stato."
+
+msgid "This is the only account in whatSnap. To unlink it, use Account, Log Out."
+msgstr "Questo è l'unico account in whatSnap. Per scollegarlo, usa Account, Disconnetti."
+
+msgid "This is the start of the chat."
+msgstr "Questo è l'inizio della chat."
+
+msgid "This message was deleted"
+msgstr "Questo messaggio è stato eliminato"
+
+msgid "This message will not be sent. This action cannot be undone."
+msgstr "Questo messaggio non verrà inviato. L'operazione non si può annullare."
+
+msgid "This pack has no stickers."
+msgstr "Questo pacchetto non ha sticker."
+
+msgid "This photo couldn't be shown."
+msgstr "Impossibile mostrare questa foto."
+
+msgid "This video's format can't be played here."
+msgstr "Il formato di questo video non si può riprodurre qui."
+
+msgid "Today"
+msgstr "Oggi"
+
+msgid "Turn camera off"
+msgstr "Spegni fotocamera"
+
+msgid "Turn off"
+msgstr "Disattiva"
+
+msgid "Turn on"
+msgstr "Attiva"
+
+msgid "Two options are the same. Each option must be different."
+msgstr "Due opzioni sono uguali. Ogni opzione deve essere diversa."
+
+msgid "Type a message to schedule."
+msgstr "Scrivi un messaggio da programmare."
+
+msgid "Type a name for the event."
+msgstr "Scrivi un nome per l'evento."
+
+msgid "Type a question for the poll."
+msgstr "Scrivi una domanda per il sondaggio."
+
+msgid "Type a reply first."
+msgstr "Scrivi prima una risposta."
+
+msgid "Type an update"
+msgstr "Scrivi un aggiornamento"
+
+msgid "Un&keep"
+msgstr "&Non mantenere"
+
+msgid "Un&like"
+msgstr "&Togli mi piace"
+
+msgid "Unblock contact"
+msgstr "Sblocca contatto"
+
+msgid "Unfollow"
+msgstr "Smetti di seguire"
+
+msgid "Unfollow channel"
+msgstr "Smetti di seguire il canale"
+
+msgid "Unfollow this channel? Its posts will be removed from whatSnap."
+msgstr "Smettere di seguire questo canale? I suoi post verranno rimossi da whatSnap."
+
+msgid "Unkeep"
+msgstr "Non mantenere"
+
+msgid "Unknown"
+msgstr "Sconosciuto"
+
+msgid "Unknown contact"
+msgstr "Contatto sconosciuto"
+
+msgid "Unknown error"
+msgstr "Errore sconosciuto"
+
+msgid "Unknown member"
+msgstr "Membro sconosciuto"
+
+msgid "Unlock Failed"
+msgstr "Sblocco non riuscito"
+
+msgid "Unlock Locked Chats"
+msgstr "Sblocca chat bloccate"
+
+msgid "Unlock Your Chats Faster"
+msgstr "Sblocca le chat più velocemente"
+
+msgid "Unlock your locked chats in whatSnap"
+msgstr "Sblocca le tue chat bloccate in whatSnap"
+
+msgid "Unmute"
+msgstr "Riattiva audio"
+
+msgid "Unmute microphone"
+msgstr "Riattiva microfono"
+
+msgid "Unnamed channel"
+msgstr "Canale senza nome"
+
+msgid "Unnamed product"
+msgstr "Prodotto senza nome"
+
+msgid "Unpi&n"
+msgstr "&Rimuovi fissato"
+
+msgid "Unpin this message for everyone in the chat"
+msgstr "Togli questo messaggio dai fissati per tutti nella chat"
+
+msgid "Unstar &all..."
+msgstr "Togli &tutti gli importanti..."
+
+msgid "Unstar All Messages"
+msgstr "Togli tutti i messaggi importanti"
+
+msgid "Unstar message"
+msgstr "Togli messaggio dagli importanti"
+
+msgid "Unstar messages"
+msgstr "Togli messaggi dagli importanti"
+
+msgid "Upload cancelled."
+msgstr "Caricamento annullato."
+
+msgid "Upload progress"
+msgstr "Avanzamento del caricamento"
+
+msgid "Uploading"
+msgstr "Caricamento"
+
+msgid "Use this spelling"
+msgstr "Usa questa ortografia"
+
+msgid "Verified channel"
+msgstr "Canale verificato"
+
+msgid "Verify Security Code"
+msgstr "Verifica codice di sicurezza"
+
+msgid "Video"
+msgstr "Video"
+
+msgid "Video call connected. Your camera is off."
+msgstr "Videochiamata connessa. La tua fotocamera è spenta."
+
+msgid "Video call with"
+msgstr "Videochiamata con"
+
+msgid "Video you sent"
+msgstr "Video che hai inviato"
+
+msgid "Videos"
+msgstr "Video"
+
+msgid "View channel..."
+msgstr "Visualizza canale..."
+
+msgid "View delivery info, or a poll's votes"
+msgstr "Visualizza info di consegna, o i voti di un sondaggio"
+
+msgid "View once voice message sent."
+msgstr "Messaggio vocale a visualizzazione singola inviato."
+
+msgid "View their status updates"
+msgstr "Visualizza i suoi aggiornamenti di stato"
+
+msgid "View your status updates"
+msgstr "Visualizza i tuoi aggiornamenti di stato"
+
+msgid "Viewed"
+msgstr "Visualizzato"
+
+msgid "Viewed By"
+msgstr "Visto da"
+
+msgid "Viewed updates"
+msgstr "Aggiornamenti visti"
+
+msgid "Viewed, muted"
+msgstr "Visto, silenziato"
+
+msgid "Voice call"
+msgstr "Chiamata vocale"
+
+msgid "Voice call with"
+msgstr "Chiamata vocale con"
+
+msgid "Voice message"
+msgstr "Messaggio vocale"
+
+msgid "Voice message sent."
+msgstr "Messaggio vocale inviato."
+
+msgid "Voice note"
+msgstr "Nota vocale"
+
+msgid "Voice note status."
+msgstr "Stato con nota vocale."
+
+msgid "Voice preview finished."
+msgstr "Anteprima vocale terminata."
+
+msgid "Voice preview paused."
+msgstr "Anteprima vocale in pausa."
+
+msgid "Voice recording discarded."
+msgstr "Registrazione vocale scartata."
+
+msgid "Voice recording paused. Preview available."
+msgstr "Registrazione vocale in pausa. Anteprima disponibile."
+
+msgid "Voice recording resumed."
+msgstr "Registrazione vocale ripresa."
+
+msgid "Voice recording stopped. Ready to send."
+msgstr "Registrazione vocale fermata. Pronta per l'invio."
+
+msgid "Vote"
+msgstr "Vota"
+
+msgid "Vote removed."
+msgstr "Voto rimosso."
+
+msgid "Voted."
+msgstr "Votato."
+
+msgid "Votes"
+msgstr "Voti"
+
+msgid "Waiting for someone in the call to let you in."
+msgstr "In attesa che qualcuno nella chiamata ti faccia entrare."
+
+msgid "Waiting for someone in the call to let you in..."
+msgstr "In attesa che qualcuno nella chiamata ti faccia entrare..."
+
+msgid "Website"
+msgstr "Sito web"
+
+msgid "What kind of call?"
+msgstr "Che tipo di chiamata?"
+
+msgid "What's this community for? (You can leave this empty.)"
+msgstr "A cosa serve questa community? (Puoi lasciarlo vuoto.)"
+
+msgid "WhatsApp Login - Pairing Code"
+msgstr "Accesso a WhatsApp - Codice di collegamento"
+
+msgid "WhatsApp Login - QR Code"
+msgstr "Accesso a WhatsApp - Codice QR"
+
+msgid "WhatsApp Name"
+msgstr "Nome WhatsApp"
+
+msgid "WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact."
+msgstr "WhatsApp non ha condiviso il numero di telefono di questa persona, quindi non si può salvare come contatto."
+
+msgid "WhatsApp hasn't turned on scheduling messages for your account yet."
+msgstr "WhatsApp non ha ancora attivato la programmazione dei messaggi per il tuo account."
+
+msgid "WhatsApp hasn't turned on scheduling messages for your account."
+msgstr "WhatsApp non ha attivato la programmazione dei messaggi per il tuo account."
+
+msgid "WhatsApp sends these at the time shown, even when this computer is off."
+msgstr "WhatsApp li invia all'ora indicata, anche quando questo computer è spento."
+
+msgid "Which answer is correct?"
+msgstr "Qual è la risposta corretta?"
+
+msgid "Who &reacted..."
+msgstr "Chi ha &reagito..."
+
+msgid "Who &voted..."
+msgstr "Chi ha &votato..."
+
+msgid "Who can see your status updates:"
+msgstr "Chi può vedere i tuoi aggiornamenti di stato:"
+
+msgid "Window"
+msgstr "Finestra"
+
+msgid "Yesterday"
+msgstr "Ieri"
+
+msgid "You"
+msgstr "Tu"
+
+msgid "You are already on a call. End the current call before placing a new one."
+msgstr "Sei già in una chiamata. Termina la chiamata in corso prima di avviarne una nuova."
+
+msgid "You can't send messages to this group because you're no longer a member"
+msgstr "Non puoi inviare messaggi a questo gruppo perché non ne fai più parte"
+
+msgid "You can't send messages to this group because you're no longer a member."
+msgstr "Non puoi inviare messaggi a questo gruppo perché non ne fai più parte."
+
+msgid "You cannot send messages to this chat."
+msgstr "Non puoi inviare messaggi a questa chat."
+
+msgid "You deleted this message"
+msgstr "Hai eliminato questo messaggio"
+
+msgid "You don't follow this channel"
+msgstr "Non segui questo canale"
+
+msgid "You follow this channel"
+msgstr "Segui questo canale"
+
+msgid "You have no locked chats"
+msgstr "Non hai chat bloccate"
+
+msgid "You left the group."
+msgstr "Hai abbandonato il gruppo."
+
+msgid "You own this channel"
+msgstr "Sei il proprietario di questo canale"
+
+msgid "You're all caught up."
+msgstr "Sei in pari."
+
+msgid "You're an admin of this channel"
+msgstr "Sei un amministratore di questo canale"
+
+msgid "You're sharing a window:"
+msgstr "Stai condividendo una finestra:"
+
+msgid "You're sharing your screen."
+msgstr "Stai condividendo lo schermo."
+
+msgid "You: "
+msgstr "Tu: "
+
+msgid "Your answer"
+msgstr "La tua risposta"
+
+msgid "Your call history will be permanently deleted."
+msgstr "La cronologia delle chiamate verrà eliminata per sempre."
+
+msgid "Your personal messages are end-to-end encrypted."
+msgstr "I tuoi messaggi personali sono crittografati end-to-end."
+
+msgid "Your phone didn't share any message history with whatSnap. New messages will still arrive."
+msgstr "Il telefono non ha condiviso nessuna cronologia dei messaggi con whatSnap. I nuovi messaggi arriveranno comunque."
+
+msgid "Your phone shared only your recent messages with whatSnap, not your full chat history. Older messages load from your phone when you scroll to the top of a chat."
+msgstr "Il telefono ha condiviso con whatSnap solo i messaggi recenti, non tutta la cronologia delle chat. I messaggi meno recenti vengono caricati dal telefono quando arrivi in cima a una chat."
+
+msgid "Your profile photo was changed."
+msgstr "La tua foto profilo è stata cambiata."
+
+msgid "Your profile photo was removed."
+msgstr "La tua foto profilo è stata rimossa."
+
+msgid "Your status update can't exceed 700 characters or 10 lines."
+msgstr "L'aggiornamento di stato non può superare 700 caratteri o 10 righe."
+
+msgid "Your tag in this group"
+msgstr "La tua etichetta in questo gruppo"
+
+msgid "Your tag was removed."
+msgstr "La tua etichetta è stata rimossa."
+
+msgid "Your whatSnap settings were successfully backed up."
+msgstr "Backup delle impostazioni di whatSnap completato."
+
+msgid "Your whatSnap settings were successfully restored."
+msgstr "Impostazioni di whatSnap ripristinate."
+
+msgid "Your whatSnap settings were successfully restored. The interface language was changed. Restart whatSnap now so the change takes full effect?"
+msgstr "Impostazioni di whatSnap ripristinate. La lingua dell'interfaccia è cambiata. Riavviare ora whatSnap perché la modifica abbia pieno effetto?"
+
+msgid "Zip archive (*.zip)|*.zip"
+msgstr "Archivio zip (*.zip)|*.zip"
+
+msgid "\n\nAccept? As an admin you can post updates and change the channel's details."
+msgstr "\n\nAccettare? Come amministratore puoi pubblicare aggiornamenti e modificare i dettagli del canale."
+
+msgid "a channel"
+msgstr "un canale"
+
+msgid "admin"
+msgstr "amministratore"
+
+msgid "as set in Settings"
+msgstr "come nelle Impostazioni"
+
+msgid "channel"
+msgstr "canale"
+
+msgid "couldn't allocate a surface for the window"
+msgstr "impossibile allocare una superficie per la finestra"
+
+msgid "couldn't allocate the capture bitmap"
+msgstr "impossibile allocare la bitmap di cattura"
+
+msgid "couldn't create a capture surface"
+msgstr "impossibile creare una superficie di cattura"
+
+msgid "couldn't open the screen for capture"
+msgstr "impossibile aprire lo schermo per la cattura"
+
+msgid "declined"
+msgstr "rifiutata"
+
+msgid "declined the call."
+msgstr "ha rifiutato la chiamata."
+
+msgid "delivered"
+msgstr "consegnato"
+
+msgid "didn't answer."
+msgstr "non ha risposto."
+
+msgid "following"
+msgstr "segui"
+
+msgid "group video call from"
+msgstr "chiamata di gruppo video da"
+
+msgid "group voice call from"
+msgstr "chiamata di gruppo vocale da"
+
+msgid "in"
+msgstr "in"
+
+msgid "in the call"
+msgstr "nella chiamata"
+
+msgid "invited"
+msgstr "invitato"
+
+msgid "joined the call."
+msgstr "è entrato nella chiamata."
+
+msgid "joining"
+msgstr "in ingresso"
+
+msgid "left the call."
+msgstr "ha lasciato la chiamata."
+
+msgid "muted"
+msgstr "silenziato"
+
+msgid "no"
+msgstr "no"
+
+msgid "no one"
+msgstr "nessuno"
+
+msgid "notification and sound"
+msgstr "notifica e suono"
+
+msgid "notification only, no sound"
+msgstr "solo notifica, senza suono"
+
+msgid "notify normally"
+msgstr "notifica normalmente"
+
+msgid "off on this computer"
+msgstr "disattivato su questo computer"
+
+msgid "on"
+msgstr "attivo"
+
+msgid "owner"
+msgstr "proprietario"
+
+msgid "played"
+msgstr "riprodotto"
+
+msgid "quoted message"
+msgstr "messaggio citato"
+
+msgid "read"
+msgstr "letto"
+
+msgid "recording audio..."
+msgstr "sta registrando un audio..."
+
+msgid "recording audio…"
+msgstr "sta registrando un audio…"
+
+msgid "ringing"
+msgstr "squilla"
+
+msgid "silent"
+msgstr "silenzioso"
+
+msgid "sound only"
+msgstr "solo suono"
+
+msgid "sound only, no notification"
+msgstr "solo suono, senza notifica"
+
+msgid "started sharing their screen."
+msgstr "ha iniziato a condividere lo schermo."
+
+msgid "stopped sharing their screen."
+msgstr "ha smesso di condividere lo schermo."
+
+msgid "the channel"
+msgstr "il canale"
+
+msgid "the group"
+msgstr "il gruppo"
+
+msgid "the screen couldn't be read"
+msgstr "impossibile leggere lo schermo"
+
+msgid "the window can't be read right now"
+msgstr "la finestra non si può leggere in questo momento"
+
+msgid "the window couldn't be read"
+msgstr "impossibile leggere la finestra"
+
+msgid "the window to share is gone"
+msgstr "la finestra da condividere non c'è più"
+
+msgid "them"
+msgstr "questa persona"
+
+msgid "this group"
+msgstr "questo gruppo"
+
+msgid "turned their camera off."
+msgstr "ha spento la fotocamera."
+
+msgid "turned their camera on."
+msgstr "ha acceso la fotocamera."
+
+msgid "typing..."
+msgstr "sta scrivendo..."
+
+msgid "typing…"
+msgstr "sta scrivendo…"
+
+msgid "unknown error"
+msgstr "errore sconosciuto"
+
+msgid "verified"
+msgstr "verificato"
+
+msgid "video call from"
+msgstr "videochiamata da"
+
+msgid "voice call from"
+msgstr "chiamata vocale da"
+
+msgid "wants to switch to video. Turn on your camera (Ctrl+Shift+V) to switch to video."
+msgstr "vuole passare al video. Accendi la fotocamera (Ctrl+Maiusc+V) per passare al video."
+
+msgid "whatSnap for Windows"
+msgstr "whatSnap per Windows"
+
+msgid "yes"
+msgstr "sì"
+
+msgid "&8 hours"
+msgstr "&8 ore"
+
+msgid "&Always"
+msgstr "&Sempre"
+
+msgid "&Pin post"
+msgstr "&Fissa post"
+
+msgid "&Unpin post"
+msgstr "&Rimuovi post fissato"
+
+msgid "1 &week"
+msgstr "1 &settimana"
+
+msgid "24 hours"
+msgstr "24 ore"
+
+msgid "30 days"
+msgstr "30 giorni"
+
+msgid "7 days"
+msgstr "7 giorni"
+
+msgid "90 days"
+msgstr "90 giorni"
+
+msgid "Activities"
+msgstr "Attività"
+
+msgid "Advanced chat privacy is off in this chat. When it's on, people in this chat can't export it, media isn't saved to their devices automatically, and messages can't be used with AI features. Turn it on?"
+msgstr "La privacy avanzata è disattivata in questa chat. Quando è attiva, le persone in questa chat non possono esportarla, i media non vengono salvati automaticamente sui loro dispositivi e i messaggi non possono essere usati con le funzioni di IA. Attivarla?"
+
+msgid "Advanced chat privacy is on in this chat. When it's on, people in this chat can't export it, media isn't saved to their devices automatically, and messages can't be used with AI features. Turn it off?"
+msgstr "La privacy avanzata è attiva in questa chat. Quando è attiva, le persone in questa chat non possono esportarla, i media non vengono salvati automaticamente sui loro dispositivi e i messaggi non possono essere usati con le funzioni di IA. Disattivarla?"
+
+msgid "Animals & Nature"
+msgstr "Animali e natura"
+
+msgid "Anyone with the link can now join straight away."
+msgstr "Ora chiunque abbia il link può entrare subito."
+
+msgid "As set in Settings"
+msgstr "Come nelle Impostazioni"
+
+msgid "Birthday Cake"
+msgstr "Torta di compleanno"
+
+msgid "Business"
+msgstr "Attività commerciali"
+
+msgid "Channel updated."
+msgstr "Canale aggiornato."
+
+msgid "Channels are public: anyone can find and follow yours, and followers can't see your phone number. By creating a channel you agree to WhatsApp's Channels Guidelines."
+msgstr "I canali sono pubblici: chiunque può trovare e seguire il tuo, e i follower non possono vedere il tuo numero di telefono. Creando un canale accetti le Linee guida sui canali di WhatsApp."
+
+msgid "Choose at least one contact to exclude."
+msgstr "Scegli almeno un contatto da escludere."
+
+msgid "Clapping Hands"
+msgstr "Mani che applaudono"
+
+msgid "Clear chat..."
+msgstr "Svuota chat..."
+
+msgid "Colour 1"
+msgstr "Colore 1"
+
+msgid "Colour 10"
+msgstr "Colore 10"
+
+msgid "Colour 11"
+msgstr "Colore 11"
+
+msgid "Colour 12"
+msgstr "Colore 12"
+
+msgid "Colour 13"
+msgstr "Colore 13"
+
+msgid "Colour 14"
+msgstr "Colore 14"
+
+msgid "Colour 15"
+msgstr "Colore 15"
+
+msgid "Colour 16"
+msgstr "Colore 16"
+
+msgid "Colour 17"
+msgstr "Colore 17"
+
+msgid "Colour 18"
+msgstr "Colore 18"
+
+msgid "Colour 19"
+msgstr "Colore 19"
+
+msgid "Colour 2"
+msgstr "Colore 2"
+
+msgid "Colour 20"
+msgstr "Colore 20"
+
+msgid "Colour 21"
+msgstr "Colore 21"
+
+msgid "Colour 3"
+msgstr "Colore 3"
+
+msgid "Colour 4"
+msgstr "Colore 4"
+
+msgid "Colour 5"
+msgstr "Colore 5"
+
+msgid "Colour 6"
+msgstr "Colore 6"
+
+msgid "Colour 7"
+msgstr "Colore 7"
+
+msgid "Colour 8"
+msgstr "Colore 8"
+
+msgid "Colour 9"
+msgstr "Colore 9"
+
+msgid "Contact details..."
+msgstr "Dettagli contatto..."
+
+msgid "Create channel"
+msgstr "Crea canale"
+
+msgid "Delete chat..."
+msgstr "Elimina chat..."
+
+msgid "Disappearing messages..."
+msgstr "Messaggi effimeri..."
+
+msgid "Edit channel"
+msgstr "Modifica canale"
+
+msgid "Entertainment"
+msgstr "Intrattenimento"
+
+msgid "Export chat..."
+msgstr "Esporta chat..."
+
+msgid "Face with Tears of Joy"
+msgstr "Faccina con lacrime di gioia"
+
+msgid "Fire"
+msgstr "Fuoco"
+
+msgid "Flags"
+msgstr "Bandiere"
+
+msgid "Folded Hands"
+msgstr "Mani giunte"
+
+msgid "Food & Drink"
+msgstr "Cibo e bevande"
+
+msgid "Going"
+msgstr "Ci sarò"
+
+msgid "Heart Eyes"
+msgstr "Faccina con occhi a cuore"
+
+msgid "Hot Beverage"
+msgstr "Bevanda calda"
+
+msgid "Hundred Points"
+msgstr "Cento punti"
+
+msgid "In group call"
+msgstr "In chiamata di gruppo"
+
+msgid "Last Seen"
+msgstr "Ultimo accesso"
+
+msgid "Lifestyle"
+msgstr "Stile di vita"
+
+msgid "Maybe"
+msgstr "Forse"
+
+msgid "Microphone muted."
+msgstr "Microfono disattivato."
+
+msgid "Microphone unmuted."
+msgstr "Microfono attivato."
+
+msgid "My contacts"
+msgstr "I miei contatti"
+
+msgid "My contacts except..."
+msgstr "I miei contatti tranne..."
+
+msgid "New messages in this chat will be read aloud."
+msgstr "I nuovi messaggi di questa chat verranno letti ad alta voce."
+
+msgid "New messages in this chat won't be read aloud."
+msgstr "I nuovi messaggi di questa chat non verranno letti ad alta voce."
+
+msgid "New people now wait for you to let them in."
+msgstr "Ora le nuove persone aspettano che tu le faccia entrare."
+
+msgid "News & Information"
+msgstr "Notizie e informazione"
+
+msgid "Not going"
+msgstr "Non ci sarò"
+
+msgid "Notification settings..."
+msgstr "Impostazioni notifiche..."
+
+msgid "Objects"
+msgstr "Oggetti"
+
+msgid "Off on this computer"
+msgstr "Disattivato su questo computer"
+
+msgid "Online"
+msgstr "Online"
+
+msgid "Only share with..."
+msgstr "Condividi solo con..."
+
+msgid "Organizations"
+msgstr "Organizzazioni"
+
+msgid "Party Popper"
+msgstr "Coriandoli"
+
+msgid "People & Body"
+msgstr "Persone e corpo"
+
+msgid "Pick someone on the left, then call them."
+msgstr "Scegli qualcuno a sinistra, poi chiamalo."
+
+msgid "Pictures (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif"
+msgstr "Immagini (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif"
+
+msgid "Post Photo Status"
+msgstr "Pubblica stato con foto"
+
+msgid "Post Video Status"
+msgstr "Pubblica stato con video"
+
+msgid "Quoted message"
+msgstr "Messaggio citato"
+
+msgid "Reactions"
+msgstr "Reazioni"
+
+msgid "Red Heart"
+msgstr "Cuore rosso"
+
+msgid "Report this message to WhatsApp? WhatsApp receives this message. The sender and the group won't be notified."
+msgstr "Segnalare questo messaggio a WhatsApp? WhatsApp riceve questo messaggio. Il mittente e il gruppo non verranno avvisati."
+
+msgid "Report..."
+msgstr "Segnala..."
+
+msgid "Sans-Serif (Default)"
+msgstr "Sans-serif (predefinito)"
+
+msgid "Script"
+msgstr "Corsivo"
+
+msgid "Serif"
+msgstr "Serif"
+
+msgid "Smileys & Emotion"
+msgstr "Faccine ed emozioni"
+
+msgid "Smiling Face"
+msgstr "Faccina sorridente"
+
+msgid "Sparkles"
+msgstr "Scintille"
+
+msgid "Sports"
+msgstr "Sport"
+
+msgid "Sunglasses"
+msgstr "Occhiali da sole"
+
+msgid "Symbols"
+msgstr "Simboli"
+
+msgid "They won't be let in."
+msgstr "Non verranno fatti entrare."
+
+msgid "They're being let in."
+msgstr "Stanno per essere fatti entrare."
+
+msgid "This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again."
+msgstr "Questa copia di whatSnap non include il componente per il menu Condividi. Reinstalla whatSnap e riprova."
+
+msgid "This message can no longer be edited - the 15 minute edit window has passed."
+msgstr "Questo messaggio non si può più modificare: sono passati i 15 minuti disponibili per la modifica."
+
+msgid "This message can no longer be edited - the 30 day edit window has passed."
+msgstr "Questo messaggio non si può più modificare: sono passati i 30 giorni disponibili per la modifica."
+
+msgid "Thumbs Up"
+msgstr "Pollice in su"
+
+msgid "Travel & Places"
+msgstr "Viaggi e luoghi"
+
+msgid "Unlock your chats faster. Next time, use Windows Hello, with your fingerprint, face or PIN, instead of typing the secret code. You can change this in Settings, Chats.\n\nTurn on Windows Hello for locked chats?"
+msgstr "Sblocca le chat più velocemente. La prossima volta usa Windows Hello, con impronta, volto o PIN, invece di scrivere il codice segreto. Puoi cambiarlo in Impostazioni, Chat.\n\nAttivare Windows Hello per le chat bloccate?"
+
+msgid "You aren't an admin of any group that could be added. A group can be in one community at a time."
+msgstr "Non sei amministratore di nessun gruppo che si possa aggiungere. Un gruppo può stare in una sola community alla volta."
+
+msgid "You lowered your hand."
+msgstr "Hai abbassato la mano."
+
+msgid "Your computer's sound is shared too, screen reader speech included. Muting your microphone mutes it as well."
+msgstr "Viene condiviso anche l'audio del computer, compresa la voce dello screen reader. Disattivando il microfono si disattiva anche questo."
+
+msgid "Your hand is raised."
+msgstr "Hai alzato la mano."
+
+msgid "Your screen is being shared as a black picture. If your screen reader's screen curtain is on, turn it off so the others can see your screen."
+msgstr "Il tuo schermo viene condiviso come un'immagine nera. Se la tenda schermo dello screen reader è attiva, disattivala perché gli altri possano vedere lo schermo."
+
+msgid "Your screen is visible to the others now."
+msgstr "Ora gli altri vedono il tuo schermo."
+
+msgid "beaming face with smiling eyes"
+msgstr "faccina raggiante con occhi sorridenti"
+
+msgid "confused face"
+msgstr "faccina confusa"
+
+msgid "contact"
+msgstr "contatto"
+
+msgid "contacts"
+msgstr "contatti"
+
+msgid "crying face"
+msgstr "faccina che piange"
+
+msgid "excluded"
+msgstr "escluso"
+
+msgid "face blowing a kiss"
+msgstr "faccina che manda un bacio"
+
+msgid "face with open mouth"
+msgstr "faccina con bocca aperta"
+
+msgid "face with tongue"
+msgstr "faccina con lingua fuori"
+
+msgid "grinning face"
+msgstr "faccina con un gran sorriso"
+
+msgid "grinning squinting face"
+msgstr "faccina che sogghigna con occhi strizzati"
+
+msgid "neutral face"
+msgstr "faccina neutra"
+
+msgid "not available for your postcode"
+msgstr "non disponibile per il tuo CAP"
+
+msgid "not excluded"
+msgstr "non escluso"
+
+msgid "out of stock"
+msgstr "esaurito"
+
+msgid "red heart"
+msgstr "cuore rosso"
+
+msgid "slightly frowning face"
+msgstr "faccina leggermente imbronciata"
+
+msgid "slightly smiling face"
+msgstr "faccina con sorriso accennato"
+
+msgid "thumbs down"
+msgstr "pollice verso"
+
+msgid "thumbs up"
+msgstr "pollice in su"
+
+msgid "whatSnap couldn't be added to the Share menu. Try again, or reinstall whatSnap."
+msgstr "Impossibile aggiungere whatSnap al menu Condividi. Riprova o reinstalla whatSnap."
+
+msgid "whatSnap is already running, but this copy can't reach it. It may have been started as administrator. Close whatSnap in Task Manager, then start it again."
+msgstr "whatSnap è già in esecuzione, ma questa copia non riesce a raggiungerlo. Potrebbe essere stato avviato come amministratore. Chiudi whatSnap da Gestione attività, poi avvialo di nuovo."
+
+msgid "winking face"
+msgstr "faccina che fa l'occhiolino"
+
+msgid "{}'s battery is low."
+msgstr "La batteria di {} è scarica."
+
+msgid "{} is on a phone call and can't hear you right now."
+msgstr "{} è al telefono e al momento non può sentirti."
+
+msgid "{} is back on the call."
+msgstr "{} è tornato nella chiamata."
+
+msgid "Ringing {}."
+msgstr "Squilla {}."
+
+msgid "Missed call from {}."
+msgstr "Chiamata persa da {}."
+
+msgid "Call ended with {}\r\nDuration: {}"
+msgstr "Chiamata terminata con {}\r\nDurata: {}"
+
+msgid "Call ended with {}"
+msgstr "Chiamata terminata con {}"
+
+msgid "Could not register the call key {}; another program is using it"
+msgstr "Impossibile registrare il tasto di chiamata {}; lo sta usando un altro programma"
+
+msgid "In {}"
+msgstr "In {}"
+
+msgid "{} unread messages"
+msgstr "{} messaggi non letti"
+
+msgid "{} reacted with {} to: {}"
+msgstr "{} ha reagito con {} a: {}"
+
+msgid "Parse error: {} for json: {}"
+msgstr "Errore di lettura: {} per il json: {}"
+
+msgid "Message from {}"
+msgstr "Messaggio da {}"
+
+msgid "Couldn't mark {} as read. Check your connection and try again."
+msgstr "Impossibile segnare {} come letto. Controlla la connessione e riprova."
+
+msgid "Status: Exporting chat... {}/{}"
+msgstr "Stato: esportazione della chat... {}/{}"
+
+msgid "Chat text exported to {}. {} messages."
+msgstr "Testo della chat esportato in {}. {} messaggi."
+
+msgid "Chat exported to {}. {} media files included, {} could not be downloaded and were skipped."
+msgstr "Chat esportata in {}. {} file multimediali inclusi, {} non scaricabili e saltati."
+
+msgid "Chat exported to {}. {} media files included."
+msgstr "Chat esportata in {}. {} file multimediali inclusi."
+
+msgid "{} is recording audio..."
+msgstr "{} sta registrando un audio..."
+
+msgid "{} is typing..."
+msgstr "{} sta scrivendo..."
+
+msgid "{} (last seen {})"
+msgstr "{} (ultimo accesso {})"
+
+msgid "{}, last seen {}"
+msgstr "{}, ultimo accesso {}"
+
+msgid "{} is now online"
+msgstr "{} ora è online"
+
+msgid "Sent: {}"
+msgstr "Inviato: {}"
+
+msgid "Message edited: {}"
+msgstr "Messaggio modificato: {}"
+
+msgid "Reaction removed by {}"
+msgstr "Reazione rimossa da {}"
+
+msgid "{} reacted with {}"
+msgstr "{} ha reagito con {}"
+
+msgid "Reacted {} to \"{}\""
+msgstr "Hai reagito {} a \"{}\""
+
+msgid "Reacted {}"
+msgstr "Hai reagito {}"
+
+msgid "Copied {} files to clipboard."
+msgstr "{} file copiati negli appunti."
+
+msgid "{} downloaded"
+msgstr "{} scaricato"
+
+msgid "Download {}%"
+msgstr "Download {}%"
+
+msgid "Download failed: {}"
+msgstr "Download non riuscito: {}"
+
+msgid "File saved to {}"
+msgstr "File salvato in {}"
+
+msgid "%b %e, %Y"
+msgstr "%e %b %Y"
+
+msgid "{}, tag: {}"
+msgstr "{}, etichetta: {}"
+
+msgid "Groups in {}"
+msgstr "Gruppi in {}"
+
+msgid "Your tag is now {}."
+msgstr "Ora la tua etichetta è {}."
+
+msgid "Joined {}."
+msgstr "Sei entrato in {}."
+
+msgid "{}\n{} member(s)"
+msgstr "{}\n{} membri"
+
+msgid "Following {}. It's in the Channels tab, Alt+6."
+msgstr "Ora segui {}. Lo trovi nella scheda Canali, Alt+6."
+
+msgid "Unfollowed {}."
+msgstr "Non segui più {}."
+
+msgid "Name: {}\nPhone: {}\n"
+msgstr "Nome: {}\nTelefono: {}\n"
+
+msgid "Conversation data loaded for {}"
+msgstr "Dati della conversazione caricati per {}"
+
+msgid "whatSnap was logged out of WhatsApp: {}"
+msgstr "whatSnap è stato disconnesso da WhatsApp: {}"
+
+msgid "Pairing code updated: {}"
+msgstr "Codice di collegamento aggiornato: {}"
+
+msgid "Status: {} Reconnecting..."
+msgstr "Stato: {} Riconnessione..."
+
+msgid "Status: Offline. {} Retrying in {} seconds."
+msgstr "Stato: offline. {} Nuovo tentativo tra {} secondi."
+
+msgid "Status: Offline. {} Retrying in {} minutes."
+msgstr "Stato: offline. {} Nuovo tentativo tra {} minuti."
+
+msgid "Status: Offline. {} Retrying in {} hours."
+msgstr "Stato: offline. {} Nuovo tentativo tra {} ore."
+
+msgid "Status: Offline. {} Retrying automatically."
+msgstr "Stato: offline. {} Nuovo tentativo automatico."
+
+msgid "{} whatSnap will keep trying to reconnect."
+msgstr "{} whatSnap continuerà a provare a riconnettersi."
+
+msgid "Status: Connected (Syncing older messages, {}% complete: {} messages, {} chats so far)"
+msgstr "Stato: connesso (sincronizzazione dei messaggi meno recenti, {}% completato: finora {} messaggi, {} chat)"
+
+msgid "Status: Connected (Syncing history... {} messages, {} chats so far)"
+msgstr "Stato: connesso (sincronizzazione della cronologia... finora {} messaggi, {} chat)"
+
+msgid "{}: deleted this message, received at {}"
+msgstr "{}: ha eliminato questo messaggio, ricevuto alle {}"
+
+msgid "{}: deleted this message"
+msgstr "{}: ha eliminato questo messaggio"
+
+msgid ", replied to quoted message: \"{}\""
+msgstr ", in risposta al messaggio citato: \"{}\""
+
+msgid ", replied to quoted message from {}: \"{}\""
+msgstr ", in risposta al messaggio citato di {}: \"{}\""
+
+msgid ", edited"
+msgstr ", modificato"
+
+msgid "{}: {}{}{} received at {}{}{}{}"
+msgstr "{}: {}{}{} ricevuto alle {}{}{}{}"
+
+msgid "Album: {} photos"
+msgstr "Album: {} foto"
+
+msgid "Album: {} videos"
+msgstr "Album: {} video"
+
+msgid "Album: {} media items"
+msgstr "Album: {} elementi multimediali"
+
+msgid "{} photos"
+msgstr "{} foto"
+
+msgid "{} videos"
+msgstr "{} video"
+
+msgid "{} media items"
+msgstr "{} elementi multimediali"
+
+msgid "{}: [Album: {}], received at {}{}"
+msgstr "{}: [Album: {}], ricevuto alle {}{}"
+
+msgid "{}: [Album: {}]{}"
+msgstr "{}: [Album: {}]{}"
+
+msgid "Delete all messages in the chat with {}? The chat itself will stay in your list."
+msgstr "Eliminare tutti i messaggi nella chat con {}? La chat resterà nel tuo elenco."
+
+msgid "Delete chat with {}?"
+msgstr "Eliminare la chat con {}?"
+
+msgid "Are you sure you want to delete chat with {}?"
+msgstr "Vuoi davvero eliminare la chat con {}?"
+
+msgid "Notifications for {}"
+msgstr "Notifiche per {}"
+
+msgid "Blocked contacts ({})"
+msgstr "Contatti bloccati ({})"
+
+msgid "Unblocking {}..."
+msgstr "Sblocco di {}..."
+
+msgid "Picture: {} (change...)"
+msgstr "Immagine: {} (cambia...)"
+
+msgid "Picture chosen: {}."
+msgstr "Immagine scelta: {}."
+
+msgid "Followers of {}"
+msgstr "Follower di {}"
+
+msgid "Invite {} to be an admin of this channel? They'll get the invite in your chat with them, and become an admin once they accept it."
+msgstr "Invitare {} a diventare amministratore di questo canale? Riceverà l'invito nella vostra chat e diventerà amministratore quando lo accetterà."
+
+msgid "Remove {} as an admin of this channel?"
+msgstr "Rimuovere {} come amministratore di questo canale?"
+
+msgid "Make {} the owner of this channel? You'll become an admin, and only the new owner can undo this."
+msgstr "Rendere {} proprietario di questo canale? Diventerai amministratore, e solo il nuovo proprietario potrà annullare questa scelta."
+
+msgid "Pending admin invites for {}"
+msgstr "Inviti come amministratore in attesa per {}"
+
+msgid "Cancel the invite for {} to be an admin of this channel?"
+msgstr "Annullare l'invito a {} come amministratore di questo canale?"
+
+msgid "{} followers"
+msgstr "{} follower"
+
+msgid " in {}"
+msgstr " in {}"
+
+msgid "Loading recommended channels{}..."
+msgstr "Caricamento dei canali consigliati{}..."
+
+msgid "No channels found for {}."
+msgstr "Nessun canale trovato per {}."
+
+msgid "{} more channels."
+msgstr "Altri {} canali."
+
+msgid "{} channels."
+msgstr "{} canali."
+
+msgid "Notification settings for {}"
+msgstr "Impostazioni di notifica per {}"
+
+msgid "{}: My Contacts Except..."
+msgstr "{}: i miei contatti tranne..."
+
+msgid "{} shown. {}"
+msgstr "{} mostrati. {}"
+
+msgid "Scheduled for {}: {}"
+msgstr "Programmato per {}: {}"
+
+msgid "Did not send, {}: {}"
+msgstr "Non inviato, {}: {}"
+
+msgid "Couldn't be scheduled, {}: {}"
+msgstr "Impossibile programmare, {}: {}"
+
+msgid "Scheduled messages ({}, {} of {} waiting)"
+msgstr "Messaggi programmati ({}, {} di {} in attesa)"
+
+msgid "Scheduled messages for {}"
+msgstr "Messaggi programmati per {}"
+
+msgid "Sending: {}"
+msgstr "Invio: {}"
+
+msgid "Send to (up to {})"
+msgstr "Invia a (fino a {})"
+
+msgid "You can only send to {} chats at once. {} not selected."
+msgstr "Puoi inviare solo a {} chat alla volta. {} non selezionate."
+
+msgid "{}: selected. {}"
+msgstr "{}: selezionato. {}"
+
+msgid "{}: not selected. {}"
+msgstr "{}: non selezionato. {}"
+
+msgid "{} / 700 characters"
+msgstr "{} / 700 caratteri"
+
+msgid "Background colour: {}"
+msgstr "Colore di sfondo: {}"
+
+msgid "Font style: {}"
+msgstr "Stile del carattere: {}"
+
+msgid "Inserted {}"
+msgstr "Inserito {}"
+
+msgid "1 emoji: {}"
+msgstr "1 emoji: {}"
+
+msgid "{} emoji."
+msgstr "{} emoji."
+
+msgid "{}, by {}"
+msgstr "{}, di {}"
+
+msgid "Loading {}..."
+msgstr "Caricamento di {}..."
+
+msgid "{} stickers."
+msgstr "{} sticker."
+
+msgid "0:00 of 0:00"
+msgstr "0:00 di 0:00"
+
+msgid "Speed {}x"
+msgstr "Velocità {}x"
+
+msgid "{} of {}"
+msgstr "{} di {}"
+
+msgid "{} | Draft: {}"
+msgstr "{} | Bozza: {}"
+
+msgid "No {} chats"
+msgstr "Nessuna chat {}"
+
+msgid "Cancel download ({}%)"
+msgstr "Annulla download ({}%)"
+
+msgid "Downloading album ({} items remaining)"
+msgstr "Download dell'album (elementi rimanenti: {})"
+
+msgid "Download album ({} items remaining, {})"
+msgstr "Scarica album (elementi rimanenti: {}, {})"
+
+msgid "Download album ({} items remaining)"
+msgstr "Scarica album (elementi rimanenti: {})"
+
+msgid "Cancel upload, {}% complete"
+msgstr "Annulla caricamento, {}% completato"
+
+msgid "Misspelled: {}"
+msgstr "Errore di ortografia: {}"
+
+msgid " You reacted {}."
+msgstr " Hai reagito {}."
+
+msgid "{}, {} of {}, {}"
+msgstr "{}, {} di {}, {}"
+
+msgid "Reply sent to {}."
+msgstr "Risposta inviata a {}."
+
+msgid "Reacted {}."
+msgstr "Hai reagito {}."
+
+msgid "{}, status {} of {}, posted {}. {}"
+msgstr "{}, stato {} di {}, pubblicato {}. {}"
+
+msgid "Un&mute {}"
+msgstr "&Riattiva {}"
+
+msgid "&Mute {}"
+msgstr "&Silenzia {}"
+
+msgid "You reacted {}."
+msgstr "Hai reagito {}."
+
+msgid "Couldn't save the file: {}"
+msgstr "Impossibile salvare il file: {}"
+
+msgid "&Message {}"
+msgstr "&Scrivi a {}"
+
+msgid "Failed to write backup file:\n{}"
+msgstr "Impossibile scrivere il file di backup:\n{}"
+
+msgid "Failed to format settings:\n{}"
+msgstr "Impossibile formattare le impostazioni:\n{}"
+
+msgid "Failed to read backup file:\n{}"
+msgstr "Impossibile leggere il file di backup:\n{}"
+
+msgid "The selected file could not be restored:\n{}"
+msgstr "Impossibile ripristinare il file selezionato:\n{}"
+
+msgid "Choose the contacts excluded from {} first, with the button under it."
+msgstr "Scegli prima i contatti esclusi da {}, con il pulsante sotto."
+
+msgid "Are you sure you want to leave {}?"
+msgstr "Vuoi davvero abbandonare {}?"
+
+msgid "&Call {}"
+msgstr "&Chiama {}"
+
+msgid "&User actions for {}"
+msgstr "Azioni &utente per {}"
+
+msgid "Replying to {}: {}"
+msgstr "Risposta a {}: {}"
+
+msgid "Replying to {}: {}. Type your reply and press Enter."
+msgstr "Risposta a {}: {}. Scrivi la risposta e premi Invio."
+
+msgid "Log {} out of WhatsApp on this computer? You'll need to scan a QR code or enter its phone number to use it in whatSnap again."
+msgstr "Disconnettere {} da WhatsApp su questo computer? Per usarlo di nuovo in whatSnap dovrai scansionare un codice QR o inserire il suo numero di telefono."
+
+msgid "This phone number is already linked in whatSnap as {}, so the new link is being removed."
+msgstr "Questo numero di telefono è già collegato in whatSnap come {}, quindi il nuovo collegamento viene rimosso."
+
+msgid "{} was logged out of WhatsApp: {}"
+msgstr "{} è stato disconnesso da WhatsApp: {}"
+
+msgid "{} is calling {}."
+msgstr "{} sta chiamando {}."
+
+msgid "Switched to {}."
+msgstr "Passato a {}."
+
+msgid "Couldn't add an account: {}"
+msgstr "Impossibile aggiungere un account: {}"
+
+msgid "Remove {} from whatSnap?\n\nThis logs it out of WhatsApp on this computer and deletes its messages and media saved here. Your phone keeps its chats."
+msgstr "Rimuovere {} da whatSnap?\n\nL'account viene disconnesso da WhatsApp su questo computer e i messaggi e i media salvati qui vengono eliminati. Il telefono mantiene le sue chat."
+
+msgid "Remove {} from whatSnap?"
+msgstr "Rimuovere {} da whatSnap?"
+
+msgid "Removed {}."
+msgstr "{} rimosso."
+
+msgid "Downloading {}"
+msgstr "Download di {}"
+
+msgid "Downloading album of {} files..."
+msgstr "Download dell'album di {} file..."
+
+msgid "Video from {}"
+msgstr "Video da {}"
+
+msgid "Block {}? They won't be able to call you or send you messages. They won't be told."
+msgstr "Bloccare {}? Non potrà chiamarti né inviarti messaggi. Non verrà avvisato."
+
+msgid "Blocking {}..."
+msgstr "Blocco di {}..."
+
+msgid "{} is already blocked."
+msgstr "{} è già bloccato."
+
+msgid "You blocked {}. Unblock them to message or call them?"
+msgstr "Hai bloccato {}. Sbloccarlo per scrivergli o chiamarlo?"
+
+msgid "Sending {}..."
+msgstr "Invio di {}..."
+
+msgid "{}'s catalogue"
+msgstr "Catalogo di {}"
+
+msgid "{}, wants to join"
+msgstr "{}, vuole entrare"
+
+msgid "{} muted you."
+msgstr "{} ti ha disattivato il microfono."
+
+msgid "{} reacted {}."
+msgstr "{} ha reagito {}."
+
+msgid "Starting group call in {}"
+msgstr "Avvio della chiamata di gruppo in {}"
+
+msgid "Incoming call from {}"
+msgstr "Chiamata in arrivo da {}"
+
+msgid "Couldn't share your computer's sound: {}"
+msgstr "Impossibile condividere l'audio del computer: {}"
+
+msgid "Couldn't share the screen: {}"
+msgstr "Impossibile condividere lo schermo: {}"
+
+msgid "Couldn't start the camera: {}"
+msgstr "Impossibile avviare la fotocamera: {}"
+
+msgid "Delete {} from your contacts? They'll be removed from your phone's contacts too."
+msgstr "Eliminare {} dai tuoi contatti? Verrà rimosso anche dai contatti del telefono."
+
+msgid "You invited {} to be an admin of {}. Cancel this invite?"
+msgstr "Hai invitato {} a diventare amministratore di {}. Annullare questo invito?"
+
+msgid "This invite to be an admin of {} has expired."
+msgstr "Questo invito a diventare amministratore di {} è scaduto."
+
+msgid "{} invited you to be an admin of the channel {}."
+msgstr "{} ti ha invitato a diventare amministratore del canale {}."
+
+msgid "Channel {} created."
+msgstr "Canale {} creato."
+
+msgid "{} was deleted."
+msgstr "{} è stato eliminato."
+
+msgid "Inviting {} to be an admin..."
+msgstr "Invito di {} come amministratore..."
+
+msgid "Removing {} as admin..."
+msgstr "Rimozione di {} come amministratore..."
+
+msgid "Making {} the owner..."
+msgstr "{} sta diventando proprietario..."
+
+msgid "Cancelling the invite for {}..."
+msgstr "Annullamento dell'invito a {}..."
+
+msgid "Going to {}."
+msgstr "Vai a {}."
+
+msgid "Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading..."
+msgstr "Nome: {}\nTelefono: {}\n{}Nome WhatsApp: caricamento...\nInfo/Stato: caricamento..."
+
+msgid "Make new messages in {} disappear after:"
+msgstr "Fai scomparire i nuovi messaggi in {} dopo:"
+
+msgid "Archived alerts for {} set to {}."
+msgstr "Avvisi delle chat archiviate per {} impostati su {}."
+
+msgid "Chat {} deleted."
+msgstr "Chat {} eliminata."
+
+msgid "Left and deleted chat {}."
+msgstr "Chat {} abbandonata ed eliminata."
+
+msgid "Chat {} cleared."
+msgstr "Chat {} svuotata."
+
+msgid "Lists {} is in"
+msgstr "Liste in cui si trova {}"
+
+msgid "Name a new list for {}:"
+msgstr "Nome di una nuova lista per {}:"
+
+msgid "Chats in {}"
+msgstr "Chat in {}"
+
+msgid "Delete the list {}? The chats in it stay as they are."
+msgstr "Eliminare la lista {}? Le chat che contiene restano come sono."
+
+msgid "Add Chats to {}"
+msgstr "Aggiungi chat a {}"
+
+msgid "created"
+msgstr "creata"
+
+msgid "renamed"
+msgstr "rinominata"
+
+msgid "List {} {}."
+msgstr "Lista {} {}."
+
+msgid "List {} deleted."
+msgstr "Lista {} eliminata."
+
+msgid "Make {} an admin for \"{}\" group?"
+msgstr "Nominare {} amministratore del gruppo \"{}\"?"
+
+msgid "Remove {} from \"{}\" group?"
+msgstr "Rimuovere {} dal gruppo \"{}\"?"
+
+msgid "Left group {}."
+msgstr "Hai abbandonato il gruppo {}."
+
+msgid "Remove {} from the community? It stays a group of its own, and its members leave the community."
+msgstr "Rimuovere {} dalla community? Resterà un gruppo a sé, e i suoi membri lasceranno la community."
+
+msgid "Community {} created."
+msgstr "Community {} creata."
+
+msgid "{}, asked {}"
+msgstr "{}, domanda di {}"
+
+msgid "Your reply to {} wasn't sent because you blocked them."
+msgstr "La tua risposta a {} non è stata inviata perché l'hai bloccato."
+
+msgid "Your reply to {} wasn't sent. {}."
+msgstr "La tua risposta a {} non è stata inviata. {}."
+
+msgid "Send {}"
+msgstr "Invia {}"
+
+msgid "Send {} files"
+msgstr "Invia {} file"
+
+msgid "Sending to {}."
+msgstr "Invio a {}."
+
+msgid "Sent to {}."
+msgstr "Inviato a {}."
+
+msgid "Anyone with this link can join {}."
+msgstr "Chiunque abbia questo link può entrare in {}."
+
+msgid "Follow this link to join my WhatsApp group: {}"
+msgstr "Segui questo link per entrare nel mio gruppo WhatsApp: {}"
+
+msgid "Couldn't get the security code with {}. {}"
+msgstr "Impossibile ottenere il codice di sicurezza con {}. {}"
+
+msgid "Security code with {}"
+msgstr "Codice di sicurezza con {}"
+
+msgid "To check that your messages and calls with {} are end-to-end encrypted, compare these 60 numbers with the ones on their phone, or let them scan the QR code with their phone. The code is the same on all your devices."
+msgstr "Per verificare che i tuoi messaggi e le tue chiamate con {} siano crittografati end-to-end, confronta questi 60 numeri con quelli sul suo telefono, oppure fagli scansionare il codice QR con il suo telefono. Il codice è lo stesso su tutti i tuoi dispositivi."
+
+msgid "{}, {} of {}"
+msgstr "{}, {} di {}"
+
+msgid "Mention suggestions. {}"
+msgstr "Suggerimenti di menzione. {}"
+
+msgid "{} mentioned"
+msgstr "{} menzionato"
+
+msgid "Couldn't restart whatSnap automatically:\n{}\n\nPlease close and reopen the app manually."
+msgstr "Impossibile riavviare whatSnap automaticamente:\n{}\n\nChiudi e riapri il programma a mano."
+
+msgid "You've already answered this quiz: {}."
+msgstr "Hai già risposto a questo quiz: {}."
+
+msgid "Report this message to WhatsApp? WhatsApp receives this message. {} won't be notified."
+msgstr "Segnalare questo messaggio a WhatsApp? WhatsApp riceve questo messaggio. {} non verrà avvisato."
+
+msgid "Report {} to WhatsApp? WhatsApp receives the last message they sent you. They won't be notified."
+msgstr "Segnalare {} a WhatsApp? WhatsApp riceve l'ultimo messaggio che ti ha inviato. Non verrà avvisato."
+
+msgid "Report {} to WhatsApp? WhatsApp receives the most recent message someone else sent here. The group won't be notified."
+msgstr "Segnalare {} a WhatsApp? WhatsApp riceve il messaggio più recente che qualcun altro ha inviato qui. Il gruppo non verrà avvisato."
+
+msgid "Report and block {}"
+msgstr "Segnala e blocca {}"
+
+msgid "{}{}. Reported by {}"
+msgstr "{}{}. Segnalato da {}"
+
+msgid "Delete message from {}?"
+msgstr "Eliminare il messaggio di {}?"
+
+msgid "As an admin, you are deleting {}'s message for everyone in this chat. They will see that you deleted the message."
+msgstr "Come amministratore, stai eliminando per tutti in questa chat il messaggio di {}. Vedrà che hai eliminato il messaggio."
+
+msgid "Message forwarded to {}."
+msgstr "Messaggio inoltrato a {}."
+
+msgid "Are you sure you want to unstar all {} starred messages?"
+msgstr "Vuoi davvero togliere tutti i {} messaggi dagli importanti?"
+
+msgid "Un&mute {}'s status updates"
+msgstr "&Riattiva gli aggiornamenti di stato di {}"
+
+msgid "&Mute {}'s status updates"
+msgstr "&Silenzia gli aggiornamenti di stato di {}"
+
+msgid "Remove my reaction ({})"
+msgstr "Rimuovi la mia reazione ({})"
+
+msgid "Replying to {}'s status: {}"
+msgstr "Risposta allo stato di {}: {}"
+
+msgid "{}. Type your reply and press Enter."
+msgstr "{}. Scrivi la risposta e premi Invio."
+
+msgid "{} reacted {} to your status."
+msgstr "{} ha reagito {} al tuo stato."
+
+msgid "Open chat with {}?"
+msgstr "Aprire la chat con {}?"
+
+msgid "Volume {}%"
+msgstr "Volume {}%"
+
+msgid "Channels like {}"
+msgstr "Canali come {}"
+
+msgid "Loading channels like {}..."
+msgstr "Caricamento dei canali come {}..."
+
+msgid "Mute {}"
+msgstr "Silenzia {}"
+
+msgid "Remove {}"
+msgstr "Rimuovi {}"
+
+msgid "Removing {} from the call."
+msgstr "Rimozione di {} dalla chiamata."
+
+msgid "Asking {} to mute."
+msgstr "Richiesta a {} di disattivare il microfono."
+
+msgid "&Open chat with {}"
+msgstr "&Apri chat con {}"
+
+msgid "&Reply to {}"
+msgstr "&Rispondi a {}"
+
+msgid ", reacted {}"
+msgstr ", ha reagito {}"
+
+msgid "{} updates"
+msgstr "{} aggiornamenti"
+
+msgid "{} new"
+msgstr "{} nuovi"
+
+msgid "My status: {}"
+msgstr "Il mio stato: {}"
+
+msgid "you reacted {}"
+msgstr "hai reagito {}"
+
+msgid "{} message selected"
+msgstr "{} messaggio selezionato"
+
+msgid "{} messages selected"
+msgstr "{} messaggi selezionati"
+
+msgid "{} shown. {} contact selected."
+msgstr "{} mostrati. {} contatto selezionato."
+
+msgid "{} shown. {} contacts selected."
+msgstr "{} mostrati. {} contatti selezionati."
+
+msgid "{}: {}. {} contact selected."
+msgstr "{}: {}. {} contatto selezionato."
+
+msgid "{}: {}. {} contacts selected."
+msgstr "{}: {}. {} contatti selezionati."
+
+msgid "selected"
+msgstr "selezionato"
+
+msgid "not selected"
+msgstr "non selezionato"
+
+msgid " {} couldn't be saved."
+msgstr " Impossibile salvare: {}."
+
+msgid " Downloading {} more."
+msgstr " Altri {} in download."
+
+msgid "Saved {} to {}."
+msgstr "Salvato {} in {}."
+
+msgid "{} forwarded to {}."
+msgstr "Inoltrato {} a {}."
+
+msgid "{} deleted."
+msgstr "Eliminati: {}."
+
+msgid "{} kept."
+msgstr "Mantenuti: {}."
+
+msgid "{} unkept."
+msgstr "Non più mantenuti: {}."
+
+msgid "{} starred."
+msgstr "Segnati come importanti: {}."
+
+msgid "{} unstarred."
+msgstr "Tolti dagli importanti: {}."
+
+msgid "Copied {} to clipboard."
+msgstr "Copiato negli appunti: {}."
+
+msgid "message"
+msgstr "messaggio"
+
+msgid "messages"
+msgstr "messaggi"
+
+msgid "file"
+msgstr "file"
+
+msgid "files"
+msgstr "file"
+
+msgid "Chat {} marked as read."
+msgstr "Chat {} segnata come letta."
+
+msgid "Chat {} marked as unread."
+msgstr "Chat {} segnata come non letta."
+
+msgid "Notifications from {} muted{}."
+msgstr "Notifiche di {} silenziate{}."
+
+msgid "Notifications from {} unmuted."
+msgstr "Notifiche di {} riattivate."
+
+msgid " for 8 hours"
+msgstr " per 8 ore"
+
+msgid " for 1 week"
+msgstr " per 1 settimana"
+
+msgid ", message content hidden"
+msgstr ", contenuto dei messaggi nascosto"
+
+msgid "Notifications for {}: {}{}."
+msgstr "Notifiche per {}: {}{}."
+
+msgid "Call {}"
+msgstr "Chiama {}"
+
+msgid "Video call {}"
+msgstr "Videochiama {}"
+
+msgid "Chat {} archived."
+msgstr "Chat {} archiviata."
+
+msgid "Chat {} unarchived."
+msgstr "Chat {} estratta dall'archivio."
+
+msgid "Chat {} pinned."
+msgstr "Chat {} fissata."
+
+msgid "Chat {} unpinned."
+msgstr "Chat {} non più fissata."
+
+msgid "Locked chat {}."
+msgstr "Chat {} bloccata."
+
+msgid "Unlocked chat {}."
+msgstr "Chat {} sbloccata."
+
+msgid "Disappearing messages turned off for {}."
+msgstr "Messaggi effimeri disattivati per {}."
+
+msgid "Disappearing messages set to {} for {}."
+msgstr "Messaggi effimeri impostati su {} per {}."
+
+msgid "Join my WhatsApp {} call: {}"
+msgstr "Partecipa alla mia chiamata {} di WhatsApp: {}"
+
+msgid "voice"
+msgstr "vocale"
+
+msgid "video"
+msgstr "video"
+
+msgid "Anyone with WhatsApp can use this link to join your {} call."
+msgstr "Chiunque abbia WhatsApp può usare questo link per partecipare alla tua chiamata {}."
+
+msgid "{} wants to join the call. Choose Let in or Don't let in under People."
+msgstr "{} vuole entrare nella chiamata. Scegli Fai entrare o Non fare entrare in Persone."
+
+msgid "{} want to join the call. Choose Let in or Don't let in under People."
+msgstr "{} vogliono entrare nella chiamata. Scegli Fai entrare o Non fare entrare in Persone."
+
+msgid "{} raised their hand."
+msgstr "{} ha alzato la mano."
+
+msgid "{} lowered their hand."
+msgstr "{} ha abbassato la mano."
+
+msgid "{} asking to join:"
+msgstr "{} in attesa di entrare:"
+
+msgid "person"
+msgstr "persona"
+
+msgid "people"
+msgstr "persone"
+
+msgid "Approve everyone ({})"
+msgstr "Approva tutti ({})"
+
+msgid "Reject everyone ({})"
+msgstr "Rifiuta tutti ({})"
+
+msgid "Approved {}."
+msgstr "Approvati: {}."
+
+msgid "Rejected {}."
+msgstr "Rifiutati: {}."
+
+msgid " {} couldn't be."
+msgstr " Non riusciti: {}."
+
+msgid " started by {}"
+msgstr " avviata da {}"
+
+msgid ", 1 person in it"
+msgstr ", 1 persona presente"
+
+msgid ", {} people in it"
+msgstr ", {} persone presenti"
+
+msgid "Send message history to {}?\n\n{} will get {} from this group."
+msgstr "Inviare la cronologia dei messaggi a {}?\n\n{} riceverà {} da questo gruppo."
+
+msgid "recent message"
+msgstr "messaggio recente"
+
+msgid "recent messages"
+msgstr "messaggi recenti"
+
+msgid "Message history sent to {}: {}."
+msgstr "Cronologia dei messaggi inviata a {}: {}."
+
+msgid ", {} unread chat"
+msgstr ", {} chat non letta"
+
+msgid ", {} unread chats"
+msgstr ", {} chat non lette"
+
+msgid " You can send up to {} files at once; {} file weren't sent."
+msgstr " Puoi inviare al massimo {} file alla volta; {} file non è stato inviato."
+
+msgid " You can send up to {} files at once; {} files weren't sent."
+msgstr " Puoi inviare al massimo {} file alla volta; {} file non sono stati inviati."
+
+msgid "Couldn't block {}: {}"
+msgstr "Impossibile bloccare {}: {}"
+
+msgid "Couldn't unblock {}: {}"
+msgstr "Impossibile sbloccare {}: {}"
+
+msgid "{} blocked."
+msgstr "{} bloccato."
+
+msgid "{} unblocked."
+msgstr "{} sbloccato."
+
+msgid "{} {} of {}{}"
+msgstr "{} {} di {}{}"
+
+msgid ", not downloaded"
+msgstr ", non scaricato"
+
+msgid "Saved {} {} to folder."
+msgstr "Salvati {} {} nella cartella."
+
+msgid "Sending {} contact..."
+msgstr "Invio di {} contatto..."
+
+msgid "Sending {} contacts..."
+msgstr "Invio di {} contatti..."
+
+msgid "You can send up to {} files at once; {} file weren't added."
+msgstr "Puoi inviare al massimo {} file alla volta; {} file non è stato aggiunto."
+
+msgid "You can send up to {} files at once; {} files weren't added."
+msgstr "Puoi inviare al massimo {} file alla volta; {} file non sono stati aggiunti."
+
+msgid "1 group in common"
+msgstr "1 gruppo in comune"
+
+msgid "{} groups in common"
+msgstr "{} gruppi in comune"
+
+msgid "Chats in {}: none yet"
+msgstr "Chat in {}: ancora nessuna"
+
+msgid "Chats in {} ({})"
+msgstr "Chat in {} ({})"
+
+msgid "Your lists: none yet"
+msgstr "Le tue liste: ancora nessuna"
+
+msgid "Your lists ({})"
+msgstr "Le tue liste ({})"
+
+msgid "{} added to {}."
+msgstr "{} aggiunta a {}."
+
+msgid "{} removed from {}."
+msgstr "{} rimossa da {}."
+
+msgid "{} added to favorites."
+msgstr "{} aggiunta ai preferiti."
+
+msgid "{} removed from favorites."
+msgstr "{} rimossa dai preferiti."
+
+msgid "1 chat"
+msgstr "1 chat"
+
+msgid "{} chats"
+msgstr "{} chat"
+
+msgid "Viewed by {} {}"
+msgstr "Visto da {} {}"
+
+msgid "{}'s status updates muted."
+msgstr "Aggiornamenti di stato di {} silenziati."
+
+msgid "{}'s status updates unmuted."
+msgstr "Aggiornamenti di stato di {} riattivati."
+
+msgid "1 view"
+msgstr "1 visualizzazione"
+
+msgid "{} views"
+msgstr "{} visualizzazioni"
+
+msgid "photos"
+msgstr "foto"
+
+msgid "videos"
+msgstr "video"
+
+msgid "media files"
+msgstr "file multimediali"
+
+msgid "Products (first {})"
+msgstr "Prodotti (primi {})"
+
+msgid "Products ({})"
+msgstr "Prodotti ({})"
+
+msgid " to "
+msgstr " a "
+
+msgid ", {} on sale"
+msgstr ", {} in offerta"
+
+msgid ", was {}"
+msgstr ", prima {}"
+
+msgid "{} copied: {}"
+msgstr "{} copiato: {}"
+
+msgid "Number"
+msgstr "Numero"
+
+msgid "Code"
+msgstr "Codice"
+
+msgid "1 option"
+msgstr "1 opzione"
+
+msgid "{} options"
+msgstr "{} opzioni"
+
+msgid ", phone number {}"
+msgstr ", numero di telefono {}"
+
+msgid "Votes: {}"
+msgstr "Voti: {}"
+
+msgid "No one has voted in this poll yet."
+msgstr "Nessuno ha ancora votato in questo sondaggio."
+
+msgid "1 vote"
+msgstr "1 voto"
+
+msgid "{} votes"
+msgstr "{} voti"
+
+msgid "No one has reacted to this post yet."
+msgstr "Nessuno ha ancora reagito a questo post."
+
+msgid "1 reaction"
+msgstr "1 reazione"
+
+msgid "{} reactions"
+msgstr "{} reazioni"
+
+msgid "No admin invites are waiting to be accepted."
+msgstr "Nessun invito come amministratore in attesa di essere accettato."
+
+msgid "1 invite waiting to be accepted"
+msgstr "1 invito in attesa di essere accettato"
+
+msgid "{} invites waiting to be accepted"
+msgstr "{} inviti in attesa di essere accettati"
+
+msgid "no admins besides the owner"
+msgstr "nessun amministratore oltre al proprietario"
+
+msgid "1 admin"
+msgstr "1 amministratore"
+
+msgid "{} admins"
+msgstr "{} amministratori"
+
+msgid "{} shown, {}"
+msgstr "{} mostrati, {}"
+
+msgid "Loading {} channels{}..."
+msgstr "Caricamento di {} canali{}..."
+
+msgid "Post {} status. Selected file: {}. Type optional caption, or press Ctrl+Enter to post."
+msgstr "Pubblica stato con {}. File selezionato: {}. Scrivi una didascalia facoltativa, o premi Ctrl+Invio per pubblicare."
+
+msgid "photo"
+msgstr "foto"
+
+msgid "&Viewed by {} {}"
+msgstr "&Visto da {} {}"
+
+msgid "&Add \"{}\" to Dictionary"
+msgstr "&Aggiungi \"{}\" al dizionario"
+
+msgid "&Ignore \"{}\""
+msgstr "&Ignora \"{}\""
+
+msgid "No chats selected."
+msgstr "Nessuna chat selezionata."
+
+msgid "1 chat selected."
+msgstr "1 chat selezionata."
+
+msgid "{} chats selected."
+msgstr "{} chat selezionate."
+
+msgid "{} view"
+msgstr "{} visualizzazione"
+
+msgid "Still loading who's excluded from {}. Try again in a moment."
+msgstr "Sto ancora caricando chi è escluso da {}. Riprova tra un momento."
+
+msgid "Couldn't load who's excluded from {} right now, so it can't be changed. Try again later. ({})"
+msgstr "Impossibile caricare ora chi è escluso da {}, quindi non si può modificare. Riprova più tardi. ({})"
+
+msgid "Replace text with emoji turns these into emoji as soon as you type their last character. Press Backspace straight after to get the text back. You can turn it off on the Chats tab of Settings."
+msgstr "La sostituzione del testo con emoji li trasforma in emoji appena scrivi il loro ultimo carattere. Premi subito Backspace per riavere il testo. Puoi disattivarla nella scheda Chat delle Impostazioni."
+
+msgid "Type {} for {} {}. Example: \"{}\" becomes \"{}\"."
+msgstr "Scrivi {} per {} {}. Esempio: \"{}\" diventa \"{}\"."
+
+msgid "Answer sent. {}"
+msgstr "Risposta inviata. {}"
+
+msgid "  {} voted {}"
+msgstr "  {} ha votato {}"
+
+msgid " and "
+msgstr " e "
+
+msgid "1 new message"
+msgstr "1 nuovo messaggio"
+
+msgid "{} new messages"
+msgstr "{} nuovi messaggi"
+
+msgid ", {} mentions"
+msgstr ", {} menzioni"
+
+msgid "{}: [Album: {}], sent at {}{}"
+msgstr "{}: [Album: {}], inviato alle {}{}"
+
+msgid "{}: {}{}{} sent at {}, {}{}{}{}"
+msgstr "{}: {}{}{} inviato alle {}, {}{}{}{}"
+
+msgid "{}: deleted this message, sent at {}"
+msgstr "{}: ha eliminato questo messaggio, inviato alle {}"
+
+msgid "&Add to Group"
+msgstr "&Aggiungi al gruppo"
+
+msgid "&Edit Contact"
+msgstr "&Modifica contatto"
+
+msgid "&Message"
+msgstr "&Scrivi"
+
+msgid "&Message Contact"
+msgstr "&Scrivi al contatto"
+
+msgid "&Record"
+msgstr "&Registra"
+
+msgid "&Record again"
+msgstr "&Registra di nuovo"
+
+msgid "&Save Contact"
+msgstr "&Salva contatto"
+
+msgid "&Stop"
+msgstr "&Ferma"
+
+msgid "&View Contact..."
+msgstr "&Visualizza contatto..."
+
+msgid "1 contact"
+msgstr "1 contatto"
+
+msgid "30 seconds reached. Recording stopped."
+msgstr "Raggiunti i 30 secondi. Registrazione fermata."
+
+msgid "Add to group"
+msgstr "Aggiungi al gruppo"
+
+msgid "Add {} to \"{}\" group?"
+msgstr "Aggiungere {} al gruppo \"{}\"?"
+
+msgid "Adding {}..."
+msgstr "Aggiunta di {}..."
+
+msgid "Background &colour:"
+msgstr "&Colore di sfondo:"
+
+msgid "Choose a phone number"
+msgstr "Scegli un numero di telefono"
+
+msgid "Contact cards (*.vcf)|*.vcf|All files (*.*)|*.*"
+msgstr "Schede contatto (*.vcf)|*.vcf|Tutti i file (*.*)|*.*"
+
+msgid "Contact saved."
+msgstr "Contatto salvato."
+
+msgid "Copied: {}"
+msgstr "Copiato: {}"
+
+msgid "Couldn't save the contact: {}"
+msgstr "Impossibile salvare il contatto: {}"
+
+msgid "Do&wnload Contact..."
+msgstr "Scari&ca contatto..."
+
+msgid "Download contact"
+msgstr "Scarica contatto"
+
+msgid "Download contact?"
+msgstr "Scaricare il contatto?"
+
+msgid "Group video call in"
+msgstr "Videochiamata di gruppo in"
+
+msgid "Group voice call in"
+msgstr "Chiamata vocale di gruppo in"
+
+msgid "Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen."
+msgstr "Chiamata in arrivo ridotta a icona e silenziata. In cima alla finestra c'è un riquadro per rispondere, rifiutare o riaprirla."
+
+msgid "Open a chat with the person in this contact card"
+msgstr "Apri una chat con la persona di questa scheda contatto"
+
+msgid "Open in &Maps"
+msgstr "Apri in &Mappe"
+
+msgid "Post Voice Status"
+msgstr "Pubblica stato vocale"
+
+msgid "Post voice status. Press Record to start, then Stop, then Post Status or Ctrl+Enter."
+msgstr "Pubblica stato vocale. Premi Registra per iniziare, poi Ferma, poi Pubblica stato o Ctrl+Invio."
+
+msgid "Posting voice status..."
+msgstr "Pubblicazione dello stato vocale..."
+
+msgid "Press Record and speak. A voice status can be up to 30 seconds."
+msgstr "Premi Registra e parla. Uno stato vocale può durare al massimo 30 secondi."
+
+msgid "Record something first."
+msgstr "Registra prima qualcosa."
+
+msgid "Recorded {}."
+msgstr "Registrati {}."
+
+msgid "Recorded {}. Press Post Status to post it."
+msgstr "Registrati {}. Premi Pubblica stato per pubblicarlo."
+
+msgid "Recording {}"
+msgstr "Registrazione {}"
+
+msgid "Recording..."
+msgstr "Registrazione..."
+
+msgid "Save the contact card as a .vcf file"
+msgstr "Salva la scheda contatto come file .vcf"
+
+msgid "See the contact card's numbers and details, and save it"
+msgstr "Vedi i numeri e i dettagli della scheda contatto, e salvala"
+
+msgid "Send &Email"
+msgstr "Invia &email"
+
+msgid "This contact can't be displayed in whatSnap. Download it to open it with another app on your computer?"
+msgstr "Questo contatto non si può mostrare in whatSnap. Scaricarlo per aprirlo con un'altra app sul computer?"
+
+msgid "View &Business"
+msgstr "Visualizza &attività"
+
+msgid "View contact"
+msgstr "Visualizza contatto"
+
+msgid "Voice status update..."
+msgstr "Aggiornamento di stato vocale..."
+
+msgid "{} ({} of {})"
+msgstr "{} ({} di {})"
+
+msgid "{} contacts"
+msgstr "{} contatti"
+
+msgid "{}, {}, on WhatsApp"
+msgstr "{}, {}, su WhatsApp"
+
+msgid "{}, {}, {}, on WhatsApp"
+msgstr "{}, {}, {}, su WhatsApp"
