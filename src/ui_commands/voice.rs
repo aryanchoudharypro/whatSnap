@@ -45,6 +45,8 @@ pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 		ensure_audio_stream(&mut s);
 	}
 
+	crate::audio::reopen_call_audio_stream(&mut s);
+
 	if let Some(audio) = &s.active_call_audio {
 		audio.force_device_refresh();
 	}

@@ -3,7 +3,7 @@ use windows::{
 		Foundation::PROPERTYKEY,
 		Media::Audio::{
 			DEVICE_STATE, EDataFlow, ERole, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
-			MMDeviceEnumerator, eCapture, eCommunications, eConsole, eRender,
+			MMDeviceEnumerator, eCapture, eConsole, eRender,
 		},
 		System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx},
 	},
@@ -31,7 +31,7 @@ impl IMMNotificationClient_Impl for Watcher_Impl {
 	}
 
 	fn OnDefaultDeviceChanged(&self, flow: EDataFlow, role: ERole, _default_device_id: &PCWSTR) -> WinResult<()> {
-		if (role == eConsole || role == eCommunications) && (flow == eRender || flow == eCapture) {
+		if role == eConsole && (flow == eRender || flow == eCapture) {
 			let _ = self.ui_tx.send(UiCommand::AudioDeviceChanged);
 		}
 		Ok(())

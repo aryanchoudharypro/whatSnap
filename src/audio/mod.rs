@@ -274,6 +274,7 @@ pub(crate) fn play_call_fail_sound(state: &mut AppState) {
 				sink.play();
 				state.call_ringing_sink = Some(sink);
 				state.call_ringback_on = false;
+				state.call_ringtone_active = None;
 			}
 			None => eprintln!("[AUDIO] Error decoding fail sound"),
 		}
@@ -288,9 +289,15 @@ pub(crate) const WHATSAPP_RINGTONE: &[u8] = include_bytes!("../../sounds/rington
 /// [`whatsnap::RINGTONE_WHATSAPP`]), looped, falling back to WhatsApp's own
 /// when its file can't be played.
 pub(crate) fn start_call_ringtone(state: &mut AppState, ringtone: &str) {
+	state.call_ringback_on = false;
 	match ringtone {
-		whatsnap::RINGTONE_NONE => {}
-		"" | whatsnap::RINGTONE_WHATSAPP => start_call_ringing_sound(state, WHATSAPP_RINGTONE),
+		whatsnap::RINGTONE_NONE => {
+			state.call_ringtone_active = None;
+		}
+		"" | whatsnap::RINGTONE_WHATSAPP => {
+			state.call_ringtone_active = Some(ringtone.to_string());
+			start_call_ringing_sound(state, WHATSAPP_RINGTONE);
+		}
 		path => {
 			ensure_call_audio_stream(state);
 			let Some(ref stream_handle) = state.call_audio_out.stream else { return };
@@ -300,9 +307,11 @@ pub(crate) fn start_call_ringtone(state: &mut AppState, ringtone: &str) {
 					sink.append(ring);
 					sink.play();
 					state.call_ringing_sink = Some(sink);
+					state.call_ringtone_active = Some(path.to_string());
 				}
 				None => {
 					eprintln!("[AUDIO] Couldn't play the ringtone {path}, using WhatsApp's");
+					state.call_ringtone_active = Some(whatsnap::RINGTONE_WHATSAPP.to_string());
 					start_call_ringing_sound(state, WHATSAPP_RINGTONE);
 				}
 			}
@@ -340,6 +349,7 @@ pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
 	sink.play();
 	state.call_ringing_sink = Some(sink);
 	state.call_ringback_on = true;
+	state.call_ringtone_active = None;
 }
 
 pub(crate) fn play_busy_tone(state: &mut AppState) {
@@ -353,6 +363,7 @@ pub(crate) fn play_busy_tone(state: &mut AppState) {
 	sink.play();
 	state.call_ringing_sink = Some(sink);
 	state.call_ringback_on = false;
+	state.call_ringtone_active = None;
 }
 
 pub(crate) fn start_call_reconnect_tone(state: &mut AppState) {
@@ -396,7 +407,41 @@ pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 		sink.pause();
 	}
 	state.call_ringback_on = false;
+	state.call_ringtone_active = None;
 	state.call_hotkeys = None;
+}
+
+/// Reopens the call-tone output stream on the current device and restarts any
+/// active looped ringtone, ringback, or reconnect tone on it.
+pub(crate) fn reopen_call_audio_stream(state: &mut AppState) {
+	let was_ringback = state.call_ringback_on;
+	let active_ringtone = state.call_ringtone_active.clone();
+	let was_reconnecting = state.call_reconnect_sink.is_some();
+
+	if was_ringback || active_ringtone.is_some() {
+		if let Some(sink) = state.call_ringing_sink.take() {
+			sink.pause();
+		}
+		state.call_ringback_on = false;
+		state.call_ringtone_active = None;
+	}
+	if was_reconnecting {
+		stop_call_reconnect_tone(state);
+	}
+
+	state.call_audio_out.opened_at = None;
+	if was_ringback || active_ringtone.is_some() || was_reconnecting {
+		ensure_call_audio_stream(state);
+		if was_ringback {
+			let self_phone = state.call_self_phone.clone();
+			start_call_ringback(state, &self_phone);
+		} else if let Some(ringtone) = active_ringtone {
+			start_call_ringtone(state, &ringtone);
+		}
+		if was_reconnecting {
+			start_call_reconnect_tone(state);
+		}
+	}
 }
 
 pub(crate) fn audio_file_seconds(path: &str) -> u64 {

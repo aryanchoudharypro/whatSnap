@@ -709,7 +709,7 @@ pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 	if name != s.settings.call_output_device_name {
 		s.settings.call_output_device_name = name;
-		s.call_audio_out.stream = None;
+		crate::audio::reopen_call_audio_stream(&mut s);
 	}
 	s.settings.save();
 	announce_call(parts, crate::i18n::tr("Speaker changed."), Priority::High);

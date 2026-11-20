@@ -2962,7 +2962,7 @@ pub fn bind_input_handlers(
 		let new_call_output_device = device_combo_value(&call_output_device_combo_ok);
 		if new_call_output_device != s.settings.call_output_device_name {
 			s.settings.call_output_device_name = new_call_output_device;
-			s.call_audio_out.stream = None;
+			crate::audio::reopen_call_audio_stream(&mut s);
 		}
 		s.settings.save();
 		let mut synced = s.settings.synced_changes(&synced_before);

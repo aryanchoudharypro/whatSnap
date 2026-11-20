@@ -17,7 +17,7 @@ use windows::{
 				AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMOPTIONS_NONE,
 				AudioCategory_Communications, AudioClientProperties, Endpoints::IAudioEndpointVolume,
 				IAudioCaptureClient, IAudioClient2, IAudioRenderClient, IMMDevice, IMMDeviceEnumerator,
-				MMDeviceEnumerator, WAVEFORMATEXTENSIBLE, eCapture, eCommunications, eRender,
+				MMDeviceEnumerator, WAVEFORMATEXTENSIBLE, eCapture, eConsole, eRender,
 			},
 			KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
 			Multimedia::{KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, WAVE_FORMAT_IEEE_FLOAT},
@@ -169,20 +169,8 @@ impl Drop for CallAudioState {
 	}
 }
 
-// Opens a WASAPI shared-mode stream on the eCommunications-role default (or, if
-// `preferred_device_name` names a still-present device, that specific) device for
-// `dataflow` (eCapture or eRender). When `apply_effects` is set, the stream is also
-// tagged with the Communications audio-session category, which is what makes Windows
-// apply its own echo cancellation/noise-suppression/AGC audio-effects pipeline to the
-// stream - the previous cpal-based implementation used the plain default multimedia-role
-// devices with no session category set, which never engaged any of that, so
-// speakerphone/laptop mic+speaker setups got raw, unprocessed audio (echo, room noise)
-// end to end. Calls always pass `apply_effects: true`; voice-message recording passes
-// false and does its own clean-up instead (audio/voice_dsp.rs).
-//
-// With `loopback` set (and `dataflow` eRender) the stream instead records what
-// that output device is playing, from every app: the echo canceller's
-// reference (see run_echo_reference).
+// Opens a shared-mode WASAPI stream on the system default (eConsole) or named device.
+// `apply_effects` tags the session as Communications for Windows AEC/NS/AGC; `loopback` captures eRender playback.
 pub(crate) struct WasapiOpen {
 	pub(crate) device: IMMDevice,
 	pub(crate) client: IAudioClient2,
@@ -207,7 +195,7 @@ pub(crate) unsafe fn open_communications_stream(
 			.and_then(|name| crate::audio::devices::find_wasapi_device_by_name(&enumerator, dataflow, name))
 		{
 			Some(device) => device,
-			None => enumerator.GetDefaultAudioEndpoint(dataflow, eCommunications)?,
+			None => enumerator.GetDefaultAudioEndpoint(dataflow, eConsole)?,
 		};
 		let client: IAudioClient2 = device.Activate(CLSCTX_ALL, None)?;
 
@@ -255,7 +243,7 @@ pub(crate) unsafe fn open_communications_stream(
 		init_result?;
 
 		log_line(&format!(
-			"{tag}: opened communications-role device: rate={} channels={} bits={} format_tag={}",
+			"{tag}: opened WASAPI device: rate={} channels={} bits={} format_tag={}",
 			sample_rate, channels, bits_per_sample, format_tag
 		));
 

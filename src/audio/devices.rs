@@ -74,33 +74,15 @@ fn list_device_names(input: bool) -> Vec<String> {
 
 pub fn resolve_output_device(name: Option<&str>) -> Option<cpal::Device> {
 	let host = cpal::default_host();
-	let names_by_id = wasapi_friendly_names_by_id(eRender);
-	if let Some(name) = name
-		&& let Ok(devices) = host.output_devices()
-		&& let Some(d) = devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(name))
-	{
-		return Some(d);
-	}
-	if let Some(comms_name) = communications_default_output_name()
-		&& let Ok(devices) = host.output_devices()
-		&& let Some(d) =
-			devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(comms_name.as_str()))
-	{
-		return Some(d);
+	if let Some(name) = name {
+		let names_by_id = wasapi_friendly_names_by_id(eRender);
+		if let Ok(devices) = host.output_devices()
+			&& let Some(d) = devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(name))
+		{
+			return Some(d);
+		}
 	}
 	host.default_output_device()
-}
-
-fn communications_default_output_name() -> Option<String> {
-	use windows::Win32::{
-		Media::Audio::{MMDeviceEnumerator, eCommunications, eRender},
-		System::Com::{CLSCTX_ALL, CoCreateInstance},
-	};
-	unsafe {
-		let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-		let device = enumerator.GetDefaultAudioEndpoint(eRender, eCommunications).ok()?;
-		device_friendly_name(&device)
-	}
 }
 
 pub fn resolve_output_device_name(name: Option<&str>) -> Option<String> {

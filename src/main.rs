@@ -320,6 +320,7 @@ struct AppState {
 	/// True only while the outgoing ringback itself is playing: the sink above
 	/// also holds the hangup sound and ringtones, which stay set once finished.
 	call_ringback_on: bool,
+	call_ringtone_active: Option<String>,
 	call_reconnect_sink: Option<Player>,
 	/// The one-off poor connection alert, kept until it has played.
 	call_alert_sink: Option<Player>,
@@ -964,6 +965,7 @@ pub(crate) fn new_app_state(
 		call_answer_deadline: None,
 		call_ringing_sink: None,
 		call_ringback_on: false,
+		call_ringtone_active: None,
 		call_reconnect_sink: None,
 		call_alert_sink: None,
 		call_hotkeys: None,
