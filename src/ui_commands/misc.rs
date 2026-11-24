@@ -181,9 +181,10 @@ pub(crate) fn presence_tick(s: &mut AppState) {
 	let now = std::time::Instant::now();
 
 	if s.focus_read_at.as_ref().is_some_and(|(at, _)| now >= *at) {
-		let (_, jid) = s.focus_read_at.take().unwrap();
-		if s.window_focused && s.selected_chat.as_deref() == Some(jid.as_str()) {
-			mark_open_chat_read(s, &jid);
+		if let Some((_, jid)) = s.focus_read_at.take() {
+			if s.window_focused && s.selected_chat.as_deref() == Some(jid.as_str()) {
+				mark_open_chat_read(s, &jid);
+			}
 		}
 	}
 

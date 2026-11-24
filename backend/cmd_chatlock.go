@@ -19,22 +19,23 @@ import (
 
 func (acc *Account) handleVerifyChatLockCode(conn net.Conn, raw json.RawMessage) {
 	var data struct {
-		Code string `json:"code"`
+		Code   string `json:"code"`
+		Silent bool   `json:"silent"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
-		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "invalid payload"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "invalid payload", "silent": false})
 		return
 	}
 
 	b, err := acc.getChatLockSecretCode()
 	if err != nil || b == nil {
-		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "no secret code configured"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "no secret code configured", "silent": data.Silent})
 		return
 	}
 
 	var config waUserPassword.UserPassword
 	if err := proto.Unmarshal(b, &config); err != nil {
-		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "failed to decode config"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "failed to decode config", "silent": data.Silent})
 		return
 	}
 
@@ -54,13 +55,13 @@ func (acc *Account) handleVerifyChatLockCode(conn net.Conn, raw json.RawMessage)
 	} else if config.GetTransformer() == waUserPassword.UserPassword_PBKDF2_HMAC_SHA384 {
 		hashFunc = sha512.New384
 	} else {
-		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "unsupported hash algorithm"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "unsupported hash algorithm", "silent": data.Silent})
 		return
 	}
 
 	keyLen := len(config.GetTransformedData())
 	if keyLen == 0 {
-		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "no hash to compare"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "no hash to compare", "silent": data.Silent})
 		return
 	}
 
@@ -69,7 +70,26 @@ func (acc *Account) handleVerifyChatLockCode(conn net.Conn, raw json.RawMessage)
 
 	acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{
 		"success": success,
+		"silent":  data.Silent,
 	})
+}
+
+func (acc *Account) sendChatLockSettings(conn net.Conn) {
+	b, _ := acc.getChatLockSecretCode()
+	hide := acc.getChatLockHideLocked()
+	payload := map[string]interface{}{
+		"has_secret_code":   len(b) > 0,
+		"hide_locked_chats": hide,
+	}
+	if conn != nil {
+		acc.sendEvent(conn, "chat_lock_settings", payload)
+	} else {
+		acc.broadcastEvent("chat_lock_settings", payload)
+	}
+}
+
+func (acc *Account) handleGetChatLockSettings(conn net.Conn) {
+	acc.sendChatLockSettings(conn)
 }
 
 // buildLockChat builds a lock or unlock like WA Web's

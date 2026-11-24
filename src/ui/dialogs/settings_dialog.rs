@@ -33,7 +33,15 @@ pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
 ];
 
 pub const CHAT_LOCK_HELLO_LABEL: &str =
-	"Unlock locked chats with Windows Hello (fingerprint, face or PIN) instead of the secret code";
+	"Unlock with Windows Hello: Use fingerprint, facial recognition, or PIN instead of entering your secret code";
+pub const CHAT_LOCK_TIMEOUT_CHOICES: &[(&str, &str)] = &[
+	("Never", "0"),
+	("1 minute", "1"),
+	("5 minutes", "5"),
+	("15 minutes", "15"),
+	("30 minutes", "30"),
+	("1 hour", "60"),
+];
 
 pub struct PrivacyControl {
 	pub name: &'static str,
@@ -152,6 +160,10 @@ pub struct SettingsDialogParts {
 
 	pub lock_panel: Panel,
 	pub chat_lock_hello_check: CheckBox,
+	pub chat_lock_show_in_sidebar_check: CheckBox,
+	pub chat_lock_notify_check: CheckBox,
+	pub chat_lock_lock_on_minimize_check: CheckBox,
+	pub chat_lock_timeout_combo: ComboBox,
 
 	pub backup_panel: Panel,
 	pub backup_btn: Button,
@@ -218,6 +230,16 @@ fn setting_note(panel: &Panel, sizer: &BoxSizer, text: &str) {
 	let label = StaticText::builder(panel).with_label(&crate::i18n::tr_str(text)).build();
 	theme::style_muted_label(&label);
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
+}
+
+fn focusable_note(panel: &Panel, sizer: &BoxSizer, text: &'static str) -> TextCtrl {
+	let ctrl = TextCtrl::builder(panel)
+		.with_style(dialog_look::field_style(TextCtrlStyle::ReadOnly | TextCtrlStyle::MultiLine))
+		.build();
+	ctrl.set_value(&crate::i18n::tr_str(text));
+	ctrl.set_font(&theme::Fonts::body());
+	sizer.add(&ctrl, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
+	ctrl
 }
 
 fn section_header(panel: &Panel, sizer: &BoxSizer, label: &str) {
@@ -627,12 +649,47 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	theme::style_content(&lock_panel);
 	let lock_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	section_header(&lock_panel, &lock_sizer, "Chat Lock");
+	section_header(&lock_panel, &lock_sizer, "Unlock Method");
 	let chat_lock_hello_check = setting_switch(&lock_panel, &lock_sizer, CHAT_LOCK_HELLO_LABEL);
-	setting_note(
+	let chat_lock_show_in_sidebar_check = setting_switch(
 		&lock_panel,
 		&lock_sizer,
-		"Allows unlocking hidden and locked chats using your Windows Hello biometric or PIN credentials.",
+		"Show Locked Chats in sidebar: Display button above chat list (when off, unlock via Secret Code in search or Ctrl+Shift+L)",
+	);
+	focusable_note(
+		&lock_panel,
+		&lock_sizer,
+		"Secret Code management: Your Secret Code is configured on your primary phone in WhatsApp (Settings > Privacy > Chat Lock). Linked devices verify against this code automatically.",
+	);
+
+	lock_sizer.add_spacer(12);
+	section_header(&lock_panel, &lock_sizer, "Notifications & Privacy");
+	let chat_lock_notify_check = setting_switch(
+		&lock_panel,
+		&lock_sizer,
+		"Notifications for locked chats: Show desktop notifications and sounds while chats are locked (when off, stay completely silent)",
+	);
+
+	lock_sizer.add_spacer(12);
+	section_header(&lock_panel, &lock_sizer, "Auto-Lock");
+	let chat_lock_timeout_combo = visibility_combo(
+		&lock_panel,
+		&lock_sizer,
+		"Auto-lock after inactivity: Automatically lock and hide chats after idle time",
+		CHAT_LOCK_TIMEOUT_CHOICES,
+	);
+	let chat_lock_lock_on_minimize_check = setting_switch(
+		&lock_panel,
+		&lock_sizer,
+		"Auto-lock when whatSnap is minimized: Automatically lock and hide chats whenever the window is minimized",
+	);
+
+	lock_sizer.add_spacer(12);
+	section_header(&lock_panel, &lock_sizer, "Keyboard Shortcuts");
+	focusable_note(
+		&lock_panel,
+		&lock_sizer,
+		"Shortcut: Press Ctrl+Shift+L anywhere in whatSnap to instantly lock or unlock your chats.",
 	);
 	lock_panel.set_sizer(lock_sizer, true);
 
@@ -787,6 +844,10 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		dual_stream_screen_share_check,
 		lock_panel,
 		chat_lock_hello_check,
+		chat_lock_show_in_sidebar_check,
+		chat_lock_notify_check,
+		chat_lock_lock_on_minimize_check,
+		chat_lock_timeout_combo,
 		backup_panel,
 		backup_btn,
 		restore_btn,
@@ -1011,6 +1072,11 @@ impl SettingsDialogParts {
 		let hello = crate::platform::windows_hello::availability();
 		self.chat_lock_hello_check.enable(hello == crate::platform::windows_hello::Availability::Ready);
 		self.chat_lock_hello_check.set_value(settings.chat_lock_hello);
+		self.chat_lock_show_in_sidebar_check.set_value(settings.chat_lock_show_in_sidebar);
+		self.chat_lock_notify_check.set_value(settings.chat_lock_notify);
+		self.chat_lock_lock_on_minimize_check.set_value(settings.chat_lock_lock_on_minimize);
+		let timeout_val = settings.chat_lock_auto_lock_mins.to_string();
+		set_combo_from_value(&self.chat_lock_timeout_combo, CHAT_LOCK_TIMEOUT_CHOICES, &timeout_val);
 		self.announce_incoming_check.set_value(settings.announce_incoming);
 		self.announce_outgoing_check.set_value(settings.announce_outgoing);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
@@ -1045,6 +1111,12 @@ impl SettingsDialogParts {
 		settings.type_to_compose = self.type_to_compose_check.is_checked();
 		settings.keep_list_position = self.keep_list_position_check.is_checked();
 		settings.chat_lock_hello = self.chat_lock_hello_check.is_checked();
+		settings.chat_lock_show_in_sidebar = self.chat_lock_show_in_sidebar_check.is_checked();
+		settings.chat_lock_notify = self.chat_lock_notify_check.is_checked();
+		settings.chat_lock_lock_on_minimize = self.chat_lock_lock_on_minimize_check.is_checked();
+		let timeout_idx = self.chat_lock_timeout_combo.get_selection().unwrap_or(0) as usize;
+		let timeout_val = CHAT_LOCK_TIMEOUT_CHOICES.get(timeout_idx).map(|(_, v)| *v).unwrap_or("0");
+		settings.chat_lock_auto_lock_mins = timeout_val.parse::<u32>().unwrap_or(0);
 		settings.announce_incoming = self.announce_incoming_check.is_checked();
 		settings.announce_outgoing = self.announce_outgoing_check.is_checked();
 		settings.status_auto_advance = self.status_auto_advance_check.is_checked();

@@ -522,7 +522,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							} else {
 								alert
 							};
-							if alert.sound && !crate::platform::do_not_disturb::should_silence(&s.settings) {
+							let is_locked_silent =
+								s.locked_jids.contains(jid) && !s.chats_unlocked && !s.settings.chat_lock_notify;
+							if alert.sound
+								&& !is_locked_silent && !crate::platform::do_not_disturb::should_silence(&s.settings)
+							{
 								let (tone, file) = s.settings.message_tone_for(jid);
 								crate::audio::play_message_tone(
 									tone,
@@ -531,7 +535,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									s.settings.output_device_name.clone(),
 								);
 							}
-							if alert.toast && s.locked_jids.contains(jid) {
+							if alert.toast && !is_locked_silent && s.locked_jids.contains(jid) {
 								let unread = s.unread_counts.get(jid).copied().unwrap_or(0).max(1);
 								let body = if unread == 1 {
 									crate::i18n::tr("1 new message").to_string()
@@ -539,7 +543,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									crate::i18n::tr_fmt("{} new messages", &[&unread])
 								};
 								crate::ui::chat_ui::show_chat_notification(&s, jid, "WhatsApp", &body, true);
-							} else if alert.toast {
+							} else if alert.toast && !is_locked_silent {
 								let previews =
 									s.settings.notification_previews && !s.settings.chat_notify(jid).hide_content;
 								let body = if is_call_line {
@@ -1705,7 +1709,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							} else {
 								whatsnap::IncomingAlert { sound: false, toast: false }
 							};
-							if alert.sound && !crate::platform::do_not_disturb::should_silence(&s.settings) {
+							let is_locked_silent =
+								s.locked_jids.contains(chat_jid) && !s.chats_unlocked && !s.settings.chat_lock_notify;
+							if alert.sound
+								&& !is_locked_silent && !crate::platform::do_not_disturb::should_silence(&s.settings)
+							{
 								let (tone, file) = s.settings.message_tone_for(chat_jid);
 								crate::audio::play_message_tone(
 									tone,
@@ -1714,7 +1722,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									s.settings.output_device_name.clone(),
 								);
 							}
-							if alert.toast && s.locked_jids.contains(chat_jid) {
+							if alert.toast && !is_locked_silent && s.locked_jids.contains(chat_jid) {
 								crate::ui::chat_ui::show_chat_notification(
 									&s,
 									chat_jid,
@@ -1722,7 +1730,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									crate::i18n::tr("New reaction"),
 									true,
 								);
-							} else if alert.toast {
+							} else if alert.toast && !is_locked_silent {
 								let previews =
 									s.settings.notification_previews && !s.settings.chat_notify(chat_jid).hide_content;
 								let body = if previews {
@@ -2050,5 +2058,5 @@ fn legacy_album_join(items: &[whatsnap::DisplayItem], msg: &whatsnap::ChatMessag
 		next = prev;
 	}
 	let count = items.len() - first;
-	(count + 1 >= whatsnap::LEGACY_ALBUM_MIN && count + 1 <= whatsnap::LEGACY_ALBUM_MAX).then_some((first, count))
+	(whatsnap::LEGACY_ALBUM_MIN..=whatsnap::LEGACY_ALBUM_MAX).contains(&(count + 1)).then_some((first, count))
 }

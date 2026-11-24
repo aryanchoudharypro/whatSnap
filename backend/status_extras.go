@@ -113,8 +113,10 @@ func (acc *Account) handleGetStatusViewers(conn net.Conn, raw json.RawMessage) {
 	rows.Close()
 	// Names are looked up with the rows closed, as that runs queries of its own.
 	for _, v := range viewers {
-		if jid, err := types.ParseJID(v["jid"].(string)); err == nil {
-			v["name"] = acc.resolveDisplayName(jid)
+		if jidStr, ok := v["jid"].(string); ok {
+			if jid, err := types.ParseJID(jidStr); err == nil {
+				v["name"] = acc.resolveDisplayName(jid)
+			}
 		}
 	}
 	acc.sendEvent(conn, "status_viewers", map[string]interface{}{"id": data.ID, "viewers": viewers})

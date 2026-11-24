@@ -81,6 +81,8 @@ func (s *outgoingChatStates) pauseAll(send sendChatState) {
 func (acc *Account) queueOutgoingChatState(jid types.JID, state types.ChatPresence, media types.ChatPresenceMedia) {
 	update := acc.outgoingChatStates.queue(jid, state, media)
 	if update != nil {
-		go acc.outgoingChatStates.send(acc.ctx, jid, update, acc.wa().SendChatPresence)
+		if cli := acc.wa(); cli != nil {
+			go acc.outgoingChatStates.send(acc.ctx, jid, update, cli.SendChatPresence)
+		}
 	}
 }

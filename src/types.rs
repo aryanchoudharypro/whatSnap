@@ -75,6 +75,8 @@ pub enum UiCommand {
 	FinishAccountRemoval(String),
 	ExitApp,
 	RestartApp,
+	/// Settings were saved: reapply chat filter and refresh menu bar.
+	SettingsSaved,
 	NewContact {
 		name: String,
 		first_name: String,

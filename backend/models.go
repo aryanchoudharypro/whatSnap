@@ -78,7 +78,8 @@ type SearchMessagesData struct {
 	Query string `json:"query"`
 	JID   string `json:"jid"`
 	// Offset pages through a search of every chat (no JID), 30 at a time.
-	Offset int `json:"offset"`
+	Offset        int  `json:"offset"`
+	IncludeLocked bool `json:"include_locked"`
 }
 
 type MessageRefData struct {

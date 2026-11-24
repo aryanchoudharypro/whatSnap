@@ -648,12 +648,15 @@ func (acc *Account) handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 				wordArgs[i] = "%" + escapeLike(word) + "%"
 			}
 			wordsLike := strings.Join(conds, " AND ")
+			lockedCond := " AND jid NOT IN (SELECT jid FROM chats WHERE COALESCE(is_locked, 0) = 1)"
+			if data.IncludeLocked {
+				lockedCond = ""
+			}
 			rows, err = acc.db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
 				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
-				WHERE `+wordsLike+` AND COALESCE(is_deleted, 0) = 0 AND COALESCE(media_type, '') NOT IN ('system', 'call')
-				AND jid NOT IN (SELECT jid FROM chats WHERE COALESCE(is_locked, 0) = 1)
+				WHERE `+wordsLike+` AND COALESCE(is_deleted, 0) = 0 AND COALESCE(media_type, '') NOT IN ('system', 'call')`+lockedCond+`
 				ORDER BY timestamp DESC LIMIT ? OFFSET ?`, append(wordArgs, globalSearchPageSize+1, offset)...)
 		}
 		results := []map[string]interface{}{}
@@ -761,7 +764,12 @@ func (acc *Account) sendAppStateWithRetry(ctx context.Context, patch appstate.Pa
 	acc.appStateSendMu.Lock()
 	defer acc.appStateSendMu.Unlock()
 
-	err := acc.wa().SendAppState(ctx, patch)
+	client := acc.wa()
+	if client == nil {
+		return fmt.Errorf("client not connected")
+	}
+
+	err := client.SendAppState(ctx, patch)
 	if err == nil {
 		return nil
 	}
@@ -771,11 +779,11 @@ func (acc *Account) sendAppStateWithRetry(ctx context.Context, patch appstate.Pa
 	acc.lastAppStateResync[patch.Type] = time.Now()
 	acc.appStateResyncMu.Unlock()
 
-	if sync_err := acc.wa().FetchAppState(ctx, patch.Type, false, false); sync_err != nil {
+	if sync_err := client.FetchAppState(ctx, patch.Type, false, false); sync_err != nil {
 		log.Printf("Resync of %s failed: %v", patch.Type, sync_err)
 		return fmt.Errorf("app state sync failed for %s: %w", patch.Type, sync_err)
 	}
-	if retry_err := acc.wa().SendAppState(ctx, patch); retry_err != nil {
+	if retry_err := client.SendAppState(ctx, patch); retry_err != nil {
 		log.Printf("SendAppState %s retry also failed: %v", patch.Type, retry_err)
 		return fmt.Errorf("app state retry failed for %s: %w", patch.Type, retry_err)
 	}
@@ -1128,9 +1136,11 @@ func (acc *Account) requestHistoryForEmptyChat(chatJID types.JID, jid string, co
 
 func (acc *Account) noteOnDemandAnswer(jid string) {
 	if ch, ok := acc.onDemandWaiters.Load(jid); ok {
-		select {
-		case ch.(chan struct{}) <- struct{}{}:
-		default:
+		if c, ok := ch.(chan struct{}); ok {
+			select {
+			case c <- struct{}{}:
+			default:
+			}
 		}
 	}
 }

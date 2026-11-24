@@ -150,7 +150,7 @@ func openAccount(id, dbPath string) (*Account, error) {
 	go acc.runDisappearingSweep()
 	go acc.fixupLegacyStickerTexts()
 	go acc.mergeAllKnownLIDRows()
-	if acc.wa().Store.ID != nil {
+	if cli := acc.wa(); cli != nil && cli.Store != nil && cli.Store.ID != nil {
 		acc.resetHistorySyncProgress()
 		acc.requestConnect(0)
 	}

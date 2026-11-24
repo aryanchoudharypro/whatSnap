@@ -17,6 +17,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waAICommonDeprecated"
+	"go.mau.fi/whatsmeow/proto/waChatLockSettings"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -28,17 +29,39 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+func (acc *Account) applyChatLockSettings(cls *waChatLockSettings.ChatLockSettings) {
+	if cls == nil {
+		return
+	}
+	if cls.HideLockedChats != nil {
+		acc.saveChatLockHideLocked(*cls.HideLockedChats)
+	}
+	if sc := cls.GetSecretCode(); sc != nil {
+		if len(sc.GetTransformedData()) > 0 {
+			if b, err := proto.Marshal(sc); err == nil {
+				acc.saveChatLockSecretCode(b)
+			}
+		} else {
+			acc.clearChatLockSecretCode()
+		}
+	}
+	acc.sendChatLockSettings(nil)
+}
+
 func (acc *Account) resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 	chatJID = v.Info.Chat.ToNonAD()
 	senderJID = v.Info.Sender.ToNonAD()
 
+	cli := acc.wa()
 	if senderJID.Server == "lid" {
 		if !v.Info.SenderAlt.IsEmpty() {
 			senderJID = v.Info.SenderAlt.ToNonAD()
-		} else if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
-			senderJID = pn.ToNonAD()
-		} else if v.Info.IsFromMe && acc.wa().Store.ID != nil {
-			senderJID = acc.wa().Store.ID.ToNonAD()
+		} else if cli != nil && cli.Store != nil && cli.Store.LIDs != nil {
+			if pn, err := cli.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+				senderJID = pn.ToNonAD()
+			}
+		} else if v.Info.IsFromMe && cli != nil && cli.Store != nil && cli.Store.ID != nil {
+			senderJID = cli.Store.ID.ToNonAD()
 		}
 	}
 
@@ -46,8 +69,10 @@ func (acc *Account) resolveLIDChat(v *events.Message) (chatJID, senderJID types.
 		if v.Info.IsFromMe {
 			if !v.Info.RecipientAlt.IsEmpty() {
 				chatJID = v.Info.RecipientAlt.ToNonAD()
-			} else if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
-				chatJID = pn.ToNonAD()
+			} else if cli != nil && cli.Store != nil && cli.Store.LIDs != nil {
+				if pn, err := cli.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+					chatJID = pn.ToNonAD()
+				}
 			}
 		} else {
 			chatJID = senderJID
@@ -1129,11 +1154,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 
 			if gs := v.Data.GetGlobalSettings(); gs != nil {
 				if cls := gs.GetChatLockSettings(); cls != nil {
-					if sc := cls.GetSecretCode(); sc != nil {
-						if b, err := proto.Marshal(sc); err == nil {
-							acc.saveChatLockSecretCode(b)
-						}
-					}
+					acc.applyChatLockSettings(cls)
 				}
 			}
 
@@ -2135,9 +2156,9 @@ func (acc *Account) eventHandler(evt interface{}) {
 		}
 		acc.appStateResyncMu.Unlock()
 		acc.connFailures.Store(0)
-		if acc.wa().Store.ID != nil {
+		if cli := acc.wa(); cli != nil && cli.Store != nil && cli.Store.ID != nil {
 			acc.setConnState(connStateOnline, "", 0)
-			acc.broadcastEvent("connected", map[string]string{"jid": acc.wa().Store.ID.String()})
+			acc.broadcastEvent("connected", map[string]string{"jid": cli.Store.ID.String()})
 			go acc.sendDesiredPresence(true)
 			go acc.retryPendingTextMessages()
 			go acc.flushPendingResends()
@@ -2313,11 +2334,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 				return
 			}
 			if cls := v.GetChatLockSettings(); cls != nil {
-				if sc := cls.GetSecretCode(); sc != nil {
-					if b, err := proto.Marshal(sc); err == nil {
-						acc.saveChatLockSecretCode(b)
-					}
-				}
+				acc.applyChatLockSettings(cls)
 			}
 			if lca := v.GetLockChatAction(); lca != nil {
 				if len(v.Index) > 1 {

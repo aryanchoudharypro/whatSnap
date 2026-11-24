@@ -498,9 +498,11 @@ func (acc *Account) pollInfoForMessage(pollID string) map[string]interface{} {
 		rows.Close()
 		// Names are looked up with the rows closed, as that runs queries of its own.
 		for _, v := range voters {
-			if !v["me"].(bool) {
-				if jid, perr := types.ParseJID(v["name"].(string)); perr == nil {
-					v["name"] = acc.resolveDisplayName(jid)
+			if isMe, ok := v["me"].(bool); ok && !isMe {
+				if name, ok := v["name"].(string); ok {
+					if jid, perr := types.ParseJID(name); perr == nil {
+						v["name"] = acc.resolveDisplayName(jid)
+					}
 				}
 			}
 		}

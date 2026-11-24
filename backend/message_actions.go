@@ -205,10 +205,14 @@ func (acc *Account) handleGetPinnedMessages(conn net.Conn, raw json.RawMessage) 
 	rows.Close()
 	// Names are looked up with the rows closed, as that runs queries of its own.
 	for _, p := range pins {
-		p["text"] = acc.renderNames(p["text"].(string), nil)
-		if !p["fromMe"].(bool) {
-			if parsed, err := types.ParseJID(p["sender"].(string)); err == nil {
-				p["sender"] = acc.resolveDisplayName(parsed)
+		if txt, ok := p["text"].(string); ok {
+			p["text"] = acc.renderNames(txt, nil)
+		}
+		if fromMe, ok := p["fromMe"].(bool); ok && !fromMe {
+			if sender, ok := p["sender"].(string); ok {
+				if parsed, err := types.ParseJID(sender); err == nil {
+					p["sender"] = acc.resolveDisplayName(parsed)
+				}
 			}
 		}
 		delete(p, "fromMe")

@@ -371,10 +371,18 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	} else {
 		0
 	};
-	crate::backend::events::format_conv_data_label(jid, &name, &name, kind == 1, kind == 2, presence_label)
+	let base = crate::backend::events::format_conv_data_label(jid, &name, &name, kind == 1, kind == 2, presence_label);
+	if s.locked_jids.contains(jid) { format!("{}, {}", crate::i18n::tr("Locked chat"), base) } else { base }
 }
 
 pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if jid == crate::ui::message_display::LOCKED_CHATS_PSEUDO_JID {
+		if let Ok(mut s) = state.try_borrow_mut() {
+			s.pending_locked_chat = None;
+		}
+		crate::ui_commands::chat_list::prompt_locked_chats(state, parts);
+		return;
+	}
 	{
 		let mut s = state.borrow_mut();
 		if s.locked_jids.contains(jid) && !s.chats_unlocked {

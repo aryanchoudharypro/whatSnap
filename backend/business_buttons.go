@@ -303,8 +303,13 @@ func (acc *Account) handleSendMessageOption(conn net.Conn, raw json.RawMessage) 
 			}
 		}
 		reply := acc.applyDisappearingTimer(chat, buildOptionReply(option, ctx))
-		id := acc.wa().GenerateMessageID()
-		resp, err := acc.wa().SendMessage(context.Background(), chat, reply, whatsmeow.SendRequestExtra{ID: id})
+		cli := acc.wa()
+		if cli == nil {
+			fail("client not connected")
+			return
+		}
+		id := cli.GenerateMessageID()
+		resp, err := cli.SendMessage(context.Background(), chat, reply, whatsmeow.SendRequestExtra{ID: id})
 		if err != nil {
 			fail(sendErrorText(err))
 			return
@@ -314,8 +319,8 @@ func (acc *Account) handleSendMessageOption(conn net.Conn, raw json.RawMessage) 
 			ts = time.Now().Unix()
 		}
 		senderJID := ""
-		if acc.wa().Store.ID != nil {
-			senderJID = acc.wa().Store.ID.ToNonAD().String()
+		if cli.Store != nil && cli.Store.ID != nil {
+			senderJID = cli.Store.ID.ToNonAD().String()
 		}
 		rawBytes, _ := proto.Marshal(reply)
 		quotedSender := acc.resolveQuotedSenderName(storedSender)

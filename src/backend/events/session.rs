@@ -376,32 +376,71 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 			}
 		}
+		"chat_lock_settings" => {
+			if let Some(data) = val.get("data") {
+				let has_code = data.get("has_secret_code").and_then(|v| v.as_bool()).unwrap_or(false);
+				let hide = data.get("hide_locked_chats").and_then(|v| v.as_bool()).unwrap_or(false);
+				let mut s = state.borrow_mut();
+				s.has_secret_code = has_code;
+				s.hide_locked_chats = hide;
+				crate::ui::message_display::apply_chat_filter(&mut s, parts);
+			}
+		}
 		"chat_lock_verify_result" => {
 			if let Some(data) = val.get("data") {
 				let success = data.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
+				let silent = data.get("silent").and_then(|s| s.as_bool()).unwrap_or(false);
 				if success {
-					crate::ui_commands::chat_list::show_locked_chats(state, parts);
-					crate::ui_commands::chat_list::offer_chat_lock_hello(state, parts);
+					if silent {
+						let was_verified = state.borrow().secret_code_verified;
+						let mut s = state.borrow_mut();
+						s.secret_code_verified = true;
+						crate::ui::message_display::apply_chat_filter(&mut s, parts);
+						if !was_verified {
+							crate::platform::announce::announce(
+								parts.conversations_parts.messages_announcer,
+								crate::i18n::tr("Locked chats available."),
+							);
+						}
+					} else {
+						crate::ui_commands::chat_list::show_locked_chats(state, parts);
+						crate::ui_commands::chat_list::offer_chat_lock_hello(state, parts);
+					}
+				} else if silent {
+					let mut s = state.borrow_mut();
+					if s.secret_code_verified {
+						s.secret_code_verified = false;
+						crate::ui::message_display::apply_chat_filter(&mut s, parts);
+					}
 				} else {
 					state.borrow_mut().pending_locked_chat = None;
 					let err = data.get("error").and_then(|e| e.as_str()).unwrap_or("");
-					let (title, message) = if err == "no secret code configured" {
-						(
-							crate::i18n::tr("Secret Code Required"),
+					if err == "no secret code configured" {
+						let alert = MessageDialog::builder(
+							&parts.frame,
 							crate::i18n::tr(
 								"No Secret Code configured.\n\nTo lock or unlock chats on linked devices, you must first create a Secret Code in WhatsApp on your primary phone:\n\n1. Open WhatsApp on your phone\n2. Go to Settings > Privacy > Chat Lock\n3. Tap 'Secret Code' and set a code.\n\nOnce set, it will sync to this device automatically.",
 							),
+							crate::i18n::tr("Secret Code Required"),
 						)
-					} else {
-						(
-							crate::i18n::tr("Unlock Failed"),
-							crate::i18n::tr("Incorrect Secret Code.\n\nPlease check your secret code and try again."),
-						)
-					};
-					let alert = MessageDialog::builder(&parts.frame, message, title)
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
 						.build();
-					alert.show_modal();
+						alert.show_modal();
+					} else {
+						crate::platform::announce::announce(
+							parts.conversations_parts.messages_announcer,
+							crate::i18n::tr("Incorrect Secret Code."),
+						);
+						let alert = MessageDialog::builder(
+							&parts.frame,
+							crate::i18n::tr("Incorrect Secret Code.\n\nPlease check your secret code and try again."),
+							crate::i18n::tr("Unlock Failed"),
+						)
+						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+						.build();
+						alert.show_modal();
+						crate::ui_commands::chat_list::prompt_locked_chats(state, parts);
+					}
 				}
 			}
 		}

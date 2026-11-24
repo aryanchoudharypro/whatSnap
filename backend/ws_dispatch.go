@@ -107,12 +107,13 @@ func handleConnection(conn net.Conn) {
 // (with the state the app needs first) or waiting to be linked. The app asks
 // for it again with "hello" when it switches to this backend's account.
 func (acc *Account) sendGreeting(conn net.Conn) {
-	if acc.wa().Store.ID != nil {
+	if cli := acc.wa(); cli != nil && cli.Store != nil && cli.Store.ID != nil {
 		log.Println("Sending initial connected event to WS")
-		acc.sendEvent(conn, "connected", map[string]string{"jid": acc.wa().Store.ID.String()})
+		acc.sendEvent(conn, "connected", map[string]string{"jid": cli.Store.ID.String()})
 		acc.sendEvent(conn, "connection_state", acc.currentConnState())
 		acc.sendEvent(conn, "server_flags", acc.serverFlagsPayload())
 		acc.sendBlocklist(conn)
+		acc.sendChatLockSettings(conn)
 		go func() {
 			acc.populateChatsFromStore()
 			acc.broadcastChats()
@@ -369,6 +370,8 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 	case "get_reported_messages":
 		acc.handleGetReportedMessages(conn, cmd.Data)
 
+	case "get_chat_lock_settings":
+		acc.handleGetChatLockSettings(conn)
 	case "verify_chat_lock_code":
 		// PBKDF2 with the server's iteration count can take a moment -
 		// never on the goroutine that reads every other command.
@@ -576,15 +579,17 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 				delete(acc.lastAppStateResync, k)
 			}
 			acc.appStateResyncMu.Unlock()
-			for _, name := range []appstate.WAPatchName{
-				appstate.WAPatchRegular,
-				appstate.WAPatchRegularLow,
-				appstate.WAPatchRegularHigh,
-				appstate.WAPatchCriticalBlock,
-				appstate.WAPatchCriticalUnblockLow,
-			} {
-				if err := acc.wa().FetchAppState(context.Background(), name, false, false); err != nil {
-					fmt.Println("Error syncing AppState (", name, "):", err)
+			if cli := acc.wa(); cli != nil {
+				for _, name := range []appstate.WAPatchName{
+					appstate.WAPatchRegular,
+					appstate.WAPatchRegularLow,
+					appstate.WAPatchRegularHigh,
+					appstate.WAPatchCriticalBlock,
+					appstate.WAPatchCriticalUnblockLow,
+				} {
+					if err := cli.FetchAppState(context.Background(), name, false, false); err != nil {
+						fmt.Println("Error syncing AppState (", name, "):", err)
+					}
 				}
 			}
 			acc.populateChatsFromStore()

@@ -86,7 +86,11 @@ func (acc *Account) learnKeepChatsArchived() {
 		return
 	}
 	acc.runOnceIfOK("refetch_regular_low_for_keep_archived_v1", func() bool {
-		err := acc.wa().FetchAppState(context.Background(), appstate.WAPatchRegularLow, true, false)
+		cli := acc.wa()
+		if cli == nil {
+			return false
+		}
+		err := cli.FetchAppState(context.Background(), appstate.WAPatchRegularLow, true, false)
 		if err != nil {
 			fmt.Println("Couldn't fetch regular_low for Keep chats archived:", err)
 			return false

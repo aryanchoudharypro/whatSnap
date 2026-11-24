@@ -140,8 +140,10 @@ func (acc *Account) maybeAutoDownload(msg *waE2E.Message, info types.MessageInfo
 
 func (acc *Account) trustedForAutoDownload(info types.MessageInfo, jid string) bool {
 	sender := acc.preferPN(info.Sender.ToNonAD())
-	if c, err := acc.wa().Store.Contacts.GetContact(context.Background(), sender); err == nil && c.Found && c.FullName != "" {
-		return true
+	if cli := acc.wa(); cli != nil && cli.Store != nil && cli.Store.Contacts != nil {
+		if c, err := cli.Store.Contacts.GetContact(context.Background(), sender); err == nil && c.Found && c.FullName != "" {
+			return true
+		}
 	}
 	var sent int
 	acc.db.QueryRow(`SELECT COUNT(*) FROM (SELECT 1 FROM messages WHERE jid = ? AND from_me = 1 LIMIT 1)`, jid).Scan(&sent)

@@ -189,6 +189,7 @@ pub(crate) fn find_single_removal_offset(old: &[String], new: &[String]) -> Opti
 }
 
 pub(crate) const BUILT_IN_CHAT_FILTERS: [&str; 4] = ["All chats", "Unread", "Favorites", "Groups"];
+pub const LOCKED_CHATS_PSEUDO_JID: &str = "whatsnap:locked_chats";
 
 pub(crate) fn chat_passes_filter(s: &AppState, jid: &str) -> bool {
 	if s.active_tab != 0 || s.chats_unlocked {
@@ -228,7 +229,10 @@ impl ChatTabRows {
 /// What the chat list's search box is called, as WA Web's placeholder says
 /// it for each filter.
 fn chat_search_label(s: &AppState) -> &'static str {
-	if s.active_tab != 0 || s.chats_unlocked {
+	if s.chats_unlocked {
+		return crate::i18n::tr("Search locked chats");
+	}
+	if s.active_tab != 0 {
 		return crate::i18n::tr("Search chats");
 	}
 	let key = match s.chat_filter {
@@ -279,6 +283,9 @@ pub(crate) fn shown_draft(s: &AppState, jid: &str) -> Option<String> {
 /// A chat's row text, which is what a screen reader says for it: name, unread
 /// count, time and last message, or the draft in the last message's place.
 pub(crate) fn chat_row_label(s: &AppState, jid: &str) -> String {
+	if jid == LOCKED_CHATS_PSEUDO_JID {
+		return crate::i18n::tr("Locked chats").to_string();
+	}
 	let label = s.display_names.get(jid).or_else(|| s.contacts.get(jid)).map_or(jid, String::as_str);
 	let Some(draft) = shown_draft(s, jid) else { return label.to_string() };
 	let head = match s.chat_preview_lines.get(jid).filter(|p| !p.is_empty()) {
@@ -362,7 +369,7 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 		.collect();
 	let current = s.message_search.query == s.search_query;
 	let hits: Vec<&crate::MessageHit> = if current {
-		s.message_search.hits.iter().filter(|h| !s.locked_jids.contains(&h.jid)).collect()
+		s.message_search.hits.iter().filter(|h| s.chats_unlocked || !s.locked_jids.contains(&h.jid)).collect()
 	} else {
 		Vec::new()
 	};
@@ -371,6 +378,15 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 		rows.notice(crate::i18n::tr("Chats"));
 		for jid in &chats {
 			rows.push(jid, chat_row_label(s, jid), "");
+		}
+	}
+	let show_in_sidebar = s.settings.chat_lock_show_in_sidebar && !s.hide_locked_chats;
+	if searching && !s.chats_unlocked && !s.locked_jids.is_empty() {
+		let q_lower = s.search_query.to_lowercase();
+		let matches_word = show_in_sidebar && (q_lower.contains("lock") || q_lower.contains("locked"));
+		let matches_secret = s.secret_code_verified;
+		if matches_secret || matches_word {
+			rows.push(LOCKED_CHATS_PSEUDO_JID, crate::i18n::tr("Locked chats").to_string(), "");
 		}
 	}
 	if !contacts.is_empty() {
@@ -463,7 +479,10 @@ pub(crate) fn refresh_chat_rows(s: &mut AppState, parts: &crate::ui::window::Win
 pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	crate::ui::window::refresh_menu_bar(s, &parts.frame);
 	crate::platform::tray::refresh_nav_unread_labels(s, parts);
-	let show_locked_btn = s.active_tab == 0 && !s.locked_jids.is_empty();
+	let show_in_sidebar = s.settings.chat_lock_show_in_sidebar && !s.hide_locked_chats;
+	let show_locked_btn = s.active_tab == 0
+		&& !s.locked_jids.is_empty()
+		&& (show_in_sidebar || s.chats_unlocked || s.secret_code_verified);
 	let show_filter = s.active_tab == 0 && !s.chats_unlocked;
 	let conv = &parts.conversations_parts;
 	let btn_label = crate::i18n::tr(if s.chats_unlocked { "Hide Locked Chats" } else { "Locked Chats" });
@@ -475,6 +494,13 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		if conv.search_label.get_label() != search_label {
 			conv.search_label.set_label(search_label);
 		}
+	}
+	if s.active_tab == 0 {
+		let conv_header = crate::i18n::tr(if s.chats_unlocked { "Locked Chats" } else { "Chats" });
+		if conv.conversations_label.get_label() != conv_header {
+			conv.conversations_label.set_label(conv_header);
+		}
+		conv.new_conv_btn.show(!s.chats_unlocked);
 	}
 	if conv.locked_chats_btn.is_shown() != show_locked_btn || conv.chat_filter_combo.is_shown() != show_filter {
 		conv.locked_chats_btn.show(show_locked_btn);
@@ -796,8 +822,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 				let is_voice =
 					msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
 				let is_media = !is_deleted
-					&& !is_voice
-					&& !msg.is_system()
+					&& !is_voice && !msg.is_system()
 					&& !msg.is_call()
 					&& (!msg.media_type.is_empty()
 						|| msg.is_document()

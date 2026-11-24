@@ -1226,11 +1226,12 @@ pub fn find_album_target(items: &[DisplayItem], msg: &ChatMessage) -> Option<usi
 	}
 	for (idx, item) in items.iter().enumerate().rev() {
 		let Some(last) = item.messages().last() else { continue };
-		if msg.timestamp - last.timestamp > ALBUM_MAX_GAP_SECS {
-			return None;
-		}
 		if same_album(last, msg) {
-			return Some(idx);
+			if msg.timestamp - last.timestamp <= ALBUM_MAX_GAP_SECS {
+				return Some(idx);
+			} else {
+				return None;
+			}
 		}
 	}
 	None

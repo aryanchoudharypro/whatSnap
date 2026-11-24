@@ -123,9 +123,13 @@ func (acc *Account) handleGetStatuses(conn net.Conn) {
 		result := make([]map[string]interface{}, 0, len(order))
 		for _, key := range order {
 			g := groups[key]
+			if g == nil {
+				continue
+			}
 			allViewed := true
 			for _, it := range g.items {
-				if !it["viewed"].(bool) {
+				viewed, _ := it["viewed"].(bool)
+				if !viewed {
 					allViewed = false
 					break
 				}
@@ -136,15 +140,30 @@ func (acc *Account) handleGetStatuses(conn net.Conn) {
 			})
 		}
 		sort.SliceStable(result, func(i, j int) bool {
-			fi, fj := result[i]["fromMe"].(bool), result[j]["fromMe"].(bool)
+			fi, _ := result[i]["fromMe"].(bool)
+			fj, _ := result[j]["fromMe"].(bool)
 			if fi != fj {
 				return fi
 			}
-			if mi, mj := result[i]["muted"].(bool), result[j]["muted"].(bool); mi != mj {
+			mi, _ := result[i]["muted"].(bool)
+			mj, _ := result[j]["muted"].(bool)
+			if mi != mj {
 				return mj
 			}
-			si, sj := result[i]["statuses"].([]map[string]interface{}), result[j]["statuses"].([]map[string]interface{})
-			return si[len(si)-1]["timestamp"].(int64) > sj[len(sj)-1]["timestamp"].(int64)
+			si, _ := result[i]["statuses"].([]map[string]interface{})
+			sj, _ := result[j]["statuses"].([]map[string]interface{})
+			var ti, tj int64
+			if len(si) > 0 {
+				if t, ok := si[len(si)-1]["timestamp"].(int64); ok {
+					ti = t
+				}
+			}
+			if len(sj) > 0 {
+				if t, ok := sj[len(sj)-1]["timestamp"].(int64); ok {
+					tj = t
+				}
+			}
+			return ti > tj
 		})
 
 		acc.sendEvent(conn, "statuses", map[string]interface{}{"groups": result})

@@ -147,6 +147,10 @@ struct AppState {
 	archived_jids: std::collections::HashSet<String>,
 	locked_jids: std::collections::HashSet<String>,
 	chats_unlocked: bool,
+	has_secret_code: bool,
+	hide_locked_chats: bool,
+	secret_code_verified: bool,
+	last_unlock_activity: std::time::Instant,
 	pending_locked_chat: Option<String>,
 	community_jids: std::collections::HashSet<String>,
 	chat_parents: std::collections::HashMap<String, String>,
@@ -451,7 +455,7 @@ fn main() {
 	let exe_dir = std::env::current_exe()
 		.ok()
 		.and_then(|p| p.parent().map(|d| d.to_path_buf()))
-		.unwrap_or_else(|| std::env::current_dir().unwrap());
+		.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
 
 	let candidate_paths = [
 		exe_dir.join("backend").join("backend.exe"),
@@ -920,6 +924,10 @@ pub(crate) fn new_app_state(
 		archived_jids: std::collections::HashSet::new(),
 		locked_jids: std::collections::HashSet::new(),
 		chats_unlocked: false,
+		has_secret_code: false,
+		hide_locked_chats: false,
+		secret_code_verified: false,
+		last_unlock_activity: std::time::Instant::now(),
 		pending_locked_chat: None,
 		community_jids: std::collections::HashSet::new(),
 		chat_parents: std::collections::HashMap::new(),
@@ -1190,6 +1198,11 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::FinishAccountRemoval(id) => ui_commands::accounts::finish_removal(state, &id),
 		UiCommand::ExitApp => ui_commands::misc::exit_app(state, parts),
 		UiCommand::RestartApp => ui_commands::misc::restart_app(state, parts),
+		UiCommand::SettingsSaved => {
+			let mut s = state.borrow_mut();
+			ui::message_display::apply_chat_filter(&mut s, parts);
+			ui::window::refresh_menu_bar(&s, &parts.frame);
+		}
 		UiCommand::NavSelected(idx) => ui_commands::chat_list::nav_selected(state, parts, idx),
 		UiCommand::FilterConversations(query) => ui_commands::chat_list::filter_conversations(state, parts, query),
 		UiCommand::SearchAllMessages => ui_commands::chat_list::search_all_messages(state),

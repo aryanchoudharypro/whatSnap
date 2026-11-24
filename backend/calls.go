@@ -621,8 +621,8 @@ func (acc *Account) handlePlaceCall(data []byte) {
 
 	peerName := acc.resolveDisplayName(parsedJID)
 	selfPhone := ""
-	if acc.wa().Store.ID != nil {
-		selfPhone = acc.wa().Store.ID.User
+	if cli := acc.wa(); cli != nil && cli.Store != nil && cli.Store.ID != nil {
+		selfPhone = cli.Store.ID.User
 	}
 	acc.broadcastEvent("call_placed", map[string]string{
 		"call_id":    call.ID(),

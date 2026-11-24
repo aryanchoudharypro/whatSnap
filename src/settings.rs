@@ -100,6 +100,14 @@ pub struct Settings {
 	/// The one-time "unlock your chats faster" offer has been made, so it is
 	/// not shown again whatever the answer was.
 	pub chat_lock_hello_offered: bool,
+	/// Inactivity timeout in minutes before locked chats auto-lock (0 = off).
+	pub chat_lock_auto_lock_mins: u32,
+	/// Automatically lock chats when whatSnap is minimized.
+	pub chat_lock_lock_on_minimize: bool,
+	/// Show desktop notifications for locked chats when locked.
+	pub chat_lock_notify: bool,
+	/// Show the Locked Chats entry above the chat list in the sidebar.
+	pub chat_lock_show_in_sidebar: bool,
 }
 
 pub const TAB_NAMES: [&str; 7] =
@@ -185,6 +193,10 @@ impl Default for Settings {
 			chat_notifications: std::collections::HashMap::new(),
 			chat_lock_hello: false,
 			chat_lock_hello_offered: false,
+			chat_lock_auto_lock_mins: 0,
+			chat_lock_lock_on_minimize: false,
+			chat_lock_notify: true,
+			chat_lock_show_in_sidebar: true,
 		}
 	}
 }

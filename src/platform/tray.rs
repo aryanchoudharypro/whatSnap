@@ -206,9 +206,16 @@ pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 	if !s.settings.show_tray_icon || !s.main_ui_shown || crate::platform::quit::is_quitting() {
 		return;
 	}
+	let quiet = {
+		let mut q = s.settings.quiet_chats(&s.muted_jids);
+		if !s.chats_unlocked {
+			q.extend(s.locked_jids.iter().cloned());
+		}
+		q
+	};
 	let unread = whatsnap::unread_notification_total(
 		&s.unread_counts,
-		&s.settings.quiet_chats(&s.muted_jids),
+		&quiet,
 		&s.archived_jids,
 		&s.settings.archived_alert_levels,
 	);

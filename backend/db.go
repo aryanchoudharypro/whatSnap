@@ -1398,6 +1398,29 @@ func (acc *Account) getChatLockSecretCode() ([]byte, error) {
 	return b, err
 }
 
+func (acc *Account) saveChatLockHideLocked(hide bool) error {
+	v := "0"
+	if hide {
+		v = "1"
+	}
+	_, err := acc.db.Exec(`INSERT INTO app_settings (key, value) VALUES ('chat_lock_hide_locked', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, []byte(v))
+	return err
+}
+
+func (acc *Account) getChatLockHideLocked() bool {
+	var b []byte
+	err := acc.db.QueryRow(`SELECT value FROM app_settings WHERE key = 'chat_lock_hide_locked'`).Scan(&b)
+	if err != nil || len(b) == 0 {
+		return false
+	}
+	return string(b) == "1"
+}
+
+func (acc *Account) clearChatLockSecretCode() error {
+	_, err := acc.db.Exec(`DELETE FROM app_settings WHERE key = 'chat_lock_secret_code'`)
+	return err
+}
+
 // backfillAlbumAssociation links photos and videos stored before the album
 // association was read to their album header, so an album that showed as a
 // pile of single photos groups the way WA Web shows it.

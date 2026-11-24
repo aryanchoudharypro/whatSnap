@@ -1506,9 +1506,10 @@ pub fn bind_input_handlers(
 	let tx_new_conv = ui_tx.clone();
 	let state_new_conv = state.clone();
 	parts.conversations_parts.new_conv_btn.on_click(move |_| {
-		if state_new_conv.borrow().active_tab == 5 {
+		let tab = state_new_conv.try_borrow().map(|s| s.active_tab).unwrap_or(0);
+		if tab == 5 {
 			let _ = tx_new_conv.send(UiCommand::FindChannels);
-		} else if state_new_conv.borrow().active_tab == 1 {
+		} else if tab == 1 {
 			let _ = tx_post_status.send(UiCommand::OpenStatusComposer);
 		} else {
 			let _ = tx_new_conv.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::OpenChat));
@@ -1518,7 +1519,8 @@ pub fn bind_input_handlers(
 	let tx_post_media_status = ui_tx.clone();
 	let state_post_media_status = state.clone();
 	parts.conversations_parts.post_media_status_btn.on_click(move |_| {
-		if state_post_media_status.borrow().active_tab == 5 {
+		let tab = state_post_media_status.try_borrow().map(|s| s.active_tab).unwrap_or(0);
+		if tab == 5 {
 			let _ = tx_post_media_status.send(UiCommand::CreateChannel);
 		} else {
 			let _ = tx_post_media_status.send(UiCommand::PostMediaStatus);
@@ -1533,9 +1535,13 @@ pub fn bind_input_handlers(
 	let tx_locked_chats = ui_tx.clone();
 	let state_locked_chats = state.clone();
 	parts.conversations_parts.locked_chats_btn.on_click(move |_| {
-		if state_locked_chats.borrow().chats_unlocked {
+		let is_unlocked = state_locked_chats.try_borrow().is_ok_and(|s| s.chats_unlocked);
+		if is_unlocked {
 			let _ = tx_locked_chats.send(UiCommand::CloseLockedChats);
 		} else {
+			if let Ok(mut s) = state_locked_chats.try_borrow_mut() {
+				s.pending_locked_chat = None;
+			}
 			let _ = tx_locked_chats.send(UiCommand::PromptLockedChats);
 		}
 	});
@@ -1611,7 +1617,7 @@ pub fn bind_input_handlers(
 	let tx_unblock_banner = ui_tx.clone();
 	let state_unblock_banner = state.clone();
 	parts.conversations_parts.blocked_banner_btn.on_click(move |_| {
-		let Some(jid) = state_unblock_banner.borrow().selected_chat.clone() else { return };
+		let Some(jid) = state_unblock_banner.try_borrow().ok().and_then(|s| s.selected_chat.clone()) else { return };
 		let _ = tx_unblock_banner.send(UiCommand::ToggleBlockChat { jid });
 	});
 
@@ -1783,7 +1789,7 @@ pub fn bind_input_handlers(
 			}
 			ev.veto();
 			call_frame_close.show(false);
-			let s = state_call_close.borrow();
+			let Ok(s) = state_call_close.try_borrow() else { return };
 			let ringing_in = s.incoming_call_caller.is_some() && s.active_call_audio.is_none();
 			let in_call = s.active_call_id.is_some() || s.call_placing;
 			drop(s);
@@ -1805,7 +1811,7 @@ pub fn bind_input_handlers(
 		if let Some(silent) = crate::calls::audio::take_mic_health_change() {
 			let _ = tx_mic_health.send(UiCommand::MicHealth(silent));
 		}
-		let s = state_timer.borrow();
+		let Ok(s) = state_timer.try_borrow() else { return };
 		if s.active_call_id.is_some() && s.active_call_audio.is_some() {
 			let elapsed =
 				s.call_connected_duration + s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
@@ -1874,19 +1880,21 @@ pub fn bind_input_handlers(
 			let key_code = key_event.get_key_code();
 			if !key_event.control_down() && !key_event.alt_down() {
 				if let Some(tone) = keypad_tone(key_code, key_event.shift_down()) {
-					let s = state_call_key.borrow();
-					let call_id = s.active_call_id.clone().filter(|_| s.call_keypad && s.active_call_audio.is_some());
-					if let Some(call_id) = call_id {
-						let payload = serde_json::json!({"action": "call_dtmf", "data": {"call_id": call_id, "tone": tone.to_string()}});
-						let _ = s.ws_tx.send(payload.to_string());
-						drop(s);
-						live_region::announce_with_priority(
-							keypad_announcer,
-							&tone.to_string(),
-							live_region::Priority::High,
-						);
-						event.skip(false);
-						return;
+					if let Ok(s) = state_call_key.try_borrow() {
+						let call_id =
+							s.active_call_id.clone().filter(|_| s.call_keypad && s.active_call_audio.is_some());
+						if let Some(call_id) = call_id {
+							let payload = serde_json::json!({"action": "call_dtmf", "data": {"call_id": call_id, "tone": tone.to_string()}});
+							let _ = s.ws_tx.send(payload.to_string());
+							drop(s);
+							live_region::announce_with_priority(
+								keypad_announcer,
+								&tone.to_string(),
+								live_region::Priority::High,
+							);
+							event.skip(false);
+							return;
+						}
 					}
 				}
 			}
@@ -1908,18 +1916,19 @@ pub fn bind_input_handlers(
 					return;
 				}
 			} else if key_code == Some(27) {
-				let s = state_call_key.borrow();
-				let ringing_in = s.incoming_call_caller.is_some() && s.active_call_audio.is_none();
-				let call_active = s.active_call_id.is_some() || s.call_placing;
-				drop(s);
-				if ringing_in {
-					let _ = tx_camera_key.send(UiCommand::DismissIncomingCall);
-					event.skip(false);
-					return;
-				} else if !call_active {
-					let _ = tx_camera_key.send(UiCommand::CloseCallWindow);
-					event.skip(false);
-					return;
+				if let Ok(s) = state_call_key.try_borrow() {
+					let ringing_in = s.incoming_call_caller.is_some() && s.active_call_audio.is_none();
+					let call_active = s.active_call_id.is_some() || s.call_placing;
+					drop(s);
+					if ringing_in {
+						let _ = tx_camera_key.send(UiCommand::DismissIncomingCall);
+						event.skip(false);
+						return;
+					} else if !call_active {
+						let _ = tx_camera_key.send(UiCommand::CloseCallWindow);
+						event.skip(false);
+						return;
+					}
 				}
 			}
 		}
@@ -2013,9 +2022,16 @@ pub fn bind_input_handlers(
 			if enabled {
 				let s = state.borrow();
 				tray_icon.set_icon(&tray_bitmap, whatsnap::TRAY_APP_NAME);
+				let quiet = {
+					let mut q = s.settings.quiet_chats(&s.muted_jids);
+					if !s.chats_unlocked {
+						q.extend(s.locked_jids.iter().cloned());
+					}
+					q
+				};
 				let unread = whatsnap::unread_notification_total(
 					&s.unread_counts,
-					&s.settings.quiet_chats(&s.muted_jids),
+					&quiet,
 					&s.archived_jids,
 					&s.settings.archived_alert_levels,
 				);
@@ -2070,7 +2086,7 @@ pub fn bind_input_handlers(
 			// Alt+F4 should actually quit instead of parking a stray (and, to a
 			// screen reader, oddly-announced) window in the tray. main_ui_shown
 			// is true only once "connected" has shown the chat list.
-			let logged_in = state_close.borrow().main_ui_shown;
+			let logged_in = state_close.try_borrow().map(|s| s.main_ui_shown).unwrap_or(false);
 			if logged_in && ev.can_veto() && tray_icon_close.is_icon_installed() {
 				ev.veto();
 				crate::platform::tray::hide_main_window(&frame_close);
@@ -3055,6 +3071,7 @@ pub fn bind_input_handlers(
 				}
 			}
 		}
+		let _ = tx_settings_save.send(UiCommand::SettingsSaved);
 		let logged_in = s.main_ui_shown;
 		drop(s);
 		// Respect the setting, but never surface the icon while logged out.
@@ -3072,8 +3089,7 @@ pub fn bind_input_handlers(
 			)
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build()
-			.show_modal()
-				== wxdragon::id::ID_YES
+			.show_modal() == wxdragon::id::ID_YES
 		} else {
 			false
 		};
@@ -4029,62 +4045,96 @@ pub fn bind_input_handlers(
 	let composer_hook = parts.conversations_parts.message_field;
 	let chat_search_hook = parts.conversations_parts.search_field;
 	let chat_list_hook = parts.conversations_parts.conversations_list;
+	let _announcer_hook = parts.conversations_parts.messages_announcer;
 	parts.frame.bind_internal(wxdragon::event::EventType::CHAR_HOOK, move |event| {
 		let data = WindowEventData::new(event);
-		if let WindowEventData::Keyboard(ref key_event) = data
-			&& keys::is_escape(key_event.get_key_code())
-		{
-			if state_hook.borrow().mention_popup.is_some() && composer_hook.has_focus() {
-				data.skip(true);
-				return;
+		if let Ok(mut s) = state_hook.try_borrow_mut() {
+			if s.chats_unlocked {
+				s.last_unlock_activity = std::time::Instant::now();
 			}
-			// Escape in the chat list's search box clears the search, keeps
-			// the filter and takes the focus off the box, as in WA Web -
-			// before anything below closes the open chat instead.
-			if chat_search_hook.has_focus() {
-				if !chat_search_hook.get_value().is_empty() {
-					chat_search_hook.set_value("");
-				}
-				chat_list_hook.set_focus();
-				data.skip(false);
-				return;
-			}
-			if state_hook.borrow().chats_unlocked {
-				let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
-				data.skip(false);
-				return;
-			}
-			// Back on the chat list with a search still active, Escape
-			// clears it; the focus stays on the list.
-			if !conv_panel_hook.is_shown() && chat_list_hook.has_focus() && !chat_search_hook.get_value().is_empty() {
-				chat_search_hook.set_value("");
-				data.skip(false);
-				return;
-			}
-			// The search in the open chat closes first, back to its messages.
-			if conv_panel_hook.is_shown() && search_panel_hook.is_shown() && !state_hook.borrow().selection_mode {
-				let _ = tx_escape_hook.send(UiCommand::CloseSearch);
-				data.skip(false);
-				return;
-			}
-			if conv_panel_hook.is_shown() && !search_panel_hook.is_shown() && !state_hook.borrow().selection_mode {
-				// This hook runs ahead of whichever control has focus, so
-				// it's the one place Escape reliably reaches regardless
-				// of where the user's focus is - including mid-edit,
-				// which is why the composer's own on_key_down Escape
-				// handling for editing never actually ran before: this
-				// unconditional CloseConversation always won the race.
-				if state_hook.borrow().is_voice_recording {
-					let _ = tx_escape_hook.send(UiCommand::DiscardRecording);
-				} else if state_hook.borrow().editing_message_id.is_some() {
-					let _ = tx_escape_hook.send(UiCommand::CancelEdit);
-				} else if state_hook.borrow().pending_reply_id.is_some() {
-					let _ = tx_escape_hook.send(UiCommand::RemoveQuote);
+		}
+		if let WindowEventData::Keyboard(ref key_event) = data {
+			let code = key_event.get_key_code();
+			let (chats_unlocked, mention_popup, selection_mode, is_voice_rec, editing_id, reply_id) = {
+				if let Ok(s) = state_hook.try_borrow() {
+					(
+						s.chats_unlocked,
+						s.mention_popup.is_some(),
+						s.selection_mode,
+						s.is_voice_recording,
+						s.editing_message_id.is_some(),
+						s.pending_reply_id.is_some(),
+					)
 				} else {
-					let _ = tx_escape_hook.send(UiCommand::CloseConversation);
+					data.skip(true);
+					return;
 				}
-				data.skip(false);
-				return;
+			};
+			// Panic lock / unlock toggle shortcut: Ctrl + Shift + L
+			if keys::is_letter(code, 'L') && key_event.control_down() && key_event.shift_down() {
+				if chats_unlocked {
+					let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
+					data.skip(false);
+					return;
+				} else {
+					if let Ok(mut s) = state_hook.try_borrow_mut() {
+						s.pending_locked_chat = None;
+					}
+					let _ = tx_escape_hook.send(UiCommand::PromptLockedChats);
+					data.skip(false);
+					return;
+				}
+			}
+			if keys::is_escape(code) {
+				if mention_popup && composer_hook.has_focus() {
+					data.skip(true);
+					return;
+				}
+				// Escape in the chat list's search box clears the search, keeps
+				// the filter and takes the focus off the box, as in WA Web -
+				// before anything below closes the open chat instead.
+				if chat_search_hook.has_focus() {
+					if !chat_search_hook.get_value().is_empty() {
+						chat_search_hook.set_value("");
+					}
+					chat_list_hook.set_focus();
+					data.skip(false);
+					return;
+				}
+				// The search in the open chat closes first, back to its messages.
+				if conv_panel_hook.is_shown() && search_panel_hook.is_shown() && !selection_mode {
+					let _ = tx_escape_hook.send(UiCommand::CloseSearch);
+					data.skip(false);
+					return;
+				}
+				// If a chat is open (locked or normal), Escape closes the conversation
+				// and returns to the chat list (so in locked chats, user goes to locked chats list).
+				if conv_panel_hook.is_shown() && !search_panel_hook.is_shown() && !selection_mode {
+					if is_voice_rec {
+						let _ = tx_escape_hook.send(UiCommand::DiscardRecording);
+					} else if editing_id {
+						let _ = tx_escape_hook.send(UiCommand::CancelEdit);
+					} else if reply_id {
+						let _ = tx_escape_hook.send(UiCommand::RemoveQuote);
+					} else {
+						let _ = tx_escape_hook.send(UiCommand::CloseConversation);
+					}
+					data.skip(false);
+					return;
+				}
+				// Back on the chat list with a search still active, Escape clears it.
+				if !conv_panel_hook.is_shown() && chat_list_hook.has_focus() && !chat_search_hook.get_value().is_empty()
+				{
+					chat_search_hook.set_value("");
+					data.skip(false);
+					return;
+				}
+				// Back on the locked chats list with no conversation open, Escape closes and locks them.
+				if chats_unlocked {
+					let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
+					data.skip(false);
+					return;
+				}
 			}
 		}
 		data.skip(true);
@@ -4094,14 +4144,34 @@ pub fn bind_input_handlers(
 	// searched once typing pauses, as WA Web debounces it (300 ms).
 	let message_search_timer = Rc::new(Timer::new(&parts.frame));
 	let tx_message_search = ui_tx.clone();
+	let state_msg_search = state.clone();
 	message_search_timer.on_tick(move |_| {
 		let _ = tx_message_search.send(UiCommand::SearchAllMessages);
+		if let Ok(s) = state_msg_search.try_borrow() {
+			let unlocked = s.chats_unlocked;
+			let query = s.search_query.trim().to_string();
+			let ws_tx = s.ws_tx.clone();
+			drop(s);
+			if !unlocked && query.len() >= 4 {
+				let payload = serde_json::json!({
+					"action": "verify_chat_lock_code",
+					"data": { "code": query, "silent": true }
+				});
+				let _ = ws_tx.send(payload.to_string());
+			}
+		}
 	});
 	let tx_filter = ui_tx.clone();
 	let conv_search = parts.conversations_parts.search_field;
 	let message_search_typing = message_search_timer.clone();
+	let state_search_text = state.clone();
 	conv_search.on_text_changed(move |_| {
 		let query = conv_search.get_value();
+		if query.trim().is_empty() {
+			if let Ok(mut s) = state_search_text.try_borrow_mut() {
+				s.secret_code_verified = false;
+			}
+		}
 		let _ = tx_filter.send(UiCommand::FilterConversations(query));
 		message_search_typing.stop();
 		message_search_typing.start(300, true);
@@ -4116,14 +4186,50 @@ pub fn bind_input_handlers(
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
 			let plain = !key_event.control_down() && !key_event.shift_down() && !key_event.alt_down();
-			let (active_tab, first_result) = {
-				let s = state_conv_search.borrow();
-				(s.active_tab, s.filtered_chats.iter().position(|jid| !jid.is_empty()))
+			let (active_tab, first_result, secret_verified, unlocked, ws_tx) = {
+				if let Ok(s) = state_conv_search.try_borrow() {
+					(
+						s.active_tab,
+						s.filtered_chats.iter().position(|jid| !jid.is_empty()),
+						s.secret_code_verified,
+						s.chats_unlocked,
+						Some(s.ws_tx.clone()),
+					)
+				} else {
+					event.skip(true);
+					return;
+				}
 			};
-			if keys::is_enter(code) && active_tab == 6 {
-				let _ = tx_search_enter.send(UiCommand::PlaceCall);
-				event.skip(false);
-				return;
+			if keys::is_enter(code) {
+				let is_locked_pseudo = first_result.is_some_and(|idx| {
+					state_conv_search.try_borrow().is_ok_and(|s| {
+						s.filtered_chats.get(idx).map(String::as_str)
+							== Some(crate::ui::message_display::LOCKED_CHATS_PSEUDO_JID)
+					})
+				});
+				if (secret_verified || is_locked_pseudo) && !unlocked {
+					if let Ok(mut s) = state_conv_search.try_borrow_mut() {
+						s.pending_locked_chat = None;
+					}
+					let _ = tx_search_enter.send(UiCommand::PromptLockedChats);
+					event.skip(false);
+					return;
+				}
+				let query = conv_search.get_value().trim().to_string();
+				if !query.is_empty() && !unlocked {
+					if let Some(ref tx) = ws_tx {
+						let payload = serde_json::json!({
+							"action": "verify_chat_lock_code",
+							"data": { "code": query, "silent": true }
+						});
+						let _ = tx.send(payload.to_string());
+					}
+				}
+				if active_tab == 6 {
+					let _ = tx_search_enter.send(UiCommand::PlaceCall);
+					event.skip(false);
+					return;
+				}
 			}
 			let chat_tab = !matches!(active_tab, 1 | 2 | 6);
 			if let Some(first) = first_result.filter(|_| chat_tab && plain) {
@@ -4144,6 +4250,51 @@ pub fn bind_input_handlers(
 			}
 		}
 		event.skip(true);
+	});
+
+	let chat_lock_timer = Rc::new(Timer::new(&parts.frame));
+	let tx_lock_timer = ui_tx.clone();
+	let state_lock_timer = state.clone();
+	let frame_lock_timer = parts.frame;
+	chat_lock_timer.on_tick(move |_| {
+		let should_lock = {
+			if let Ok(s) = state_lock_timer.try_borrow() {
+				if s.chats_unlocked {
+					if s.settings.chat_lock_lock_on_minimize && frame_lock_timer.is_iconized() {
+						true
+					} else if s.settings.chat_lock_auto_lock_mins > 0 {
+						let limit = std::time::Duration::from_secs(s.settings.chat_lock_auto_lock_mins as u64 * 60);
+						s.last_unlock_activity.elapsed() >= limit
+					} else {
+						false
+					}
+				} else {
+					false
+				}
+			} else {
+				false
+			}
+		};
+		if should_lock {
+			let _ = tx_lock_timer.send(UiCommand::CloseLockedChats);
+		}
+	});
+	chat_lock_timer.start(1000, false);
+
+	let tx_activate = ui_tx.clone();
+	let state_activate = state.clone();
+	let frame_activate = parts.frame;
+	parts.frame.bind_internal(wxdragon::event::EventType::ACTIVATE, move |_event| {
+		let should_lock = {
+			if let Ok(s) = state_activate.try_borrow() {
+				s.chats_unlocked && s.settings.chat_lock_lock_on_minimize && frame_activate.is_iconized()
+			} else {
+				false
+			}
+		};
+		if should_lock {
+			let _ = tx_activate.send(UiCommand::CloseLockedChats);
+		}
 	});
 
 	let tx_open = ui_tx.clone();
@@ -4179,13 +4330,15 @@ pub fn bind_input_handlers(
 		Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
 	let open_chat_context_menu = Rc::new(move || {
 		if let Some(idx) = convs_list_ctx.get_selection() {
-			let queued = match state_chat_ctx.borrow().active_tab {
+			let Ok(s) = state_chat_ctx.try_borrow() else { return };
+			let queued = match s.active_tab {
 				1 => Some(UiCommand::ShowStatusMenu(idx as usize)),
 				2 => Some(UiCommand::ShowStarredMenu(idx as usize)),
 				6 => Some(UiCommand::ShowCallsMenu(idx as usize)),
 				_ => None,
 			};
 			if let Some(cmd) = queued {
+				drop(s);
 				if last_queued_menu.get().elapsed() > std::time::Duration::from_millis(700) {
 					last_queued_menu.set(std::time::Instant::now());
 					let _ = tx_status_menu.send(cmd);
@@ -4214,7 +4367,6 @@ pub fn bind_input_handlers(
 			let notify_settings_id = 4041;
 			let channel_info_id = 4042;
 
-			let s = state_chat_ctx.borrow();
 			// Headings, contacts and messages found by a search aren't chats,
 			// so they have no chat menu.
 			let is_message = s.filtered_message_ids.get(idx as usize).is_some_and(|id| !id.is_empty());
@@ -4498,8 +4650,7 @@ pub fn bind_input_handlers(
 								MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Confirm Delete"))
 									.with_style(
 										MessageDialogStyle::OK
-											| MessageDialogStyle::Cancel
-											| MessageDialogStyle::IconQuestion,
+											| MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
 									)
 									.build();
 							if dialog.show_modal() == wxdragon::id::ID_OK {
@@ -4515,8 +4666,7 @@ pub fn bind_input_handlers(
 							MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Confirm Clear Chat"))
 								.with_style(
 									MessageDialogStyle::OK
-										| MessageDialogStyle::Cancel
-										| MessageDialogStyle::IconQuestion,
+										| MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
 								)
 								.build();
 						if dialog.show_modal() == wxdragon::id::ID_OK {
@@ -4588,11 +4738,14 @@ pub fn bind_input_handlers(
 	let chat_search_key = parts.conversations_parts.search_field;
 	parts.conversations_parts.conversations_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
+			let Ok(s) = state_conv_delete.try_borrow() else {
+				event.skip(true);
+				return;
+			};
 			// The menu bar's shortcut handles these, unless the open chat's
 			// Conversation menu leaves the item out (a channel has no Lock,
 			// for one); then the list sends it for the focused chat itself.
 			let action = {
-				let s = state_conv_delete.borrow();
 				let menu_bar = frame_chat_list_keys.get_menu_bar();
 				CHAT_LIST_ACTIONS
 					.iter()
@@ -4601,6 +4754,7 @@ pub fn bind_input_handlers(
 					.filter(|id| menu_bar.as_ref().is_none_or(|bar| bar.find_item(*id).is_none()))
 			};
 			if let Some(id) = action {
+				drop(s);
 				unsafe {
 					wxdragon::ffi::wxd_Window_PostMenuCommand(
 						frame_chat_list_keys.handle_ptr() as *mut wxdragon::ffi::wxd_Window_t,
@@ -4611,13 +4765,13 @@ pub fn bind_input_handlers(
 				return;
 			}
 			if keys::is_context_menu_key(key_event) {
+				drop(s);
 				open_chat_menu_key.as_ref()();
 				event.skip(false);
 				return;
 			}
 			// Up from the first search result goes back to the search box.
 			if keys::is_up(key_event.get_key_code()) {
-				let s = state_conv_delete.borrow();
 				let first = s.filtered_chats.iter().position(|jid| !jid.is_empty());
 				if !matches!(s.active_tab, 1 | 2 | 6)
 					&& !s.search_query.trim().is_empty()
@@ -4635,16 +4789,18 @@ pub fn bind_input_handlers(
 				&& !key_event.shift_down()
 				&& !key_event.alt_down()
 			{
-				if state_conv_delete.borrow().active_tab == 6
+				if s.active_tab == 6
 					&& let Some(idx) = conv_list_key_delete.get_selection()
 				{
+					drop(s);
 					let _ = tx_delete_call.send(UiCommand::DeleteCall(idx as usize));
 					event.skip(false);
 					return;
 				}
-				if state_conv_delete.borrow().active_tab == 2
+				if s.active_tab == 2
 					&& let Some(idx) = conv_list_key_delete.get_selection()
 				{
+					drop(s);
 					let _ = tx_delete_call.send(UiCommand::UnstarStarredMessage(idx as usize));
 					event.skip(false);
 					return;
@@ -4654,9 +4810,10 @@ pub fn bind_input_handlers(
 				&& !key_event.shift_down()
 				&& !key_event.alt_down()
 				&& keys::is_letter(key_event.get_key_code(), 'C')
-				&& state_conv_delete.borrow().active_tab == 2
+				&& s.active_tab == 2
 				&& let Some(idx) = conv_list_key_delete.get_selection()
 			{
+				drop(s);
 				let _ = tx_delete_call.send(UiCommand::CopyStarredMessage(idx as usize));
 				event.skip(false);
 				return;
@@ -4700,7 +4857,7 @@ pub fn bind_input_handlers(
 
 	let perform_copy_selected = std::rc::Rc::new(move || {
 		if let Some(idx) = msgs_list_copy.get_selection() {
-			let s = state_copy.borrow();
+			let Ok(s) = state_copy.try_borrow() else { return };
 			if let Some(display_item) = s.display_items.get(idx as usize).cloned() {
 				drop(s);
 				match display_item {
@@ -4794,7 +4951,7 @@ pub fn bind_input_handlers(
 			let open_media_id = 3019;
 			let save_media_id = 3020;
 
-			let s = state_ctx.borrow();
+			let Ok(s) = state_ctx.try_borrow() else { return };
 			let chat_jid = s.selected_chat.clone().unwrap_or_default();
 			let display_item = s.display_items.get(idx as usize).cloned();
 			let is_group_chat = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
@@ -5243,8 +5400,7 @@ pub fn bind_input_handlers(
 						}
 						for (jid, name) in &s.contacts {
 							if !jid.ends_with("@broadcast")
-								&& !jids.contains(jid)
-								&& crate::ui_commands::links::can_forward_to(&s, jid)
+								&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
 							{
 								labels.push(name.clone());
 								jids.push(jid.clone());
@@ -6194,8 +6350,7 @@ pub fn bind_input_handlers(
 						}
 						for (jid, name) in &s.contacts {
 							if !jid.ends_with("@broadcast")
-								&& !jids.contains(jid)
-								&& crate::ui_commands::links::can_forward_to(&s, jid)
+								&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
 							{
 								labels.push(name.clone());
 								jids.push(jid.clone());
@@ -6612,7 +6767,10 @@ pub fn bind_input_handlers(
 	let state_typed = state.clone();
 	let field_typed = parts.conversations_parts.message_field;
 	parts.conversations_parts.messages_list.on_typed(move |c| {
-		if !state_typed.borrow().settings.type_to_compose || !field_typed.is_shown() || !field_typed.is_enabled() {
+		if !state_typed.try_borrow().is_ok_and(|s| s.settings.type_to_compose)
+			|| !field_typed.is_shown()
+			|| !field_typed.is_enabled()
+		{
 			return false;
 		}
 		field_typed.set_focus();
@@ -6628,18 +6786,15 @@ pub fn bind_input_handlers(
 	});
 	parts.conversations_parts.messages_list.on_selection_changed(move |idx| {
 		if let Ok(idx) = i32::try_from(idx) {
+			let Ok(s) = state_sel.try_borrow() else { return };
 			const PREFETCH_ROWS: i32 = 50;
-			let (older_stored, newer_stored) = {
-				let s = state_sel.borrow();
-				(s.older_unloaded > 0, !s.messages_at_latest)
-			};
+			let (older_stored, newer_stored) = (s.older_unloaded > 0, !s.messages_at_latest);
 			let count = conv_parts_sel.messages_list.get_count() as i32;
 			if idx == 0 || (older_stored && idx < PREFETCH_ROWS) {
 				let _ = tx_sel.send(UiCommand::LoadMoreMessages);
 			} else if newer_stored && idx + PREFETCH_ROWS >= count {
 				let _ = tx_sel.send(UiCommand::LoadNewerMessages);
 			}
-			let s = state_sel.borrow();
 			conv_parts_sel.action_panel.freeze();
 			let mut need_layout = crate::ui::message_display::update_action_buttons(&s, &conv_parts_sel);
 
@@ -6734,7 +6889,7 @@ pub fn bind_input_handlers(
 				}
 			}
 		} else {
-			let s = state_sel.borrow();
+			let Ok(s) = state_sel.try_borrow() else { return };
 			conv_parts_sel.action_panel.freeze();
 			let mut need_layout = crate::ui::message_display::update_action_buttons(&s, &conv_parts_sel);
 			if play_voice_btn_sel.is_shown() {
@@ -6799,8 +6954,11 @@ pub fn bind_input_handlers(
 	let state_select_paging = state.clone();
 	parts.conversations_parts.messages_select_list.on_selection_changed(move |idx| {
 		let (older_stored, newer_stored, count) = {
-			let s = state_select_paging.borrow();
-			(s.older_unloaded > 0, !s.messages_at_latest, s.selection_rows.len() as u32)
+			if let Ok(s) = state_select_paging.try_borrow() {
+				(s.older_unloaded > 0, !s.messages_at_latest, s.selection_rows.len() as u32)
+			} else {
+				return;
+			}
 		};
 		if idx == 0 && older_stored {
 			let _ = tx_select_paging.send(UiCommand::LoadMoreMessages);
@@ -6816,11 +6974,15 @@ pub fn bind_input_handlers(
 	let state_selection_list_keys = state.clone();
 	parts.conversations_parts.messages_select_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
-			let keymap = state_selection_list_keys.borrow().keymap.clone();
-			if keymap.is_pressed(message_list::SELECTION_MODE, key_event) || keys::is_escape(key_event.get_key_code()) {
-				let _ = tx_selection_list_keys.send(UiCommand::ToggleSelectionMode);
-				event.skip(false);
-				return;
+			let keymap = state_selection_list_keys.try_borrow().ok().map(|s| s.keymap.clone());
+			if let Some(keymap) = keymap {
+				if keymap.is_pressed(message_list::SELECTION_MODE, key_event)
+					|| keys::is_escape(key_event.get_key_code())
+				{
+					let _ = tx_selection_list_keys.send(UiCommand::ToggleSelectionMode);
+					event.skip(false);
+					return;
+				}
 			}
 		}
 		event.skip(true);
@@ -6859,7 +7021,7 @@ pub fn bind_input_handlers(
 		msgs_list_search_focus.set_focus();
 		let count = msgs_list_search_focus.get_count();
 		if count > 0 {
-			let s = state_search_focus.borrow();
+			let Ok(s) = state_search_focus.try_borrow() else { return };
 			let mut selected_idx = 0;
 			for (i, item) in s.display_items.iter().enumerate() {
 				match item {

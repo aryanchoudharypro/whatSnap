@@ -142,10 +142,7 @@ pub(crate) fn filter_conversations(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 /// Whether the chat list's search also looks through message text: on the
 /// Chats tab with no filter, as in WA Web, once the query is long enough.
 fn searches_all_messages(s: &AppState) -> bool {
-	s.active_tab == 0
-		&& s.chat_filter == 0
-		&& !s.chats_unlocked
-		&& crate::ui::message_display::chat_search_query(s).searches_messages()
+	s.active_tab == 0 && s.chat_filter == 0 && crate::ui::message_display::chat_search_query(s).searches_messages()
 }
 
 /// Searches every chat's messages for what's in the chat list's search box,
@@ -162,7 +159,7 @@ pub(crate) fn search_all_messages(state: &Rc<RefCell<AppState>>) {
 	s.message_search = crate::MessageSearch { query: s.search_query.clone(), pending: true, ..Default::default() };
 	let payload = serde_json::json!({
 		"action": "search_messages",
-		"data": { "query": s.search_query.trim(), "offset": 0 }
+		"data": { "query": s.search_query.trim(), "offset": 0, "include_locked": s.chats_unlocked }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
 }
@@ -176,7 +173,7 @@ pub(crate) fn more_message_results(state: &Rc<RefCell<AppState>>) {
 	}
 	let payload = serde_json::json!({
 		"action": "search_messages",
-		"data": { "query": search.query.trim(), "offset": search.hits.len() }
+		"data": { "query": search.query.trim(), "offset": search.hits.len(), "include_locked": s.chats_unlocked }
 	});
 	s.message_search.pending = true;
 	let _ = s.ws_tx.send(payload.to_string());
@@ -212,6 +209,9 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, jid: String) {
 }
 
 pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
+	if state.borrow().chats_unlocked {
+		state.borrow_mut().last_unlock_activity = std::time::Instant::now();
+	}
 	if state.borrow().active_tab == 1 {
 		let message_id = state.borrow().filtered_status_message_ids.get(idx).filter(|id| !id.is_empty()).cloned();
 		if let Some(message_id) = message_id {
@@ -258,6 +258,11 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	// Headings and notices have no chat behind them.
 	let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();
 	if let Some(ref jid) = jid {
+		if jid == crate::ui::message_display::LOCKED_CHATS_PSEUDO_JID {
+			state.borrow_mut().pending_locked_chat = None;
+			prompt_locked_chats(state, parts);
+			return;
+		}
 		let msg_id = {
 			let s = state.borrow();
 			match s.active_tab {
@@ -565,6 +570,10 @@ pub(crate) fn toggle_search_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 /// The Locked Chats button: Windows Hello when the user turned it on and it
 /// can be used, otherwise the secret code.
 pub(crate) fn prompt_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if state.borrow().secret_code_verified {
+		show_locked_chats(state, parts);
+		return;
+	}
 	let (use_hello, ui_tx) = {
 		let s = state.borrow();
 		(s.settings.chat_lock_hello, s.ui_tx.clone())
@@ -595,13 +604,19 @@ pub(crate) fn finish_chat_lock_hello(
 	// with nothing focused.
 	let frame = windows::Win32::Foundation::HWND(parts.frame.get_handle());
 	crate::platform::focus::bring_to_front(frame);
-	parts.conversations_parts.locked_chats_btn.set_focus();
+	if parts.conversations_parts.locked_chats_btn.is_shown() {
+		parts.conversations_parts.locked_chats_btn.set_focus();
+	} else {
+		parts.conversations_parts.conversations_list.set_focus();
+	}
 	match outcome {
 		windows_hello::VerifyOutcome::Verified => {
 			show_locked_chats(state, parts);
 		}
 		windows_hello::VerifyOutcome::Canceled => {
-			state.borrow_mut().pending_locked_chat = None;
+			if let Ok(mut s) = state.try_borrow_mut() {
+				s.pending_locked_chat = None;
+			}
 		}
 		windows_hello::VerifyOutcome::Failed => {
 			ask_secret_code(state, parts);
@@ -611,21 +626,31 @@ pub(crate) fn finish_chat_lock_hello(
 
 /// Shows the locked chats. Called once the user has proved they may see them.
 pub(crate) fn show_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let pending_chat = {
+	if !parts.conversations_parts.search_field.get_value().is_empty() {
+		parts.conversations_parts.search_field.set_value("");
+	}
+	let (pending_chat, count) = {
 		let mut s = state.borrow_mut();
 		s.chats_unlocked = true;
+		s.secret_code_verified = false;
+		s.last_unlock_activity = std::time::Instant::now();
 		s.search_query.clear();
-		parts.conversations_parts.search_field.set_value("");
 		apply_chat_filter(&mut s, parts);
 		parts.conversations_parts.locked_chats_btn.set_label(crate::i18n::tr("Hide Locked Chats"));
-		crate::platform::announce::announce(
-			parts.conversations_parts.messages_announcer,
-			crate::i18n::tr("Locked chats shown."),
-		);
-		s.pending_locked_chat.take()
+		let count = s.filtered_chats.iter().filter(|j| !j.is_empty()).count();
+		(s.pending_locked_chat.take(), count)
 	};
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		&crate::i18n::tr_fmt("Locked chats shown, {} chats.", &[&count]),
+	);
 	if let Some(jid) = pending_chat {
 		open_chat_for_jid(&jid, state, parts);
+	} else {
+		if state.borrow().selected_chat.is_some() {
+			close_conversation(state, parts);
+		}
+		parts.conversations_parts.conversations_list.set_focus();
 	}
 }
 
@@ -673,7 +698,7 @@ fn ask_secret_code(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 		if !text.is_empty() {
 			let payload = serde_json::json!({
 				"action": "verify_chat_lock_code",
-				"data": { "code": text }
+				"data": { "code": text, "silent": false }
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 			return;
@@ -685,6 +710,7 @@ fn ask_secret_code(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let should_close_conv = {
 		let mut s = state.borrow_mut();
+		s.secret_code_verified = false;
 		if s.chats_unlocked {
 			s.chats_unlocked = false;
 			s.pending_locked_chat = None;
@@ -702,6 +728,7 @@ pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	if should_close_conv {
 		close_conversation(state, parts);
 	}
+	parts.conversations_parts.conversations_list.set_focus();
 }
 
 pub(crate) fn close_search(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -993,9 +1020,28 @@ pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	let (chat_name, should_close_conv) = {
 		let mut s = state.borrow_mut();
 		if lock {
+			if !s.has_secret_code {
+				drop(s);
+				let alert = MessageDialog::builder(
+					&parts.frame,
+					crate::i18n::tr(
+						"No Secret Code configured.\n\nTo lock chats on linked devices, you must first create a Secret Code in WhatsApp on your primary phone:\n\n1. Open WhatsApp on your phone\n2. Go to Settings > Privacy > Chat Lock\n3. Tap 'Secret Code' and set a code.\n\nOnce set, it will sync to this device automatically.",
+					),
+					crate::i18n::tr("Secret Code Required"),
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+				.build();
+				alert.show_modal();
+				return;
+			}
 			s.locked_jids.insert(jid.clone());
 		} else {
 			s.locked_jids.remove(&jid);
+			if s.locked_jids.is_empty() && s.chats_unlocked {
+				drop(s);
+				close_locked_chats(state, parts);
+				return;
+			}
 		}
 		apply_chat_filter(&mut s, parts);
 		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
