@@ -308,6 +308,9 @@ pub(crate) fn group_member_action(
 				change("remove");
 			}
 		}
+		MemberAction::ToggleBlock => {
+			crate::ui_commands::blocking::toggle_block(state, parts, member.chat_jid().to_string());
+		}
 	}
 }
 

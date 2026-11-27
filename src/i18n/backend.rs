@@ -27,6 +27,9 @@ pub fn translate_system_message(text: &str) -> String {
 	}
 	match text {
 		"You blocked this contact." => return "Anda memblokir kontak ini.".to_string(),
+		"You blocked this contact. Click to unblock." => {
+			return "Anda memblokir kontak ini. Klik untuk membuka blokir.".to_string();
+		}
 		"You unblocked this contact." => return "Anda membuka blokir kontak ini.".to_string(),
 		"You received a view once message. For added privacy, you can only open it on your phone." => {
 			return "Anda menerima pesan sekali lihat. Demi privasi, pesan ini hanya bisa dibuka di ponsel Anda."

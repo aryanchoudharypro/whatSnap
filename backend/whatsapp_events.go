@@ -2252,7 +2252,13 @@ func (acc *Account) eventHandler(evt interface{}) {
 					if lca.GetLocked() {
 						isLockedInt = 1
 					}
-					acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", isLockedInt, jid)
+					var twinJID string
+					if parsed, err := types.ParseJID(jid); err == nil {
+						if tw := acc.storeTwin(parsed); !tw.IsEmpty() {
+							twinJID = tw.ToNonAD().String()
+						}
+					}
+					acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ? OR (jid = ? AND ? != '')", isLockedInt, jid, twinJID, twinJID)
 					acc.broadcastChats()
 				}
 			}
@@ -2325,7 +2331,12 @@ func (acc *Account) eventHandler(evt interface{}) {
 			if v.Action.GetLocked() {
 				lockedInt = 1
 			}
-			acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", lockedInt, acc.preferPN(v.JID).String())
+			pn := acc.preferPN(v.JID)
+			var twinJID string
+			if tw := acc.storeTwin(pn); !tw.IsEmpty() {
+				twinJID = tw.ToNonAD().String()
+			}
+			acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ? OR (jid = ? AND ? != '')", lockedInt, pn.String(), twinJID, twinJID)
 			acc.broadcastChats()
 		}()
 	case *events.MarkChatAsRead:
@@ -3293,7 +3304,7 @@ func (acc *Account) populateChatsFromStoreOnce() {
 	// reason enough to list it (at the bottom, having no activity to sort
 	// by). The same can't be done for people: the phone also sends an empty
 	// entry for contacts who were never chatted with, and those must go.
-	const emptyChat = `timestamp = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)`
+	const emptyChat = `timestamp = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1 OR is_locked = 1) AND jid NOT IN (SELECT jid FROM blocked_contacts) AND jid NOT IN (SELECT pn FROM blocked_contacts WHERE pn != '')`
 	acc.db.Exec("DELETE FROM chats WHERE jid NOT LIKE '%@g.us' AND " + emptyChat)
 	if joinedGroupsSnapshot != nil {
 		if emptyGroups, qErr := acc.db.Query("SELECT jid FROM chats WHERE jid LIKE '%@g.us' AND " + emptyChat); qErr == nil {

@@ -46,6 +46,7 @@ pub enum MemberAction {
 	Remove,
 	VerifyCode,
 	SendHistory,
+	ToggleBlock,
 }
 
 #[derive(Clone)]

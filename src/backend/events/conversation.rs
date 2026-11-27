@@ -224,6 +224,7 @@ pub(super) fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell
 	let from_phone = chat_jid.ends_with("@g.us") || chat_jid.ends_with("@s.whatsapp.net") || chat_jid.ends_with("@lid");
 	if !load_more
 		&& from_phone
+		&& !s.blocked_jids.contains(&chat_jid)
 		&& whatsnap::real_message_count(&s.messages) == 0
 		&& s.empty_chat_history_asked.insert(chat_jid.clone())
 	{

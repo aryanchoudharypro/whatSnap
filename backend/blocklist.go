@@ -78,15 +78,22 @@ func buildBlockedEntries(rows []blockedRow, twin jidTwin, nameFor func(types.JID
 			entry := blockedEntry{JID: key, Alts: []string{}, Name: nameFor(person)}
 			if person.Server == types.DefaultUserServer {
 				entry.Phone = "+" + person.User
+			} else if !row.PN.IsEmpty() && row.PN.Server == types.DefaultUserServer {
+				entry.Phone = "+" + row.PN.User
+			} else if pn := twin(row.JID.ToNonAD()); !pn.IsEmpty() && pn.Server == types.DefaultUserServer {
+				entry.Phone = "+" + pn.User
 			}
 			entries = append(entries, entry)
 		}
 		addresses := []types.JID{row.JID.ToNonAD()}
-		// Legacy PN-keyed lists still need to match an open LID chat. For
-		// migrated lists, include only LIDs actually returned by the server:
-		// an old blocked LID may reference a number now owned by another LID.
-		if row.JID.Server == types.DefaultUserServer {
-			addresses = append(addresses, twin(person))
+		if !row.PN.IsEmpty() {
+			addresses = append(addresses, row.PN.ToNonAD())
+		}
+		if tw := twin(person); !tw.IsEmpty() {
+			addresses = append(addresses, tw.ToNonAD())
+		}
+		if tw := twin(row.JID.ToNonAD()); !tw.IsEmpty() {
+			addresses = append(addresses, tw.ToNonAD())
 		}
 		for _, address := range addresses {
 			if address.IsEmpty() || address.String() == key {
@@ -111,14 +118,14 @@ func buildBlockedEntries(rows []blockedRow, twin jidTwin, nameFor func(types.JID
 func blockedAddressesOf(rows []blockedRow, jid types.JID, twin jidTwin) []types.JID {
 	target := blockedRow{JID: jid}.person(twin)
 	for _, row := range rows {
-		if row.JID.ToNonAD() == jid.ToNonAD() {
+		if row.JID.ToNonAD() == jid.ToNonAD() || (!row.PN.IsEmpty() && row.PN.ToNonAD() == jid.ToNonAD()) {
 			target = row.person(twin)
 			break
 		}
 	}
 	var out []types.JID
 	for _, row := range rows {
-		if row.person(twin) == target {
+		if row.person(twin) == target || row.JID.ToNonAD() == jid.ToNonAD() || (!row.PN.IsEmpty() && row.PN.ToNonAD() == jid.ToNonAD()) {
 			out = append(out, row.JID.ToNonAD())
 		}
 	}
@@ -258,7 +265,10 @@ func (acc *Account) applyBlocklistLocked(c *whatsmeow.Client, bl *types.Blocklis
 	})
 	if wasSynced {
 		acc.noteBlocklistChanges(previous, rows)
+	} else {
+		acc.ensureInitialBlocklistNotices(rows)
 	}
+	acc.broadcastChats()
 	return nil
 }
 
@@ -337,17 +347,41 @@ func (acc *Account) noteBlocklistChanges(previous, current []blockedRow) {
 		if blocked {
 			text = "You blocked this contact."
 		}
-		// Only existing conversations get a notice. Prefer the canonical chat
-		// but retain LID-only chats when the phone number hasn't been learned.
+		targetChat := person
+		if targetChat.IsEmpty() {
+			if len(addresses) > 0 {
+				targetChat = addresses[0]
+			} else {
+				return
+			}
+		}
+		var foundChat string
 		for _, chat := range append([]types.JID{person}, addresses...) {
-			var exists int
-			if err := acc.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ?`, chat.String()).Scan(&exists); err != nil || exists == 0 {
+			if chat.IsEmpty() {
 				continue
 			}
+			var exists int
+			if err := acc.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ?`, chat.String()).Scan(&exists); err == nil && exists > 0 {
+				foundChat = chat.String()
+				break
+			}
+		}
+		if foundChat == "" {
+			for _, chat := range append([]types.JID{person}, addresses...) {
+				if chat.IsEmpty() {
+					continue
+				}
+				var count int
+				if err := acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ?`, chat.String()).Scan(&count); err == nil && count > 0 {
+					foundChat = chat.String()
+					break
+				}
+			}
+		}
+		if foundChat != "" {
 			now := time.Now()
-			id := fmt.Sprintf("system_%s_%d_block%s", chat.User, now.UnixNano(), quietSystemSuffix)
-			acc.insertQuietSystemMessage(chat.String(), id, text, now)
-			return
+			id := fmt.Sprintf("system_%s_%d_block%s", targetChat.User, now.UnixNano(), quietSystemSuffix)
+			acc.insertQuietSystemMessage(foundChat, id, text, now)
 		}
 	}
 	for person, addresses := range after {
@@ -358,6 +392,65 @@ func (acc *Account) noteBlocklistChanges(previous, current []blockedRow) {
 	for person, addresses := range before {
 		if _, exists := after[person]; !exists {
 			note(person, addresses, false)
+		}
+	}
+}
+
+func (acc *Account) ensureInitialBlocklistNotices(rows []blockedRow) {
+	for _, row := range rows {
+		person := row.person(acc.storeTwin)
+		if person.IsEmpty() {
+			person = row.JID.ToNonAD()
+		}
+		if person.IsEmpty() {
+			continue
+		}
+		addresses := []types.JID{person, row.JID.ToNonAD()}
+		if !row.PN.IsEmpty() {
+			addresses = append(addresses, row.PN.ToNonAD())
+		}
+		if tw := acc.storeTwin(person); !tw.IsEmpty() {
+			addresses = append(addresses, tw.ToNonAD())
+		}
+		if tw := acc.storeTwin(row.JID.ToNonAD()); !tw.IsEmpty() {
+			addresses = append(addresses, tw.ToNonAD())
+		}
+		var foundChat string
+		for _, chat := range addresses {
+			if chat.IsEmpty() {
+				continue
+			}
+			var exists int
+			if err := acc.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ?`, chat.String()).Scan(&exists); err == nil && exists > 0 {
+				foundChat = chat.String()
+				break
+			}
+		}
+		if foundChat == "" {
+			for _, chat := range addresses {
+				if chat.IsEmpty() {
+					continue
+				}
+				var count int
+				if err := acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ?`, chat.String()).Scan(&count); err == nil && count > 0 {
+					foundChat = chat.String()
+					break
+				}
+			}
+		}
+		if foundChat != "" {
+			var lastNotice string
+			acc.db.QueryRow(`SELECT text FROM messages WHERE jid = ? AND text IN ('You blocked this contact.', 'You unblocked this contact.') ORDER BY timestamp DESC, id DESC LIMIT 1`, foundChat).Scan(&lastNotice)
+			if lastNotice != "You blocked this contact." {
+				var maxTS int64
+				acc.db.QueryRow(`SELECT COALESCE(MAX(timestamp), 0) FROM messages WHERE jid = ?`, foundChat).Scan(&maxTS)
+				ts := time.Now()
+				if maxTS > 0 {
+					ts = time.Unix(maxTS+1, 0)
+				}
+				id := fmt.Sprintf("system_%s_%d_block%s", person.User, ts.UnixNano(), quietSystemSuffix)
+				acc.insertQuietSystemMessage(foundChat, id, "You blocked this contact.", ts)
+			}
 		}
 	}
 }

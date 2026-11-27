@@ -163,6 +163,10 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			};
 
 			let mut tags: Vec<Cow<str>> = Vec::new();
+			let is_chat_blocked = state.borrow().blocked_jids.contains(jid);
+			if is_chat_blocked {
+				tags.push(crate::i18n::tr("Blocked").into());
+			}
 			if is_locked {
 				tags.push(crate::i18n::tr("Locked").into());
 				locked_jids.insert(jid.to_string());
@@ -235,7 +239,11 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			}
 
 			let body_raw = if preview.is_empty() {
-				String::new()
+				if is_chat_blocked {
+					crate::i18n::tr("Blocked. Click to unblock").to_string()
+				} else {
+					String::new()
+				}
 			} else {
 				translate_call_preview(preview).unwrap_or_else(|| whatsnap::friendly_preview_text(preview))
 			};

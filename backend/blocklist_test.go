@@ -90,21 +90,21 @@ func TestBlocklistNoticesFollowPeopleAndLeaveChatListAlone(t *testing.T) {
 	first := types.BlocklistEntry{JID: testLID, PN: testPN}
 	old := types.BlocklistEntry{JID: testOldLID, PN: testPN}
 	apply("initial", first)
-	count(0) // Initial sync must not invent a new block action.
+	count(1) // Initial sync ensures existing blocked chats have the block notice.
 	apply("same-person", first, old)
-	count(0)
-	apply("partial-unblock", old)
-	count(0) // Still blocked under the other LID.
-	apply("unblocked")
 	count(1)
+	apply("partial-unblock", old)
+	count(1) // Still blocked under the other LID.
 	apply("unblocked")
-	count(1) // Repeated snapshots must not duplicate notices.
+	count(2)
+	apply("unblocked")
+	count(2) // Repeated snapshots must not duplicate notices.
 	apply("blocked", first, old, types.BlocklistEntry{JID: loneLID})
-	count(2) // The unknown contact must not create a chat or a notice.
+	count(3) // The unknown contact must not create a chat or a notice.
 	var blocked, unblocked int
 	a.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE text = 'You blocked this contact.'`).Scan(&blocked)
 	a.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE text = 'You unblocked this contact.'`).Scan(&unblocked)
-	if blocked != 1 || unblocked != 1 {
+	if blocked != 2 || unblocked != 1 {
 		t.Fatalf("wrong transitions: blocked=%d unblocked=%d", blocked, unblocked)
 	}
 	a.UpdateChatSnippet(chat)

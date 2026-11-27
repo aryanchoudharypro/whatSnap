@@ -32,30 +32,129 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, jid: &str) {
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
-fn block_with_confirm(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) {
-	let name = chat_name(&state.borrow(), jid);
-	let question = crate::i18n::tr_fmt(
-		"Block {}? They won't be able to call you or send you messages. They won't be told.",
-		&[&name],
-	);
-	let title = crate::i18n::tr("Block contact");
-	let dialog = state.borrow().blocked_contacts.clone();
-	let answer = match dialog {
-		Some(dialog) => MessageDialog::builder(&dialog.dialog, &question, title)
-			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-			.build()
-			.show_modal(),
-		None => MessageDialog::builder(&parts.frame, &question, title)
-			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-			.build()
-			.show_modal(),
+fn active_modal_parent(state: &AppState, parts: &WindowParts) -> Option<Dialog> {
+	if let Some(ref blocked) = state.blocked_contacts {
+		if blocked.dialog.is_shown() {
+			return Some(blocked.dialog);
+		}
+	}
+	if parts.conversation_data_dialog.details_dialog.is_shown() {
+		return Some(parts.conversation_data_dialog.details_dialog);
+	}
+	if parts.conversation_data_dialog.dialog.is_shown() {
+		return Some(parts.conversation_data_dialog.dialog);
+	}
+	if parts.group_data_dialog.dialog.is_shown() {
+		return Some(parts.group_data_dialog.dialog);
+	}
+	if parts.settings_dialog.dialog.is_shown() {
+		return Some(parts.settings_dialog.dialog);
+	}
+	None
+}
+
+struct BlockConfirmResult {
+	confirmed: bool,
+	report: bool,
+}
+
+fn ask_block_confirm(parent: &impl WxWidget, name: &str, is_business: bool) -> BlockConfirmResult {
+	let title = crate::i18n::tr_fmt("Block {}?", &[&name]);
+	let dialog = Dialog::builder(parent, &title)
+		.with_size(440, 240)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	crate::ui::theme::style_content(&dialog);
+	let panel = Panel::builder(&dialog).build();
+	crate::ui::theme::style_content(&panel);
+	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	let question_text = if is_business {
+		crate::i18n::tr(
+			"This business won't be able to message or call you. They won't know you blocked or reported them.",
+		)
+	} else {
+		crate::i18n::tr(
+			"This person won't be able to message or call you. They won't know you blocked or reported them.",
+		)
 	};
-	if answer != ID_YES {
+	let question = StaticText::builder(&panel).with_label(question_text).build();
+	question.set_font(&crate::ui::theme::Fonts::body());
+	sizer.add(&question, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 16);
+
+	let report_check = CheckBox::builder(&panel)
+		.with_label(crate::i18n::tr("Report to WhatsApp"))
+		.build();
+	crate::ui::dialog_look::switch(&report_check, crate::ui::theme::Palette::CONTENT_BG());
+	sizer.add(&report_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+
+	let report_hint_text = if is_business {
+		crate::i18n::tr("The last 5 messages from this business will be sent to WhatsApp.")
+	} else {
+		crate::i18n::tr("The last 5 messages from this user will be sent to WhatsApp.")
+	};
+	let report_hint = StaticText::builder(&panel).with_label(report_hint_text).build();
+	crate::ui::theme::style_muted_label(&report_hint);
+	sizer.add(&report_hint, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 4);
+
+	let block_btn = Button::builder(&panel)
+		.with_id(ID_OK)
+		.with_label(crate::i18n::tr("Block"))
+		.build();
+	crate::ui::dialog_look::pill_button(&block_btn, true, crate::ui::theme::Palette::CONTENT_BG());
+
+	let cancel_btn = Button::builder(&panel)
+		.with_id(ID_CANCEL)
+		.with_label(crate::i18n::tr("Cancel"))
+		.build();
+	crate::ui::dialog_look::pill_button(&cancel_btn, false, crate::ui::theme::Palette::CONTENT_BG());
+
+	crate::ui::dialog_look::button_row(&sizer, &[&block_btn, &cancel_btn]);
+	panel.set_sizer(sizer, true);
+
+	let outer = BoxSizer::builder(Orientation::Vertical).build();
+	outer.add(&panel, 1, SizerFlag::Expand, 0);
+	dialog.set_sizer(outer, true);
+	dialog.center();
+	crate::ui::keys::escape_cancels_anywhere(dialog);
+	block_btn.set_focus();
+
+	let confirmed = dialog.show_modal() == ID_OK;
+	let report = report_check.is_checked();
+	dialog.destroy();
+	BlockConfirmResult { confirmed, report }
+}
+
+fn block_with_confirm(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) {
+	let (name, is_biz) = {
+		let s = state.borrow();
+		(chat_name(&s, jid), s.business_jids.contains(jid))
+	};
+	let result = match active_modal_parent(&state.borrow(), parts) {
+		Some(dlg) => ask_block_confirm(&dlg, &name, is_biz),
+		None => ask_block_confirm(&parts.frame, &name, is_biz),
+	};
+	if !result.confirmed {
 		return;
 	}
-	send(state, "block_contact", jid);
-	let msg = crate::i18n::tr_fmt("Blocking {}...", &[&name]);
-	announce(state, parts, &msg);
+	if result.report {
+		let payload = serde_json::json!({
+			"action": "report",
+			"data": {
+				"jid": jid,
+				"message_id": "",
+				"block": true,
+				"leave": false
+			}
+		});
+		let _ = state.borrow().ws_tx.send(payload.to_string());
+		let msg = crate::i18n::tr_fmt("Reporting and blocking {}...", &[&name]);
+		announce(state, parts, &msg);
+	} else {
+		send(state, "block_contact", jid);
+		let msg = crate::i18n::tr_fmt("Blocking {}...", &[&name]);
+		announce(state, parts, &msg);
+	}
 }
 
 pub(crate) fn toggle_block(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
@@ -179,22 +278,18 @@ pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		&[&name, &err_text],
 	);
 	let title = crate::i18n::tr("Error");
-	let dialog = state.borrow().blocked_contacts.clone();
 	let style = MessageDialogStyle::OK | MessageDialogStyle::IconError;
-	match dialog {
-		Some(dialog) => {
-			let owner = windows::Win32::Foundation::HWND(dialog.dialog.get_handle());
-			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&dialog.dialog, &message, title).with_style(style).build().show_modal()
-			});
-		}
-		None => {
-			let owner = windows::Win32::Foundation::HWND(parts.frame.get_handle());
-			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&parts.frame, &message, title).with_style(style).build().show_modal()
-			});
-		}
-	};
+	if let Some(dialog) = active_modal_parent(&state.borrow(), parts) {
+		let owner = windows::Win32::Foundation::HWND(dialog.get_handle());
+		crate::platform::focus::show_modal_and_refocus(owner, false, || {
+			MessageDialog::builder(&dialog, &message, title).with_style(style).build().show_modal()
+		});
+	} else {
+		let owner = windows::Win32::Foundation::HWND(parts.frame.get_handle());
+		crate::platform::focus::show_modal_and_refocus(owner, false, || {
+			MessageDialog::builder(&parts.frame, &message, title).with_style(style).build().show_modal()
+		});
+	}
 }
 
 pub(crate) fn show_blocked_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -236,10 +331,13 @@ pub(crate) fn stop_if_blocked_jid(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		chat_name(&s, jid)
 	};
 	let question = crate::i18n::tr_fmt("You blocked {}. Unblock them to message or call them?", &[&name]);
-	let answer = MessageDialog::builder(&parts.frame, &question, crate::i18n::tr("Blocked contact"))
-		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-		.build()
-		.show_modal();
+	let title = crate::i18n::tr("Blocked contact");
+	let style = MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion;
+	let answer = if let Some(dialog) = active_modal_parent(&state.borrow(), parts) {
+		MessageDialog::builder(&dialog, &question, title).with_style(style).build().show_modal()
+	} else {
+		MessageDialog::builder(&parts.frame, &question, title).with_style(style).build().show_modal()
+	};
 	if answer == ID_YES {
 		send(state, "unblock_contact", jid);
 		let msg = crate::i18n::tr_fmt("Unblocking {}...", &[&name]);

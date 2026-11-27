@@ -280,6 +280,20 @@ fn wire_group_member_menu(
 				Some(MemberAction::SendHistory),
 			));
 		}
+		if !member.me && !is_bot {
+			let is_blocked = state.borrow().blocked_jids.contains(member.chat_jid());
+			let block_label = if is_blocked {
+				crate::i18n::tr_fmt("Unblock {}", &[&member.name])
+			} else {
+				crate::i18n::tr_fmt("Block {}", &[&member.name])
+			};
+			items.push((
+				4210,
+				block_label,
+				crate::i18n::tr("Block or unblock this member"),
+				Some(MemberAction::ToggleBlock),
+			));
+		}
 		if member.me {
 			items.push((
 				4207,
@@ -6713,6 +6727,15 @@ pub fn bind_input_handlers(
 						});
 						drop(s);
 						if let Some(msg) = msg_opt {
+							if msg.text == "You blocked this contact."
+								|| msg.text == "You blocked this contact. Click to unblock."
+							{
+								if let Some(jid) = state_enter.borrow().selected_chat.clone() {
+									let _ = tx_invite_enter.send(UiCommand::ToggleBlockChat { jid });
+									event.skip(false);
+									return;
+								}
+							}
 							if msg.id.starts_with("system_scheduled_") || msg.text == "You scheduled a message" {
 								let _ = tx_invite_enter.send(UiCommand::ShowScheduledMessages);
 								event.skip(false);

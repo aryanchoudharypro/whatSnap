@@ -203,7 +203,11 @@ func (acc *Account) handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
 		if data.Value {
 			locked_int = 1
 		}
-		acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", locked_int, data.JID)
+		var twinJID string
+		if tw := acc.storeTwin(jid); !tw.IsEmpty() {
+			twinJID = tw.ToNonAD().String()
+		}
+		acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ? OR (jid = ? AND ? != '')", locked_int, data.JID, twinJID, twinJID)
 		if data.Value {
 			now := time.Now().Unix()
 			acc.noteArchiveAction(data.JID, false, nil, now)
