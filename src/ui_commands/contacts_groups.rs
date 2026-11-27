@@ -137,6 +137,7 @@ pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	apply_contact_picker_filter("", state, parts);
 	let payload = serde_json::json!({ "action": "get_contacts" });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
+	parts.new_conv_dialog.search_field.set_focus();
 	crate::ui::show_modal_again(&parts.new_conv_dialog.dialog);
 }
 

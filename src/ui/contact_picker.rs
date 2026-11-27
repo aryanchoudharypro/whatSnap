@@ -338,28 +338,44 @@ pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppSta
 		}
 	}
 
-	// 3. Filter contacts
-	for contact in &s.all_contacts {
-		let name = contact.name.trim();
-		let phone = contact.phone.trim();
-		let matches = q.is_empty()
-			|| (!name.is_empty() && name.to_lowercase().contains(&q))
-			|| (!phone.is_empty() && phone.contains(&q))
-			|| (!contact.about.is_empty() && contact.about.to_lowercase().contains(&q));
+	// 3. Filter and rank contacts
+	let mut matched_contacts: Vec<&Contact> = s
+		.all_contacts
+		.iter()
+		.filter(|contact| {
+			let name = contact.name.trim();
+			let phone = contact.phone.trim();
+			q.is_empty()
+				|| (!name.is_empty() && name.to_lowercase().contains(&q))
+				|| (!phone.is_empty() && phone.contains(&q))
+				|| (!contact.about.is_empty() && contact.about.to_lowercase().contains(&q))
+		})
+		.collect();
 
-		if matches {
-			let label = if hide_saved_numbers && contact.saved && !name.is_empty() {
-				if show_status && !contact.about.trim().is_empty() {
-					format!("{} ~ {}", name, contact.about.trim())
-				} else {
-					name.to_string()
-				}
+	if q.is_empty() && s.settings.new_chat_frequently_contacted {
+		let chat_rank: std::collections::HashMap<&str, usize> =
+			s.chats.iter().enumerate().map(|(idx, jid)| (jid.as_str(), idx)).collect();
+		matched_contacts.sort_by_key(|c| {
+			(
+				chat_rank.get(c.jid.as_str()).copied().unwrap_or(usize::MAX),
+				contact_sort_key(c),
+			)
+		});
+	}
+
+	for contact in matched_contacts {
+		let name = contact.name.trim();
+		let label = if hide_saved_numbers && contact.saved && !name.is_empty() {
+			if show_status && !contact.about.trim().is_empty() {
+				format!("{} ~ {}", name, contact.about.trim())
 			} else {
-				contact_picker_label(contact)
-			};
-			labels.push(label);
-			jids.push(contact.jid.clone());
-		}
+				name.to_string()
+			}
+		} else {
+			contact_picker_label(contact)
+		};
+		labels.push(label);
+		jids.push(contact.jid.clone());
 	}
 
 	parts.new_conv_dialog.results_list.clear();
