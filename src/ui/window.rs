@@ -5535,24 +5535,10 @@ pub fn bind_input_handlers(
 						&& !msg.is_date_divider
 						&& !msg.is_deleted
 					{
-						let mut labels = Vec::new();
-						let mut jids = Vec::new();
-						for jid in &s.chats {
-							if !jid.ends_with("@broadcast") && crate::ui_commands::links::can_forward_to(&s, jid) {
-								let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-								labels.push(name);
-								jids.push(jid.clone());
-							}
-						}
-						for (jid, name) in &s.contacts {
-							if !jid.ends_with("@broadcast")
-								&& !jids.contains(jid)
-								&& crate::ui_commands::links::can_forward_to(&s, jid)
-							{
-								labels.push(name.clone());
-								jids.push(jid.clone());
-							}
-						}
+						let (jids, labels): (Vec<_>, Vec<_>) = crate::ui_commands::links::send_targets(&s)
+							.into_iter()
+							.map(|target| (target.jid, target.label))
+							.unzip();
 						drop(s);
 
 						if !jids.is_empty() {
@@ -6526,24 +6512,10 @@ pub fn bind_input_handlers(
 					if let Some(msg) = msg_opt
 						&& !msg.is_date_divider
 					{
-						let mut labels = Vec::new();
-						let mut jids = Vec::new();
-						for jid in &s.chats {
-							if !jid.ends_with("@broadcast") && crate::ui_commands::links::can_forward_to(&s, jid) {
-								let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-								labels.push(name);
-								jids.push(jid.clone());
-							}
-						}
-						for (jid, name) in &s.contacts {
-							if !jid.ends_with("@broadcast")
-								&& !jids.contains(jid)
-								&& crate::ui_commands::links::can_forward_to(&s, jid)
-							{
-								labels.push(name.clone());
-								jids.push(jid.clone());
-							}
-						}
+						let (jids, labels): (Vec<_>, Vec<_>) = crate::ui_commands::links::send_targets(&s)
+							.into_iter()
+							.map(|target| (target.jid, target.label))
+							.unzip();
 						drop(s);
 
 						if !jids.is_empty() {

@@ -504,6 +504,7 @@ pub(crate) fn forward_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	let spoken =
 		crate::i18n::tr_fmt("{} forwarded to {}.", &[&plural(ids.len(), "message", "messages"), &names_joined]);
 	announce(parts, &spoken);
+	super::messaging::open_locked_forward_destination(state, parts, &to_jids);
 }
 
 /// One file: a Save As box. Several: a folder, as WhatsApp Web on Windows

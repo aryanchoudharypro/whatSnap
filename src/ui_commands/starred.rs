@@ -142,6 +142,7 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			let names_joined = names.join(", ");
 			let spoken = crate::i18n::tr_fmt("Message forwarded to {}.", &[&names_joined]);
 			crate::platform::announce::announce(parts_menu.conversations_parts.messages_announcer, &spoken);
+			super::messaging::open_locked_forward_destination(&state_menu, &parts_menu, &to_jids);
 		}
 		UNSTAR => unstar_message_at(&state_menu, &parts_menu, idx),
 		UNSTAR_ALL => {

@@ -215,6 +215,8 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 pub(crate) fn send_targets(s: &AppState) -> Vec<SendTarget> {
 	let mut seen = std::collections::HashSet::new();
 	let mut targets = Vec::new();
+	// WhatsApp Web omits locked conversations from chat rows. A saved contact
+	// can still be selected as a recipient without opening their conversation.
 	for jid in &s.chats {
 		if jid.ends_with("@broadcast") || s.community_jids.contains(jid) || s.locked_jids.contains(jid) {
 			continue;
@@ -227,7 +229,7 @@ pub(crate) fn send_targets(s: &AppState) -> Vec<SendTarget> {
 		targets.push(SendTarget { jid: jid.clone(), label });
 	}
 	for contact in &s.all_contacts {
-		if seen.insert(contact.jid.clone()) {
+		if (!s.locked_jids.contains(&contact.jid) || contact.saved) && seen.insert(contact.jid.clone()) {
 			targets.push(SendTarget { jid: contact.jid.clone(), label: contact_picker_label(contact) });
 		}
 	}
@@ -374,10 +376,6 @@ pub(crate) fn request_group_invite_link(state: &Rc<RefCell<AppState>>) {
 		"data": { "jid": jid, "reset": false }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
-}
-
-pub(crate) fn can_forward_to(s: &AppState, jid: &str) -> bool {
-	!jid.ends_with("@newsletter") || can_post_in_channel(s, jid)
 }
 
 pub(crate) fn can_post_in_channel(s: &AppState, jid: &str) -> bool {
