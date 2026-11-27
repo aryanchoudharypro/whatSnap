@@ -1761,11 +1761,17 @@ pub fn bind_input_handlers(
 		let _ = tx_filter_on_tick.send(UiCommand::FilterContactPicker(query));
 	});
 
+	let picker_dialog_esc_search = parts.new_conv_dialog.dialog;
 	let tx_picker_select_from_search = ui_tx.clone();
 	let picker_results_list_from_search = parts.new_conv_dialog.results_list;
 	picker_search_field.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			if keys::is_escape(code) {
+				picker_dialog_esc_search.end_modal(0);
+				event.skip(false);
+				return;
+			}
 			// Down Arrow moves focus directly into results list
 			if keys::is_down(code) && picker_results_list_from_search.get_count() > 0 {
 				picker_results_list_from_search.set_focus();
