@@ -121,6 +121,14 @@ pub struct Settings {
 	/// Show the Locked Chats button even with WhatsApp's "Hide locked chats"
 	/// on. Off is WA Web's behaviour: the button waits for the secret code.
 	pub chat_lock_always_show_sidebar: bool,
+	/// Hide phone numbers for saved contacts in New Chat (showing only their name and About status).
+	pub new_chat_hide_saved_numbers: bool,
+	/// Show contact's About (status) bio in New Chat.
+	pub new_chat_show_status: bool,
+	/// Automatically check unsaved phone numbers on WhatsApp while typing.
+	pub new_chat_auto_lookup: bool,
+	/// Show frequently contacted section at the top of New Chat.
+	pub new_chat_frequently_contacted: bool,
 }
 
 pub const TAB_NAMES: [&str; 7] =
@@ -215,6 +223,10 @@ impl Default for Settings {
 			chat_lock_on_minimize: false,
 			chat_lock_notify: true,
 			chat_lock_always_show_sidebar: false,
+			new_chat_hide_saved_numbers: true,
+			new_chat_show_status: true,
+			new_chat_auto_lookup: true,
+			new_chat_frequently_contacted: true,
 		}
 	}
 }
