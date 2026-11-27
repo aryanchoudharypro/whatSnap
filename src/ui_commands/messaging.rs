@@ -221,17 +221,49 @@ pub(crate) fn forward_message(
 	message_id: String,
 	to_jids: Vec<String>,
 ) {
+	if to_jids.is_empty() {
+		return;
+	}
+	if state.borrow().is_any_locked(&to_jids) && !state.borrow().chats_unlocked {
+		state.borrow_mut().pending_forward = Some((vec![message_id], to_jids));
+		crate::ui_commands::chat_list::prompt_locked_chats(state, parts);
+		return;
+	}
+	execute_forward(state, parts, vec![message_id], to_jids);
+}
+
+pub(crate) fn execute_forward(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	message_ids: Vec<String>,
+	to_jids: Vec<String>,
+) {
+	if message_ids.is_empty() || to_jids.is_empty() {
+		return;
+	}
 	let payload = serde_json::json!({
 		"action": "forward_message",
 		"data": {
-			"message_id": message_id,
+			"message_ids": message_ids,
 			"to_jids": to_jids
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
+	let names: Vec<String> = {
+		let s = state.borrow();
+		to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect()
+	};
+	let names_joined = names.join(", ");
+	let count = message_ids.len();
+	let spoken = if count == 1 {
+		crate::i18n::tr_fmt("Message forwarded to {}.", &[&names_joined])
+	} else {
+		let plural_msgs = format!("{} messages", count);
+		crate::i18n::tr_fmt("{} forwarded to {}.", &[&plural_msgs, &names_joined])
+	};
 	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
-		crate::i18n::tr("Message forwarded."),
+		&spoken,
 	);
 	open_forward_destination(state, parts, &to_jids);
 }

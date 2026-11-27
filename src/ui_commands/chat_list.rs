@@ -660,7 +660,11 @@ pub(crate) fn prompt_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		return;
 	}
 	if state.borrow().chat_lock_has_code == Some(false) {
-		state.borrow_mut().pending_locked_chat = None;
+		let mut s = state.borrow_mut();
+		s.pending_locked_chat = None;
+		s.pending_forward = None;
+		s.pending_send_files = None;
+		s.pending_send_text = None;
 		show_secret_code_required(parts);
 		return;
 	}
@@ -704,7 +708,11 @@ pub(crate) fn finish_chat_lock_hello(
 			show_locked_chats(state, parts);
 		}
 		windows_hello::VerifyOutcome::Canceled => {
-			state.borrow_mut().pending_locked_chat = None;
+			let mut s = state.borrow_mut();
+			s.pending_locked_chat = None;
+			s.pending_forward = None;
+			s.pending_send_files = None;
+			s.pending_send_text = None;
 		}
 		windows_hello::VerifyOutcome::Failed => {
 			ask_secret_code(state, parts);
@@ -714,7 +722,7 @@ pub(crate) fn finish_chat_lock_hello(
 
 /// Shows the locked chats. Called once the user has proved they may see them.
 pub(crate) fn show_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let pending_chat = {
+	let (pending_chat, pending_forward, pending_send_files, pending_send_text) = {
 		let mut s = state.borrow_mut();
 		s.chats_unlocked = true;
 		s.chat_lock_search_unlocked = false;
@@ -728,8 +736,25 @@ pub(crate) fn show_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			parts.conversations_parts.messages_announcer,
 			crate::i18n::tr("Locked chats shown."),
 		);
-		s.pending_locked_chat.take()
+		(
+			s.pending_locked_chat.take(),
+			s.pending_forward.take(),
+			s.pending_send_files.take(),
+			s.pending_send_text.take(),
+		)
 	};
+	if let Some((msg_ids, to_jids)) = pending_forward {
+		crate::ui_commands::messaging::execute_forward(state, parts, msg_ids, to_jids);
+		return;
+	}
+	if let Some((paths, to_jids, text)) = pending_send_files {
+		crate::ui_commands::links::execute_send_files(state, parts, paths, to_jids, text);
+		return;
+	}
+	if let Some((text, to_jids)) = pending_send_text {
+		crate::ui_commands::links::execute_send_text(state, parts, text, to_jids);
+		return;
+	}
 	if let Some(jid) = pending_chat {
 		open_chat_for_jid(&jid, state, parts);
 		return;
@@ -807,7 +832,11 @@ fn ask_secret_code(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 			return;
 		}
 	}
-	state.borrow_mut().pending_locked_chat = None;
+	let mut s = state.borrow_mut();
+	s.pending_locked_chat = None;
+	s.pending_forward = None;
+	s.pending_send_files = None;
+	s.pending_send_text = None;
 }
 
 pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -817,6 +846,9 @@ pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		if s.chats_unlocked {
 			s.chats_unlocked = false;
 			s.pending_locked_chat = None;
+			s.pending_forward = None;
+			s.pending_send_files = None;
+			s.pending_send_text = None;
 			parts.conversations_parts.locked_chats_btn.set_label(crate::i18n::tr("Locked Chats"));
 			apply_chat_filter(&mut s, parts);
 			crate::platform::announce::announce(

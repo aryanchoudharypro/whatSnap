@@ -130,19 +130,7 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			if to_jids.is_empty() {
 				return;
 			}
-			let payload = serde_json::json!({
-				"action": "forward_message",
-				"data": { "message_ids": vec![entry_forward.message_id.clone()], "to_jids": to_jids }
-			});
-			let _ = state_menu.borrow().ws_tx.send(payload.to_string());
-			let names: Vec<String> = {
-				let s = state_menu.borrow();
-				to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect()
-			};
-			let names_joined = names.join(", ");
-			let spoken = crate::i18n::tr_fmt("Message forwarded to {}.", &[&names_joined]);
-			crate::platform::announce::announce(parts_menu.conversations_parts.messages_announcer, &spoken);
-			super::messaging::open_forward_destination(&state_menu, &parts_menu, &to_jids);
+			super::messaging::forward_message(&state_menu, &parts_menu, entry_forward.message_id.clone(), to_jids);
 		}
 		UNSTAR => unstar_message_at(&state_menu, &parts_menu, idx),
 		UNSTAR_ALL => {

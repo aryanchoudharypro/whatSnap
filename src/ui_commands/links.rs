@@ -189,26 +189,48 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	};
 	let targets = send_targets(&state.borrow());
 	let Some(choice) = show_send_to_dialog(&parts.frame, &title, targets, "", &paths) else { return };
-	let s = state.borrow();
-	let kind = whatsnap::AttachKind::Pasted;
-	for jid in &choice.jids {
-		crate::ui_commands::attachments::send_files(&s.ws_tx, jid, &paths, kind, choice.text.trim(), "", "", false);
+	if choice.jids.is_empty() {
+		return;
 	}
-	let names: Vec<String> =
-		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
-	drop(s);
-	let names_joined = names.join(", ");
-	let mut message = crate::i18n::tr_fmt("Sending to {}.", &[&names_joined]);
 	if left_out > 0 {
-		message.push_str(&crate::i18n::tr_fmt(
+		let message = crate::i18n::tr_fmt(
 			if left_out == 1 {
 				" You can send up to {} files at once; {} file weren't sent."
 			} else {
 				" You can send up to {} files at once; {} files weren't sent."
 			},
 			&[&max, &left_out],
-		));
+		);
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 	}
+	if state.borrow().is_any_locked(&choice.jids) && !state.borrow().chats_unlocked {
+		state.borrow_mut().pending_send_files = Some((paths, choice.jids, choice.text));
+		crate::ui_commands::chat_list::prompt_locked_chats(state, parts);
+		return;
+	}
+	execute_send_files(state, parts, paths, choice.jids, choice.text);
+}
+
+pub(crate) fn execute_send_files(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	paths: Vec<String>,
+	to_jids: Vec<String>,
+	text: String,
+) {
+	if paths.is_empty() || to_jids.is_empty() {
+		return;
+	}
+	let s = state.borrow();
+	let kind = whatsnap::AttachKind::Pasted;
+	for jid in &to_jids {
+		crate::ui_commands::attachments::send_files(&s.ws_tx, jid, &paths, kind, text.trim(), "", "", false);
+	}
+	let names: Vec<String> =
+		to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
+	drop(s);
+	let names_joined = names.join(", ");
+	let message = crate::i18n::tr_fmt("Sending to {}.", &[&names_joined]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 }
 
@@ -236,6 +258,31 @@ pub(crate) fn send_targets(s: &AppState) -> Vec<SendTarget> {
 	targets
 }
 
+pub(crate) fn execute_send_text(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	text: String,
+	to_jids: Vec<String>,
+) {
+	if to_jids.is_empty() {
+		return;
+	}
+	let s = state.borrow();
+	for jid in &to_jids {
+		let payload = serde_json::json!({
+			"action": "send",
+			"data": { "to": jid, "text": text, "reply_to_id": "", "reply_to_sender": "" }
+		});
+		let _ = s.ws_tx.send(payload.to_string());
+	}
+	let names: Vec<String> =
+		to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
+	drop(s);
+	let names_joined = names.join(", ");
+	let spoken = crate::i18n::tr_fmt("Sent to {}.", &[&names_joined]);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
+}
+
 pub(crate) fn send_text_to_chosen_chats(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -244,20 +291,15 @@ pub(crate) fn send_text_to_chosen_chats(
 ) {
 	let targets = send_targets(&state.borrow());
 	let Some(choice) = show_send_to_dialog(&parts.frame, title, targets, text, &[]) else { return };
-	let s = state.borrow();
-	for jid in &choice.jids {
-		let payload = serde_json::json!({
-			"action": "send",
-			"data": { "to": jid, "text": choice.text, "reply_to_id": "", "reply_to_sender": "" }
-		});
-		let _ = s.ws_tx.send(payload.to_string());
+	if choice.jids.is_empty() {
+		return;
 	}
-	let names: Vec<String> =
-		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
-	drop(s);
-	let names_joined = names.join(", ");
-	let spoken = crate::i18n::tr_fmt("Sent to {}.", &[&names_joined]);
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
+	if state.borrow().is_any_locked(&choice.jids) && !state.borrow().chats_unlocked {
+		state.borrow_mut().pending_send_text = Some((choice.text, choice.jids));
+		crate::ui_commands::chat_list::prompt_locked_chats(state, parts);
+		return;
+	}
+	execute_send_text(state, parts, choice.text, choice.jids);
 }
 
 pub(crate) fn show_group_invite_link(

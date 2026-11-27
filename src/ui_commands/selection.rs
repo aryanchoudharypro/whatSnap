@@ -490,21 +490,13 @@ pub(crate) fn forward_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	if to_jids.is_empty() {
 		return;
 	}
-	let payload = serde_json::json!({
-		"action": "forward_message",
-		"data": { "message_ids": ids, "to_jids": to_jids }
-	});
-	let _ = state.borrow().ws_tx.send(payload.to_string());
 	finish(state, parts);
-	let names: Vec<String> = {
-		let s = state.borrow();
-		to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect()
-	};
-	let names_joined = names.join(", ");
-	let spoken =
-		crate::i18n::tr_fmt("{} forwarded to {}.", &[&plural(ids.len(), "message", "messages"), &names_joined]);
-	announce(parts, &spoken);
-	super::messaging::open_forward_destination(state, parts, &to_jids);
+	if state.borrow().is_any_locked(&to_jids) && !state.borrow().chats_unlocked {
+		state.borrow_mut().pending_forward = Some((ids, to_jids));
+		crate::ui_commands::chat_list::prompt_locked_chats(state, parts);
+		return;
+	}
+	crate::ui_commands::messaging::execute_forward(state, parts, ids, to_jids);
 }
 
 /// One file: a Save As box. Several: a folder, as WhatsApp Web on Windows

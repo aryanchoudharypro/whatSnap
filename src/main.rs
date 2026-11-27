@@ -128,6 +128,10 @@ impl AppState {
 		}
 		false
 	}
+
+	pub(crate) fn is_any_locked(&self, jids: &[String]) -> bool {
+		jids.iter().any(|j| self.is_chat_locked(j))
+	}
 }
 
 struct AppState {
@@ -193,6 +197,9 @@ struct AppState {
 	/// again after a while.
 	chat_lock_last_activity: std::time::Instant,
 	pending_locked_chat: Option<String>,
+	pending_forward: Option<(Vec<String>, Vec<String>)>,
+	pending_send_files: Option<(Vec<String>, Vec<String>, String)>,
+	pending_send_text: Option<(String, Vec<String>)>,
 	community_jids: std::collections::HashSet<String>,
 	chat_parents: std::collections::HashMap<String, String>,
 	announcement_jids: std::collections::HashSet<String>,
@@ -977,6 +984,9 @@ pub(crate) fn new_app_state(
 		chat_lock_search_seq: 0,
 		chat_lock_last_activity: std::time::Instant::now(),
 		pending_locked_chat: None,
+		pending_forward: None,
+		pending_send_files: None,
+		pending_send_text: None,
 		community_jids: std::collections::HashSet::new(),
 		chat_parents: std::collections::HashMap::new(),
 		announcement_jids: std::collections::HashSet::new(),
