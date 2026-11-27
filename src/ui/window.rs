@@ -3103,6 +3103,22 @@ pub fn bind_input_handlers(
 		let _ = tx_status_privacy_settings.send(UiCommand::OpenStatusPrivacy);
 	});
 
+	let chat_lock_check = parts.settings_dialog.chat_lock_always_show_sidebar_check;
+	let settings_dialog_lock = parts.settings_dialog.dialog;
+	chat_lock_check.on_toggled(move |event| {
+		if event.is_checked() {
+			let question = crate::i18n::tr(
+				"Enabling this will keep the Locked Chats button permanently visible in the sidebar on this PC, even when hidden on your phone.\n\nAnyone who can see this screen will know you have locked chats (though opening them will still require your Secret Code or Windows Hello).\n\nDo you want to show the button on this PC?",
+			);
+			let confirm = MessageDialog::builder(&settings_dialog_lock, &question, crate::i18n::tr("Show Locked Chats Button"))
+				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+				.build();
+			if confirm.show_modal() != wxdragon::id::ID_YES {
+				chat_lock_check.set_value(false);
+			}
+		}
+	});
+
 	let settings_dialog_ok = parts.settings_dialog.dialog;
 	let sounds_check_ok = parts.settings_dialog.sounds_check;
 	let notifications_check_ok = parts.settings_dialog.notifications_check;
