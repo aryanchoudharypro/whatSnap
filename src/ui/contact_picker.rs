@@ -308,6 +308,8 @@ mod tests {
 			name: String::new(),
 			phone: "0".to_string(),
 			saved: false,
+			about: String::new(),
+			is_business: false,
 		};
 		assert_eq!(contact_picker_label(&unnamed), "WhatsApp");
 	}

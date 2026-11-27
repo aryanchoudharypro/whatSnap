@@ -7351,6 +7351,8 @@ fn choose_excluded_contacts(
 							name: String::new(),
 							phone: String::new(),
 							saved: false,
+							about: String::new(),
+							is_business: false,
 						})
 				})
 				.collect())
