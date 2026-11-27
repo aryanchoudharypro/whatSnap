@@ -834,6 +834,7 @@ mod tests {
 		assert_eq!(split_contact("+44 7700 900123"), ("+44 7700 900123", ""));
 		assert_eq!(split_contact("Mum"), ("Mum", ""));
 		assert_eq!(split_contact("Mum ~ Available"), ("Mum", "Available"));
+		assert_eq!(split_contact("Mum\tAvailable"), ("Mum", "Available"));
 	}
 
 	#[test]

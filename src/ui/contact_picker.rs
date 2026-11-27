@@ -1,5 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
+use wxdragon::prelude::*;
+
 use crate::{AppState, Contact, ui::window::WindowParts};
 
 pub(crate) fn display_name_for_jid(jid: &str) -> String {
@@ -127,9 +129,11 @@ pub(crate) fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<Ap
 			filtered_jids.push(jid.clone());
 		}
 	}
-	parts.new_group_dialog.contacts_listbox.clear();
+	let listbox = &parts.new_group_dialog.contacts_listbox;
+	listbox.freeze();
+	listbox.clear();
 	for lbl in &filtered_labels {
-		parts.new_group_dialog.contacts_listbox.append(lbl);
+		listbox.append(lbl);
 	}
 	let gs = &mut s.group_state;
 	gs.all_contact_labels = all_labels;
@@ -137,7 +141,7 @@ pub(crate) fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<Ap
 	gs.current_jids = filtered_jids;
 	for (idx, jid) in gs.current_jids.iter().enumerate() {
 		if gs.checked_jids.contains(jid) {
-			parts.new_group_dialog.contacts_listbox.check(idx as u32, true);
+			listbox.check(idx as u32, true);
 		}
 	}
 	// See the comment on the equivalent reset in window.rs's search handler:
@@ -149,8 +153,9 @@ pub(crate) fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<Ap
 	// valid there) - so there's nothing to reset when the filter has no
 	// matches, only when it has at least one.
 	if !gs.current_jids.is_empty() {
-		parts.new_group_dialog.contacts_listbox.set_selection(0, true);
+		listbox.set_selection(0, true);
 	}
+	listbox.thaw();
 }
 
 pub(crate) fn sync_new_group_contact_labels(state: &Rc<RefCell<AppState>>) {
@@ -188,9 +193,11 @@ pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<
 			filtered_jids.push(jid.clone());
 		}
 	}
-	parts.add_members_dialog.contacts_listbox.clear();
+	let listbox = &parts.add_members_dialog.contacts_listbox;
+	listbox.freeze();
+	listbox.clear();
 	for lbl in &filtered_labels {
-		parts.add_members_dialog.contacts_listbox.append(lbl);
+		listbox.append(lbl);
 	}
 	let ams = &mut s.add_members_state;
 	ams.all_contact_labels = all_labels;
@@ -198,7 +205,7 @@ pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<
 	ams.current_jids = filtered_jids;
 	for (idx, jid) in ams.current_jids.iter().enumerate() {
 		if ams.checked_jids.contains(jid) {
-			parts.add_members_dialog.contacts_listbox.check(idx as u32, true);
+			listbox.check(idx as u32, true);
 		}
 	}
 	// See the equivalent reset in refresh_new_group_contacts_list/window.rs:
@@ -208,8 +215,9 @@ pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<
 	// itself asserts/crashes given index 0 on an empty list (only
 	// wxNOT_FOUND, which wxdragon's u32 API can't express, is valid there).
 	if !ams.current_jids.is_empty() {
-		parts.add_members_dialog.contacts_listbox.set_selection(0, true);
+		listbox.set_selection(0, true);
 	}
+	listbox.thaw();
 }
 
 pub(crate) fn sync_add_members_contact_labels(state: &Rc<RefCell<AppState>>) {
@@ -246,9 +254,11 @@ pub(crate) fn refresh_attach_contact_list(query: &str, state: &Rc<RefCell<AppSta
 			filtered_jids.push(jid.clone());
 		}
 	}
-	parts.attach_contact_dialog.contacts_listbox.clear();
+	let listbox = &parts.attach_contact_dialog.contacts_listbox;
+	listbox.freeze();
+	listbox.clear();
 	for lbl in &filtered_labels {
-		parts.attach_contact_dialog.contacts_listbox.append(lbl);
+		listbox.append(lbl);
 	}
 	let acs = &mut s.attach_contact_state;
 	acs.all_contact_labels = all_labels;
@@ -256,12 +266,13 @@ pub(crate) fn refresh_attach_contact_list(query: &str, state: &Rc<RefCell<AppSta
 	acs.current_jids = filtered_jids;
 	for (idx, jid) in acs.current_jids.iter().enumerate() {
 		if acs.checked_jids.contains(jid) {
-			parts.attach_contact_dialog.contacts_listbox.check(idx as u32, true);
+			listbox.check(idx as u32, true);
 		}
 	}
 	if !acs.current_jids.is_empty() {
-		parts.attach_contact_dialog.contacts_listbox.set_selection(0, true);
+		listbox.set_selection(0, true);
 	}
+	listbox.thaw();
 }
 
 pub(crate) fn sync_attach_contact_labels(state: &Rc<RefCell<AppState>>) {
@@ -306,22 +317,22 @@ pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppSta
 	// 1. Direct WhatsApp link match
 	if let Some(ref lp) = link_phone {
 		let formatted = format_phone_digits(lp);
-		labels.push(format!("Chat with {} ~ From WhatsApp link", formatted));
+		labels.push(format!("Chat with {}\tFrom WhatsApp link", formatted));
 		jids.push(format!("{}@s.whatsapp.net", lp));
 	} else if is_numeric_query && s.settings.new_chat_auto_lookup {
 		// 2. Direct Unsaved Phone Number lookup
 		if s.contact_picker_number_lookup.digits == query_digits {
 			if s.contact_picker_number_lookup.pending {
 				let formatted = format_phone_digits(&query_digits);
-				labels.push(format!("Checking {} on WhatsApp... ~ Please wait", formatted));
+				labels.push(format!("Checking {} on WhatsApp...\tPlease wait", formatted));
 				jids.push(String::new());
 			} else if !s.contact_picker_number_lookup.jid.is_empty() {
 				let formatted = format_phone_digits(&query_digits);
-				labels.push(format!("Chat with {} ~ Not in your contacts", formatted));
+				labels.push(format!("Chat with {}\tNot in your contacts", formatted));
 				jids.push(s.contact_picker_number_lookup.jid.clone());
 			} else {
 				let formatted = format_phone_digits(&query_digits);
-				labels.push(format!("{} not on WhatsApp ~ Not registered", formatted));
+				labels.push(format!("{} not on WhatsApp\tNot registered", formatted));
 				jids.push(String::new());
 			}
 		} else {
@@ -333,7 +344,7 @@ pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppSta
 			});
 			let _ = s.ws_tx.send(payload.to_string());
 			let formatted = format_phone_digits(&query_digits);
-			labels.push(format!("Checking {} on WhatsApp... ~ Please wait", formatted));
+			labels.push(format!("Checking {} on WhatsApp...\tPlease wait", formatted));
 			jids.push(String::new());
 		}
 	}
@@ -367,7 +378,7 @@ pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppSta
 		let name = contact.name.trim();
 		let label = if hide_saved_numbers && contact.saved && !name.is_empty() {
 			if show_status && !contact.about.trim().is_empty() {
-				format!("{} ~ {}", name, contact.about.trim())
+				format!("{}\t{}", name, contact.about.trim())
 			} else {
 				name.to_string()
 			}
@@ -378,15 +389,15 @@ pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppSta
 		jids.push(contact.jid.clone());
 	}
 
-	parts.new_conv_dialog.results_list.clear();
-	for label in &labels {
-		parts.new_conv_dialog.results_list.append(label);
-	}
+	let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+	parts.new_conv_dialog.results_list.freeze();
+	parts.new_conv_dialog.results_list.set_items(&label_refs);
 	s.contact_picker_current_jids = jids;
 
 	if !labels.is_empty() {
 		parts.new_conv_dialog.results_list.set_selection(0, true);
 	}
+	parts.new_conv_dialog.results_list.thaw();
 
 	let count = labels.len();
 	let announce_text = if count == 0 {
