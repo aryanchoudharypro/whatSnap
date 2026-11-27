@@ -128,7 +128,7 @@ pub(crate) fn refresh_block_state(s: &AppState, o: &ChatOverviewParts, jid: &str
 	let a = applies(jid);
 	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
 	let kind = if jid.ends_with("@g.us") { crate::i18n::tr("Group") } else { crate::i18n::tr("Contact") };
-	let locked = s.locked_jids.contains(jid);
+	let locked = s.is_chat_locked(jid);
 	let blocked = crate::ui_commands::blocking::is_blocked(s, jid);
 	let mut lines = vec![format!("{kind}: {name}")];
 	lines.push(format!(
@@ -158,7 +158,7 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid:
 	let a = applies(jid);
 	let mut s = state.borrow_mut();
 	refresh_block_state(&s, o, jid);
-	let locked = s.locked_jids.contains(jid);
+	let locked = s.is_chat_locked(jid);
 	o.lock_chk.set_value(locked);
 	o.restricted_chk.set_value(false);
 	o.restricted_chk.show(false);

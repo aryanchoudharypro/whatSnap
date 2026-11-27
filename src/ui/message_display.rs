@@ -358,7 +358,7 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 	let contacts: Vec<&crate::Contact> = s
 		.all_contacts
 		.iter()
-		.filter(|c| !chat_jids.contains(c.jid.as_str()) && !s.locked_jids.contains(&c.jid))
+		.filter(|c| !chat_jids.contains(c.jid.as_str()) && !s.is_chat_locked(&c.jid))
 		.filter(|c| c.phone.is_empty() || !chat_phones.contains(c.phone.as_str()))
 		.filter(|c| {
 			let names = [c.name.as_str()];
@@ -368,7 +368,7 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 		.collect();
 	let current = s.message_search.query == s.search_query;
 	let hits: Vec<&crate::MessageHit> = if current {
-		s.message_search.hits.iter().filter(|h| !s.locked_jids.contains(&h.jid)).collect()
+		s.message_search.hits.iter().filter(|h| !s.is_chat_locked(&h.jid)).collect()
 	} else {
 		Vec::new()
 	};

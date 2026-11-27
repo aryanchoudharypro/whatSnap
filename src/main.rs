@@ -97,6 +97,37 @@ impl AppState {
 			CallDirection::Outgoing
 		}
 	}
+
+	pub(crate) fn is_chat_locked(&self, jid: &str) -> bool {
+		if self.locked_jids.contains(jid) {
+			return true;
+		}
+		if let Some(twin) = self.jid_twins.get(jid) {
+			if self.locked_jids.contains(twin) {
+				return true;
+			}
+		}
+		for b in &self.blocked_entries {
+			if b.jid == jid {
+				let pn = b.phone.trim_start_matches('+');
+				if !pn.is_empty() {
+					let pn_jid = format!("{}@s.whatsapp.net", pn);
+					if self.locked_jids.contains(&pn_jid) {
+						return true;
+					}
+				}
+			} else {
+				let pn = b.phone.trim_start_matches('+');
+				if !pn.is_empty() {
+					let pn_jid = format!("{}@s.whatsapp.net", pn);
+					if pn_jid == jid && self.locked_jids.contains(&b.jid) {
+						return true;
+					}
+				}
+			}
+		}
+		false
+	}
 }
 
 struct AppState {
@@ -175,6 +206,7 @@ struct AppState {
 	group_quiet_until: std::collections::HashMap<String, std::time::Instant>,
 	blocked_jids: std::collections::HashSet<String>,
 	blocked_entries: Vec<crate::ui::dialogs::blocked_contacts::BlockedEntry>,
+	jid_twins: std::collections::HashMap<String, String>,
 	blocked_contacts: Option<Rc<crate::ui::dialogs::blocked_contacts::BlockedContacts>>,
 	/// Whether to offer scheduling messages: WA Web's
 	/// scheduled_messages_sender_enabled, on until the server says it's off.
@@ -958,6 +990,7 @@ pub(crate) fn new_app_state(
 		group_quiet_until: std::collections::HashMap::new(),
 		blocked_jids: std::collections::HashSet::new(),
 		blocked_entries: Vec::new(),
+		jid_twins: std::collections::HashMap::new(),
 		blocked_contacts: None,
 		scheduled_messages_enabled: true,
 		pending_schedule: None,

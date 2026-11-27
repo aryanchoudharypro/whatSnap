@@ -37,6 +37,69 @@ func (acc *Account) fetchMessagesPage(jid string, limit, offset int) []MessageJS
 	return acc.fetchMessagesPageBefore(jid, limit, offset, nil)
 }
 
+// chatJIDList returns all known address variations for a chat (original JID, non-AD,
+// twin LID or PN, and database mappings from whatsmeow_lid_map / blocked_contacts).
+func (acc *Account) chatJIDList(jid string) []string {
+	if jid == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var list []string
+	add := func(j string) {
+		if j != "" && !seen[j] {
+			seen[j] = true
+			list = append(list, j)
+		}
+	}
+	add(jid)
+
+	parsed, err := types.ParseJID(jid)
+	if err == nil {
+		nonAD := parsed.ToNonAD().String()
+		add(nonAD)
+		if twin := acc.storeTwin(parsed.ToNonAD()); !twin.IsEmpty() {
+			add(twin.ToNonAD().String())
+		}
+	}
+
+	cleanUser := strings.Split(jid, ":")[0]
+	if strings.HasSuffix(jid, "@lid") {
+		lidNum := strings.TrimSuffix(cleanUser, "@lid")
+		var pnNum string
+		if err := acc.db.QueryRow("SELECT pn FROM whatsmeow_lid_map WHERE lid = ?", lidNum).Scan(&pnNum); err == nil && pnNum != "" {
+			add(pnNum + "@s.whatsapp.net")
+		}
+	} else if strings.HasSuffix(jid, "@s.whatsapp.net") {
+		pnNum := strings.TrimSuffix(cleanUser, "@s.whatsapp.net")
+		var lidNum string
+		if err := acc.db.QueryRow("SELECT lid FROM whatsmeow_lid_map WHERE pn = ?", pnNum).Scan(&lidNum); err == nil && lidNum != "" {
+			add(lidNum + "@lid")
+		}
+	}
+
+	var bLID, bPN string
+	if err := acc.db.QueryRow("SELECT lid, pn FROM blocked_contacts WHERE lid = ? OR pn = ?", jid, jid).Scan(&bLID, &bPN); err == nil {
+		add(bLID)
+		add(bPN)
+	}
+
+	return list
+}
+
+func (acc *Account) chatJIDInClause(jid string) (string, []interface{}) {
+	jids := acc.chatJIDList(jid)
+	if len(jids) == 0 {
+		return "?", []interface{}{jid}
+	}
+	placeholders := make([]string, len(jids))
+	args := make([]interface{}, len(jids))
+	for i, j := range jids {
+		placeholders[i] = "?"
+		args[i] = j
+	}
+	return strings.Join(placeholders, ", "), args
+}
+
 func (acc *Account) fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) []MessageJSON {
 	return acc.fetchMessagesPageAt(jid, limit, offset, before, nil)
 }
@@ -50,6 +113,7 @@ func (acc *Account) fetchMessagesPageAt(jid string, limit, offset int, before, a
 func (acc *Account) fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pageCursor) []MessageJSON {
 	now := time.Now().Unix()
 	var favorites map[string]bool
+	inClause, jidArgs := acc.chatJIDInClause(jid)
 	cols := `SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 			COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''), COALESCE(media_size, 0),
 			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
@@ -58,17 +122,18 @@ func (acc *Account) fetchMessagesWhere(jid, filter string, limit, offset int, be
 				WHEN media_type = 'sticker' THEN raw ELSE NULL END,
 			COALESCE(channel_views, 0), COALESCE(channel_reactions, ''), COALESCE(channel_pinned, 0),
 			COALESCE(pinned_until, 0), COALESCE(kept, 0), COALESCE(expires_at, 0)
-		FROM messages WHERE jid = ?` + filter
+		FROM messages WHERE jid IN (` + inClause + `)` + filter
 	var rows *sql.Rows
 	var queryErr error
 	if after != nil {
-		rows, queryErr = acc.db.Query(cols+` AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`,
-			jid, after.Timestamp, after.Timestamp, after.ID, limit)
+		args := append(append([]interface{}{}, jidArgs...), after.Timestamp, after.Timestamp, after.ID, limit)
+		rows, queryErr = acc.db.Query(cols+` AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`, args...)
 	} else if before != nil {
-		rows, queryErr = acc.db.Query(cols+` AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`,
-			jid, before.Timestamp, before.Timestamp, before.ID, limit)
+		args := append(append([]interface{}{}, jidArgs...), before.Timestamp, before.Timestamp, before.ID, limit)
+		rows, queryErr = acc.db.Query(cols+` AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`, args...)
 	} else {
-		rows, queryErr = acc.db.Query(cols+` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
+		args := append(append([]interface{}{}, jidArgs...), limit, offset)
+		rows, queryErr = acc.db.Query(cols+` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, args...)
 	}
 
 	msgs := make([]MessageJSON, 0, min(max(limit, 0), 5000))
@@ -316,7 +381,8 @@ func (acc *Account) handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		}
 		loadMore := data.Offset > 0 || before != nil
 		if !loadMore {
-			acc.db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
+			inClause, jidArgs := acc.chatJIDInClause(data.JID)
+			acc.db.Exec("UPDATE chats SET unread_count = 0 WHERE jid IN ("+inClause+")", jidArgs...)
 			acc.broadcastChats()
 		}
 
@@ -373,10 +439,11 @@ func localDay(ts int64) string {
 }
 
 func (acc *Account) rowCount(jid, cond string, args []interface{}, skipDay string) int {
+	inClause, jidArgs := acc.chatJIDInClause(jid)
 	rows, err := acc.db.Query(`SELECT timestamp, COALESCE(from_me, 0), COALESCE(sender_jid, ''), COALESCE(album_id, ''),
 			COALESCE(media_type, ''), substr(COALESCE(text, ''), 1, 7), COALESCE(is_deleted, 0),
 			COALESCE(length(text), 0), COALESCE(quoted_id, '')
-		FROM messages WHERE jid = ? AND `+cond+` ORDER BY timestamp ASC, id ASC`, append([]interface{}{jid}, args...)...)
+		FROM messages WHERE jid IN (`+inClause+`) AND `+cond+` ORDER BY timestamp ASC, id ASC`, append(jidArgs, args...)...)
 	if err != nil {
 		return 0
 	}
@@ -494,12 +561,13 @@ func (acc *Account) handleGetMessagesAround(conn net.Conn, raw json.RawMessage) 
 			context = 40
 		}
 
+		inClause, jidArgs := acc.chatJIDInClause(data.JID)
 		var targetTS int64
 		var targetID string
 		var lookupErr error
 		if data.MessageID != "" {
-			lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND id = ?`,
-				data.JID, data.MessageID).Scan(&targetTS, &targetID)
+			lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid IN (`+inClause+`) AND id = ?`,
+				append(jidArgs, data.MessageID)...).Scan(&targetTS, &targetID)
 		} else if data.Date != "" {
 			// The first message on or after that local day; a date past the
 			// last message lands on the latest one.
@@ -507,16 +575,16 @@ func (acc *Account) handleGetMessagesAround(conn net.Conn, raw json.RawMessage) 
 			if perr != nil {
 				lookupErr = perr
 			} else {
-				lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND timestamp >= ?
-					ORDER BY timestamp ASC, id ASC LIMIT 1`, data.JID, day.Unix()).Scan(&targetTS, &targetID)
+				lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid IN (`+inClause+`) AND timestamp >= ?
+					ORDER BY timestamp ASC, id ASC LIMIT 1`, append(jidArgs, day.Unix())...).Scan(&targetTS, &targetID)
 				if lookupErr == sql.ErrNoRows {
-					lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ?
-						ORDER BY timestamp DESC, id DESC LIMIT 1`, data.JID).Scan(&targetTS, &targetID)
+					lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid IN (`+inClause+`)
+						ORDER BY timestamp DESC, id DESC LIMIT 1`, jidArgs...).Scan(&targetTS, &targetID)
 				}
 			}
 		} else if data.Text != "" {
-			lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND text LIKE ? ESCAPE '\'
-				ORDER BY timestamp DESC LIMIT 1`, data.JID, "%"+escapeLike(data.Text)+"%").Scan(&targetTS, &targetID)
+			lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid IN (`+inClause+`) AND text LIKE ? ESCAPE '\'
+				ORDER BY timestamp DESC LIMIT 1`, append(jidArgs, "%"+escapeLike(data.Text)+"%")...).Scan(&targetTS, &targetID)
 		} else {
 			lookupErr = sql.ErrNoRows
 		}
@@ -525,9 +593,9 @@ func (acc *Account) handleGetMessagesAround(conn net.Conn, raw json.RawMessage) 
 		limit := context*2 + 1
 		if lookupErr == nil {
 			var position int
-			if err := acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND
+			if err := acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid IN (`+inClause+`) AND
 					(timestamp > ? OR (timestamp = ? AND id > ?))`,
-				data.JID, targetTS, targetTS, targetID).Scan(&position); err == nil {
+				append(jidArgs, targetTS, targetTS, targetID)...).Scan(&position); err == nil {
 				offset = position - context
 				if offset < 0 {
 					offset = 0

@@ -2714,7 +2714,7 @@ pub fn bind_input_handlers(
 				drop(s);
 				let _ = tx_chat_menu.send(UiCommand::TogglePinChat { jid, pin });
 			} else if id == MENU_ID_LOCK_CHAT {
-				let lock = !s.locked_jids.contains(&jid);
+				let lock = !s.is_chat_locked(&jid);
 				drop(s);
 				let _ = tx_chat_menu.send(UiCommand::ToggleLockChat { jid, lock });
 			} else {
@@ -4501,7 +4501,7 @@ pub fn bind_input_handlers(
 			if let Some(jid) = jid_opt {
 				let is_pinned = s.pinned_jids.contains(&jid);
 				let is_archived = s.archived_jids.contains(&jid);
-				let is_locked = s.locked_jids.contains(&jid);
+				let is_locked = s.is_chat_locked(&jid);
 				let is_muted = s.muted_jids.contains(&jid);
 				let is_blocked = s.blocked_jids.contains(&jid);
 				let is_favorite = s.favorite_jids.contains(&jid);

@@ -4,6 +4,8 @@ use super::*;
 pub(super) struct ChatRow<'a> {
 	#[serde(rename = "JID", borrow, default)]
 	pub(super) jid: Cow<'a, str>,
+	#[serde(rename = "TwinJID", borrow, default)]
+	pub(super) twin_jid: Option<Cow<'a, str>>,
 	#[serde(rename = "FullName", borrow, default)]
 	pub(super) full_name: Option<Cow<'a, str>>,
 	#[serde(rename = "UnreadCount", default)]
@@ -111,6 +113,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 	let mut not_member_jids = std::collections::HashSet::new();
 	let mut business_jids = std::collections::HashSet::new();
 	let mut locked_jids = std::collections::HashSet::new();
+	let mut jid_twins = std::collections::HashMap::new();
 	let mut unread_counts = std::collections::HashMap::new();
 	let mut display_names = std::collections::HashMap::new();
 	let mut contacts_map = std::collections::HashMap::new();
@@ -162,10 +165,19 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 				String::new()
 			};
 
+			let twin_jid = chat.twin_jid.as_deref().unwrap_or("");
+			if !twin_jid.is_empty() {
+				jid_twins.insert(jid.to_string(), twin_jid.to_string());
+				jid_twins.insert(twin_jid.to_string(), jid.to_string());
+			}
+
 			let mut tags: Vec<Cow<str>> = Vec::new();
 			if is_locked {
 				tags.push(crate::i18n::tr("Locked").into());
 				locked_jids.insert(jid.to_string());
+				if !twin_jid.is_empty() {
+					locked_jids.insert(twin_jid.to_string());
+				}
 			}
 			if archived {
 				tags.push(crate::i18n::tr("Archived").into());
@@ -323,6 +335,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 	s.contacts = contacts_map;
 	s.archived_jids = archived_jids;
 	s.locked_jids = locked_jids;
+	s.jid_twins.extend(jid_twins);
 	s.community_jids = community_jids;
 	s.chat_parents = chat_parents;
 	s.announcement_jids = announcement_jids;

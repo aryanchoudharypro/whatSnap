@@ -203,7 +203,13 @@ func (acc *Account) handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
 		if data.Value {
 			locked_int = 1
 		}
-		acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid IN (?, ?)", locked_int, data.JID, acc.storeTwin(jid).ToNonAD().String())
+		jids := acc.chatJIDList(data.JID)
+		for _, j := range jids {
+			res, _ := acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", locked_int, j)
+			if rows, _ := res.RowsAffected(); rows == 0 && locked_int == 1 {
+				acc.db.Exec("INSERT OR IGNORE INTO chats (jid, is_locked, timestamp) VALUES (?, 1, 0)", j)
+			}
+		}
 		if data.Value {
 			now := time.Now().Unix()
 			acc.noteArchiveAction(data.JID, false, nil, now)

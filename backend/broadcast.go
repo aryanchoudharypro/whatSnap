@@ -122,6 +122,7 @@ func (acc *Account) broadcastChats() {
 // map plus a boxed value per field of every chat each time.
 type ChatListEntry struct {
 	JID                  string
+	TwinJID              string `json:",omitempty"`
 	FullName             string
 	Timestamp            int64
 	UnreadCount          int
@@ -274,8 +275,30 @@ func (acc *Account) buildChatsList() []ChatListEntry {
 			searchKeys = acc.cachedSearchKeys(parsedJID)
 		}
 
+		var twinJID string
+		jids := acc.chatJIDList(jid)
+		for _, j := range jids {
+			if j != jid {
+				twinJID = j
+				break
+			}
+		}
+		chatIsLocked := isLocked == 1
+		if !chatIsLocked && len(jids) > 1 {
+			var anyLocked int
+			inClause := strings.Repeat(", ?", len(jids))[2:]
+			args := make([]interface{}, len(jids))
+			for i, j := range jids {
+				args[i] = j
+			}
+			if err := acc.db.QueryRow("SELECT MAX(is_locked) FROM chats WHERE jid IN ("+inClause+")", args...).Scan(&anyLocked); err == nil && anyLocked == 1 {
+				chatIsLocked = true
+			}
+		}
+
 		chats = append(chats, ChatListEntry{
 			JID:                  jid,
+			TwinJID:              twinJID,
 			FullName:             n,
 			Timestamp:            ts,
 			UnreadCount:          unread,
@@ -291,7 +314,7 @@ func (acc *Account) buildChatsList() []ChatListEntry {
 			PreviewReactionEmoji: previewReactionEmoji,
 			IsCommunity:          isCommunity == 1,
 			IsAdmin:              isAdmin == 1,
-			IsLocked:             isLocked == 1,
+			IsLocked:             chatIsLocked,
 			ParentJID:            parentJID,
 			IsAnnouncements:      isAnnounceGroup == 1 && parentJID != "",
 			CommunityName:        communityNames[parentJID],

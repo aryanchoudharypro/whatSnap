@@ -18,7 +18,7 @@ fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link:
 		crate::platform::app_link::AppLink::Open { jid, .. }
 		| crate::platform::app_link::AppLink::Reply { jid, .. } => open_chat_for_jid(&jid, state, parts),
 		crate::platform::app_link::AppLink::MarkRead { jid, .. } => {
-			if state.borrow().locked_jids.contains(&jid) && !state.borrow().chats_unlocked {
+			if state.borrow().is_chat_locked(&jid) && !state.borrow().chats_unlocked {
 				return;
 			}
 			crate::ui::chat_ui::clear_chat_notifications(&jid);
@@ -121,7 +121,7 @@ pub(crate) fn notification_reply(
 			s.pending_notification_replies.push((jid, text));
 			return;
 		}
-		if s.locked_jids.contains(&jid) && !s.chats_unlocked {
+		if s.is_chat_locked(&jid) && !s.chats_unlocked {
 			return;
 		}
 		let name =
@@ -218,7 +218,7 @@ pub(crate) fn send_targets(s: &AppState) -> Vec<SendTarget> {
 	// WhatsApp Web omits locked conversations from chat rows. A saved contact
 	// can still be selected as a recipient without opening their conversation.
 	for jid in &s.chats {
-		if jid.ends_with("@broadcast") || s.community_jids.contains(jid) || s.locked_jids.contains(jid) {
+		if jid.ends_with("@broadcast") || s.community_jids.contains(jid) || s.is_chat_locked(jid) {
 			continue;
 		}
 		if s.channel_jids.contains(jid) && !can_post_in_channel(s, jid) {
@@ -229,7 +229,7 @@ pub(crate) fn send_targets(s: &AppState) -> Vec<SendTarget> {
 		targets.push(SendTarget { jid: jid.clone(), label });
 	}
 	for contact in &s.all_contacts {
-		if (!s.locked_jids.contains(&contact.jid) || contact.saved) && seen.insert(contact.jid.clone()) {
+		if (!s.is_chat_locked(&contact.jid) || contact.saved) && seen.insert(contact.jid.clone()) {
 			targets.push(SendTarget { jid: contact.jid.clone(), label: contact_picker_label(contact) });
 		}
 	}

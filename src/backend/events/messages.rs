@@ -541,7 +541,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									s.settings.output_device_name.clone(),
 								);
 							}
-							if alert.toast && s.locked_jids.contains(jid) {
+							if alert.toast && s.is_chat_locked(jid) {
 								let unread = s.unread_counts.get(jid).copied().unwrap_or(0).max(1);
 								let body = if unread == 1 {
 									crate::i18n::tr("1 new message").to_string()
@@ -1734,7 +1734,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									s.settings.output_device_name.clone(),
 								);
 							}
-							if alert.toast && s.locked_jids.contains(chat_jid) {
+							if alert.toast && s.is_chat_locked(chat_jid) {
 								crate::ui::chat_ui::show_chat_notification(
 									&s,
 									chat_jid,

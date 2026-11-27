@@ -823,7 +823,7 @@ pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 				parts.conversations_parts.messages_announcer,
 				crate::i18n::tr("Locked chats hidden."),
 			);
-			s.selected_chat.as_ref().is_some_and(|j| s.locked_jids.contains(j))
+			s.selected_chat.as_ref().is_some_and(|j| s.is_chat_locked(j))
 		} else {
 			false
 		}
