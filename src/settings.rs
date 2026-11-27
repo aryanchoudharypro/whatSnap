@@ -118,6 +118,9 @@ pub struct Settings {
 	pub chat_lock_on_minimize: bool,
 	/// Sound and notifications for locked chats while they are locked; off is silent.
 	pub chat_lock_notify: bool,
+	/// Always show the Locked Chats button in the chat list, even when
+	/// WhatsApp's "Hide locked chats" phone setting is on.
+	pub chat_lock_always_show_sidebar: bool,
 }
 
 pub const TAB_NAMES: [&str; 7] =
@@ -211,6 +214,7 @@ impl Default for Settings {
 			chat_lock_auto_lock_mins: 0,
 			chat_lock_on_minimize: false,
 			chat_lock_notify: true,
+			chat_lock_always_show_sidebar: true,
 		}
 	}
 }

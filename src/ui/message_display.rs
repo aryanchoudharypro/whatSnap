@@ -492,7 +492,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	// secret code is typed in the search box (or the chats are open).
 	let show_locked_btn = s.active_tab == 0
 		&& !s.locked_jids.is_empty()
-		&& (!s.chat_lock_hidden || s.chats_unlocked || s.chat_lock_search_unlocked);
+		&& (s.settings.chat_lock_always_show_sidebar || !s.chat_lock_hidden || s.chats_unlocked || s.chat_lock_search_unlocked);
 	let show_filter = s.active_tab == 0 && !s.chats_unlocked;
 	let conv = &parts.conversations_parts;
 	let btn_label = crate::i18n::tr(if s.chats_unlocked { "Hide Locked Chats" } else { "Locked Chats" });

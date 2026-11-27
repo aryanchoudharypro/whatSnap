@@ -166,6 +166,7 @@ pub struct SettingsDialogParts {
 
 	pub lock_panel: Panel,
 	pub chat_lock_hello_check: CheckBox,
+	pub chat_lock_always_show_sidebar_check: CheckBox,
 	pub chat_lock_auto_lock_combo: ComboBox,
 	pub chat_lock_on_minimize_check: CheckBox,
 	pub chat_lock_notify_check: CheckBox,
@@ -705,6 +706,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		&lock_sizer,
 		"Allows unlocking hidden and locked chats using your Windows Hello biometric or PIN credentials.",
 	);
+	let chat_lock_always_show_sidebar_check = setting_switch(
+		&lock_panel,
+		&lock_sizer,
+		"Always show Locked Chats button in chat list (even when hidden on phone)",
+	);
 	let chat_lock_auto_lock_combo = visibility_combo(
 		&lock_panel,
 		&lock_sizer,
@@ -873,6 +879,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		dual_stream_screen_share_check,
 		lock_panel,
 		chat_lock_hello_check,
+		chat_lock_always_show_sidebar_check,
 		chat_lock_auto_lock_combo,
 		chat_lock_on_minimize_check,
 		chat_lock_notify_check,
@@ -1106,6 +1113,7 @@ impl SettingsDialogParts {
 		let hello = crate::platform::windows_hello::availability();
 		self.chat_lock_hello_check.enable(hello == crate::platform::windows_hello::Availability::Ready);
 		self.chat_lock_hello_check.set_value(settings.chat_lock_hello);
+		self.chat_lock_always_show_sidebar_check.set_value(settings.chat_lock_always_show_sidebar);
 		set_combo_from_value(
 			&self.chat_lock_auto_lock_combo,
 			CHAT_LOCK_AUTO_LOCK_CHOICES,
@@ -1176,6 +1184,7 @@ impl SettingsDialogParts {
 			*value = if text.trim().is_empty() { default.to_string() } else { text };
 		}
 		settings.chat_lock_hello = self.chat_lock_hello_check.is_checked();
+		settings.chat_lock_always_show_sidebar = self.chat_lock_always_show_sidebar_check.is_checked();
 		settings.chat_lock_auto_lock_mins = self
 			.chat_lock_auto_lock_combo
 			.get_selection()
