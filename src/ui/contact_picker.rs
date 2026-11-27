@@ -278,22 +278,109 @@ pub(crate) fn sync_attach_contact_labels(state: &Rc<RefCell<AppState>>) {
 }
 
 pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let q = query.trim().to_lowercase();
+	let raw_q = query.trim();
+	let q = raw_q.to_lowercase();
 	let mut s = state.borrow_mut();
+
+	let mut link_phone = None;
+	if let Some(link) = whatsnap::parse_whatsapp_link(raw_q) {
+		if let whatsnap::WhatsAppLink::Send { phone: Some(ref p), .. } = link {
+			let clean: String = p.chars().filter(|c| c.is_ascii_digit()).collect();
+			if clean.len() >= 7 {
+				link_phone = Some(clean);
+			}
+		}
+	}
+
+	let query_digits: String = raw_q.chars().filter(|c| c.is_ascii_digit()).collect();
+	let is_numeric_query = query_digits.len() >= 7
+		&& (raw_q.starts_with('+')
+			|| raw_q.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || c == '-' || c == '(' || c == ')'));
+
+	let hide_saved_numbers = s.settings.new_chat_hide_saved_numbers;
+	let show_status = s.settings.new_chat_show_status;
+
 	let mut labels = Vec::new();
 	let mut jids = Vec::new();
+
+	// 1. Direct WhatsApp link match
+	if let Some(ref lp) = link_phone {
+		let formatted = format_phone_digits(lp);
+		labels.push(format!("Chat with {} ~ From WhatsApp link", formatted));
+		jids.push(format!("{}@s.whatsapp.net", lp));
+	} else if is_numeric_query && s.settings.new_chat_auto_lookup {
+		// 2. Direct Unsaved Phone Number lookup
+		if s.contact_picker_number_lookup.digits == query_digits {
+			if s.contact_picker_number_lookup.pending {
+				let formatted = format_phone_digits(&query_digits);
+				labels.push(format!("Checking {} on WhatsApp... ~ Please wait", formatted));
+				jids.push(String::new());
+			} else if !s.contact_picker_number_lookup.jid.is_empty() {
+				let formatted = format_phone_digits(&query_digits);
+				labels.push(format!("Chat with {} ~ Not in your contacts", formatted));
+				jids.push(s.contact_picker_number_lookup.jid.clone());
+			} else {
+				let formatted = format_phone_digits(&query_digits);
+				labels.push(format!("{} not on WhatsApp ~ Not registered", formatted));
+				jids.push(String::new());
+			}
+		} else {
+			s.contact_picker_number_lookup =
+				crate::NumberLookup { digits: query_digits.clone(), pending: true, ..Default::default() };
+			let payload = serde_json::json!({
+				"action": "lookup_number",
+				"data": { "phone": raw_q, "digits": query_digits }
+			});
+			let _ = s.ws_tx.send(payload.to_string());
+			let formatted = format_phone_digits(&query_digits);
+			labels.push(format!("Checking {} on WhatsApp... ~ Please wait", formatted));
+			jids.push(String::new());
+		}
+	}
+
+	// 3. Filter contacts
 	for contact in &s.all_contacts {
-		let label = contact_picker_label(contact);
-		if q.is_empty() || label.to_lowercase().contains(&q) {
+		let name = contact.name.trim();
+		let phone = contact.phone.trim();
+		let matches = q.is_empty()
+			|| (!name.is_empty() && name.to_lowercase().contains(&q))
+			|| (!phone.is_empty() && phone.contains(&q))
+			|| (!contact.about.is_empty() && contact.about.to_lowercase().contains(&q));
+
+		if matches {
+			let label = if hide_saved_numbers && contact.saved && !name.is_empty() {
+				if show_status && !contact.about.trim().is_empty() {
+					format!("{} ~ {}", name, contact.about.trim())
+				} else {
+					name.to_string()
+				}
+			} else {
+				contact_picker_label(contact)
+			};
 			labels.push(label);
 			jids.push(contact.jid.clone());
 		}
 	}
+
 	parts.new_conv_dialog.results_list.clear();
 	for label in &labels {
 		parts.new_conv_dialog.results_list.append(label);
 	}
 	s.contact_picker_current_jids = jids;
+
+	if !labels.is_empty() {
+		parts.new_conv_dialog.results_list.set_selection(0, true);
+	}
+
+	let count = labels.len();
+	let announce_text = if count == 0 {
+		crate::i18n::tr("No contacts found.").to_string()
+	} else if count == 1 {
+		crate::i18n::tr("1 contact found.").to_string()
+	} else {
+		crate::i18n::tr_fmt("{} contacts found.", &[&count.to_string()])
+	};
+	crate::platform::announce::announce(parts.new_conv_dialog.announcer, &announce_text);
 }
 
 #[cfg(test)]

@@ -299,6 +299,7 @@ struct AppState {
 	filtered_message_ids: Vec<String>,
 	message_search: MessageSearch,
 	number_lookup: NumberLookup,
+	contact_picker_number_lookup: NumberLookup,
 	chat_search_keys: std::collections::HashMap<String, ChatSearchKeys>,
 	/// Each chat's last-message line as its row's label ends with it, so a
 	/// draft can take its place (see `message_display::chat_row_label`).
@@ -1147,6 +1148,7 @@ pub(crate) fn new_app_state(
 		filtered_message_ids: Vec::new(),
 		message_search: MessageSearch::default(),
 		number_lookup: NumberLookup::default(),
+		contact_picker_number_lookup: NumberLookup::default(),
 		chat_search_keys: std::collections::HashMap::new(),
 		chat_preview_lines: std::collections::HashMap::new(),
 		chat_row_parts: std::collections::HashMap::new(),

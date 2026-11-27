@@ -10,16 +10,18 @@ pub struct NewConversationDialogParts {
 	pub dialog: Dialog,
 	pub search_label: StaticText,
 	pub search_field: TextCtrl,
-	pub results_list: ListBox,
+	pub announcer: StaticText,
 	pub new_group_btn: Button,
+	pub new_community_btn: Button,
 	pub new_contact_btn: Button,
 	pub message_meta_ai_btn: Button,
+	pub results_list: ListBox,
 	pub close_btn: Button,
 }
 
 pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationDialogParts {
 	let dialog = Dialog::builder(parent, crate::i18n::tr("New Chat"))
-		.with_size(440, 480)
+		.with_size(460, 560)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	theme::style_content(&dialog);
@@ -36,26 +38,39 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::ProcessEnter)).build();
 	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
+	let announcer = StaticText::builder(&panel).with_label("").build();
+	live_region::set_live_region(&announcer);
+	theme::style_muted_label(&announcer);
+	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 4);
+
+	let action_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let bg = theme::Palette::CONTENT_BG();
+
+	let new_group_btn = Button::builder(&panel).with_label(crate::i18n::tr("New Group")).build();
+	dialog_look::pill_button(&new_group_btn, false, bg);
+	action_sizer.add(&new_group_btn, 0, SizerFlag::Right, 6);
+
+	let new_community_btn = Button::builder(&panel).with_label(crate::i18n::tr("New Community")).build();
+	dialog_look::pill_button(&new_community_btn, false, bg);
+	action_sizer.add(&new_community_btn, 0, SizerFlag::Right, 6);
+
+	let new_contact_btn = Button::builder(&panel).with_label(crate::i18n::tr("New Contact")).build();
+	dialog_look::pill_button(&new_contact_btn, false, bg);
+	action_sizer.add(&new_contact_btn, 0, SizerFlag::Right, 6);
+
+	let message_meta_ai_btn = Button::builder(&panel).with_label(crate::i18n::tr("Meta AI")).build();
+	dialog_look::pill_button(&message_meta_ai_btn, false, bg);
+	action_sizer.add(&message_meta_ai_btn, 0, SizerFlag::Right, 6);
+
+	action_sizer.add_stretch_spacer(1);
+	sizer.add_sizer(&action_sizer, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+
 	let results_list =
 		ListBox::builder(&panel).with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW)).build();
 	results_list.set_font(&theme::Fonts::body());
 	sizer.add(&results_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let bg = theme::Palette::CONTENT_BG();
-
-	let new_group_btn = Button::builder(&panel).with_label(crate::i18n::tr("New Group")).build();
-	dialog_look::pill_button(&new_group_btn, false, bg);
-	btn_sizer.add(&new_group_btn, 0, SizerFlag::Right, 6);
-
-	let new_contact_btn = Button::builder(&panel).with_label(crate::i18n::tr("New Contact")).build();
-	dialog_look::pill_button(&new_contact_btn, false, bg);
-	btn_sizer.add(&new_contact_btn, 0, SizerFlag::Right, 6);
-
-	let message_meta_ai_btn = Button::builder(&panel).with_label(crate::i18n::tr("Message Meta AI")).build();
-	dialog_look::pill_button(&message_meta_ai_btn, false, bg);
-	btn_sizer.add(&message_meta_ai_btn, 0, SizerFlag::Right, 6);
-
 	btn_sizer.add_stretch_spacer(1);
 
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
@@ -80,10 +95,12 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 		dialog,
 		search_label,
 		search_field,
-		results_list,
+		announcer,
 		new_group_btn,
+		new_community_btn,
 		new_contact_btn,
 		message_meta_ai_btn,
+		results_list,
 		close_btn,
 	}
 }

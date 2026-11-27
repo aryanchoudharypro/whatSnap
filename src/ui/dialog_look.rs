@@ -698,9 +698,15 @@ struct RowLook<'a> {
 }
 
 fn split_contact(text: &str) -> (&str, &str) {
-	match text.rfind(" +") {
-		Some(at) if at > 0 => (&text[..at], &text[at + 1..]),
-		_ => (text, ""),
+	if let Some((name, sub)) = text.split_once(" ~ ") {
+		(name.trim(), sub.trim())
+	} else if let Some((name, sub)) = text.split_once('\t') {
+		(name.trim(), sub.trim())
+	} else {
+		match text.rfind(" +") {
+			Some(at) if at > 0 => (&text[..at], &text[at + 1..]),
+			_ => (text, ""),
+		}
 	}
 }
 
@@ -827,6 +833,7 @@ mod tests {
 		assert_eq!(split_contact("Mum +44 7700 900123"), ("Mum", "+44 7700 900123"));
 		assert_eq!(split_contact("+44 7700 900123"), ("+44 7700 900123", ""));
 		assert_eq!(split_contact("Mum"), ("Mum", ""));
+		assert_eq!(split_contact("Mum ~ Available"), ("Mum", "Available"));
 	}
 
 	#[test]

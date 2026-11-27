@@ -65,8 +65,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let attach_contact_shown = parts.attach_contact_dialog.dialog.is_shown();
 				drop(s);
 				if new_conv_shown {
-					let query = parts.new_conv_dialog.search_field.get_value();
-					apply_contact_picker_filter(&query, state, parts);
+					parts.new_conv_contacts_timer.stop();
+					parts.new_conv_contacts_timer.start(200, true);
 				}
 				// Route a fresh `contacts` response through the same debounce
 				// timer as keystrokes (rather than rebuilding the checklist
