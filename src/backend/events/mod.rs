@@ -33,8 +33,8 @@ use crate::{
 	ui::{
 		chat_ui::show_toast_notification,
 		contact_picker::{
-			apply_contact_picker_filter, display_name_for_jid, refresh_selection_list, sync_add_members_contact_labels,
-			sync_attach_contact_labels, sync_new_group_contact_labels,
+			display_name_for_jid, refresh_selection_list, sync_add_members_contact_labels, sync_attach_contact_labels,
+			sync_new_group_contact_labels,
 		},
 		message_display::{
 			InfoMediaLists, apply_chat_filter, fill_info_media, refresh_voice_action_button, update_action_buttons,

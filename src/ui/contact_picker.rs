@@ -1,5 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
+use wxdragon::prelude::*;
+
 use crate::{AppState, Contact, ui::window::WindowParts};
 
 pub(crate) fn display_name_for_jid(jid: &str) -> String {
@@ -17,6 +19,21 @@ pub(crate) fn display_name_for_jid(jid: &str) -> String {
 		return format!("+{}", raw_phone);
 	}
 	jid.to_string()
+}
+
+/// Whether `jid` is the signed-in account's own chat - WA Web's "Message
+/// yourself" - under its phone number or, through its twin, its LID.
+pub(crate) fn is_own_chat(s: &AppState, jid: &str) -> bool {
+	let own = crate::ui::owner_draw::own_jid();
+	!own.is_empty() && (jid == own || s.jid_twins.get(jid).is_some_and(|twin| *twin == own))
+}
+
+/// The name WA Web gives your own chat: "<your name> (You)", with your
+/// number when no WhatsApp name is set.
+pub(crate) fn own_chat_title(s: &AppState) -> String {
+	let name = s.own_push_name.trim();
+	let name = if name.is_empty() { display_name_for_jid(&crate::ui::owner_draw::own_jid()) } else { name.to_string() };
+	crate::i18n::tr_fmt("{} (You)", &[&name])
 }
 
 pub(crate) fn format_phone_digits(raw_phone: &str) -> String {
@@ -127,9 +144,11 @@ pub(crate) fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<Ap
 			filtered_jids.push(jid.clone());
 		}
 	}
-	parts.new_group_dialog.contacts_listbox.clear();
+	let listbox = &parts.new_group_dialog.contacts_listbox;
+	listbox.freeze();
+	listbox.clear();
 	for lbl in &filtered_labels {
-		parts.new_group_dialog.contacts_listbox.append(lbl);
+		listbox.append(lbl);
 	}
 	let gs = &mut s.group_state;
 	gs.all_contact_labels = all_labels;
@@ -137,7 +156,7 @@ pub(crate) fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<Ap
 	gs.current_jids = filtered_jids;
 	for (idx, jid) in gs.current_jids.iter().enumerate() {
 		if gs.checked_jids.contains(jid) {
-			parts.new_group_dialog.contacts_listbox.check(idx as u32, true);
+			listbox.check(idx as u32, true);
 		}
 	}
 	// See the comment on the equivalent reset in window.rs's search handler:
@@ -149,8 +168,9 @@ pub(crate) fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<Ap
 	// valid there) - so there's nothing to reset when the filter has no
 	// matches, only when it has at least one.
 	if !gs.current_jids.is_empty() {
-		parts.new_group_dialog.contacts_listbox.set_selection(0, true);
+		listbox.set_selection(0, true);
 	}
+	listbox.thaw();
 }
 
 pub(crate) fn sync_new_group_contact_labels(state: &Rc<RefCell<AppState>>) {
@@ -188,9 +208,11 @@ pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<
 			filtered_jids.push(jid.clone());
 		}
 	}
-	parts.add_members_dialog.contacts_listbox.clear();
+	let listbox = &parts.add_members_dialog.contacts_listbox;
+	listbox.freeze();
+	listbox.clear();
 	for lbl in &filtered_labels {
-		parts.add_members_dialog.contacts_listbox.append(lbl);
+		listbox.append(lbl);
 	}
 	let ams = &mut s.add_members_state;
 	ams.all_contact_labels = all_labels;
@@ -198,7 +220,7 @@ pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<
 	ams.current_jids = filtered_jids;
 	for (idx, jid) in ams.current_jids.iter().enumerate() {
 		if ams.checked_jids.contains(jid) {
-			parts.add_members_dialog.contacts_listbox.check(idx as u32, true);
+			listbox.check(idx as u32, true);
 		}
 	}
 	// See the equivalent reset in refresh_new_group_contacts_list/window.rs:
@@ -208,8 +230,9 @@ pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<
 	// itself asserts/crashes given index 0 on an empty list (only
 	// wxNOT_FOUND, which wxdragon's u32 API can't express, is valid there).
 	if !ams.current_jids.is_empty() {
-		parts.add_members_dialog.contacts_listbox.set_selection(0, true);
+		listbox.set_selection(0, true);
 	}
+	listbox.thaw();
 }
 
 pub(crate) fn sync_add_members_contact_labels(state: &Rc<RefCell<AppState>>) {
@@ -246,9 +269,11 @@ pub(crate) fn refresh_attach_contact_list(query: &str, state: &Rc<RefCell<AppSta
 			filtered_jids.push(jid.clone());
 		}
 	}
-	parts.attach_contact_dialog.contacts_listbox.clear();
+	let listbox = &parts.attach_contact_dialog.contacts_listbox;
+	listbox.freeze();
+	listbox.clear();
 	for lbl in &filtered_labels {
-		parts.attach_contact_dialog.contacts_listbox.append(lbl);
+		listbox.append(lbl);
 	}
 	let acs = &mut s.attach_contact_state;
 	acs.all_contact_labels = all_labels;
@@ -256,12 +281,13 @@ pub(crate) fn refresh_attach_contact_list(query: &str, state: &Rc<RefCell<AppSta
 	acs.current_jids = filtered_jids;
 	for (idx, jid) in acs.current_jids.iter().enumerate() {
 		if acs.checked_jids.contains(jid) {
-			parts.attach_contact_dialog.contacts_listbox.check(idx as u32, true);
+			listbox.check(idx as u32, true);
 		}
 	}
 	if !acs.current_jids.is_empty() {
-		parts.attach_contact_dialog.contacts_listbox.set_selection(0, true);
+		listbox.set_selection(0, true);
 	}
+	listbox.thaw();
 }
 
 pub(crate) fn sync_attach_contact_labels(state: &Rc<RefCell<AppState>>) {
@@ -277,23 +303,158 @@ pub(crate) fn sync_attach_contact_labels(state: &Rc<RefCell<AppState>>) {
 	acs.all_contact_jids = all_jids;
 }
 
+/// The phone digits a contact is found by: its number, or the one in its
+/// phone-number JID.
+fn contact_phone(contact: &Contact) -> Option<&str> {
+	Some(contact.phone.trim()).filter(|p| !p.is_empty()).or_else(|| contact.jid.strip_suffix("@s.whatsapp.net"))
+}
+
+/// The New Chat list's row for a contact: name over About (or number), the
+/// two parts tab-separated for `dialog_look`'s two-line rows.
+fn new_chat_row_label(s: &AppState, contact: &Contact) -> String {
+	let name = contact.name.trim();
+	if !(s.settings.new_chat_hide_saved_numbers && contact.saved && !name.is_empty()) {
+		return contact_picker_label(contact);
+	}
+	match contact.about.trim() {
+		about if s.settings.new_chat_show_status && !about.is_empty() => format!("{name}\t{about}"),
+		_ => name.to_string(),
+	}
+}
+
 pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let q = query.trim().to_lowercase();
+	let raw_q = query.trim();
 	let mut s = state.borrow_mut();
+	let open_chat = s.contact_picker_mode == crate::types::ContactPickerMode::OpenChat;
+	let own_jid = crate::ui::owner_draw::own_jid();
+	let own_phone = own_jid.strip_suffix("@s.whatsapp.net");
+	let search = whatsnap::search::Query::new(raw_q, own_phone);
+
+	let link_phone = match whatsnap::parse_whatsapp_link(raw_q) {
+		Some(whatsnap::WhatsAppLink::Send { phone: Some(p), .. }) => {
+			Some(p.chars().filter(|c| c.is_ascii_digit()).collect::<String>()).filter(|d| d.len() >= 7)
+		}
+		_ => None,
+	};
+	let query_digits: String = raw_q.chars().filter(|c| c.is_ascii_digit()).collect();
+	let is_numeric_query = query_digits.len() >= 7
+		&& raw_q.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || matches!(c, '+' | '-' | '(' | ')'));
+
 	let mut labels = Vec::new();
 	let mut jids = Vec::new();
-	for contact in &s.all_contacts {
-		let label = contact_picker_label(contact);
-		if q.is_empty() || label.to_lowercase().contains(&q) {
-			labels.push(label);
-			jids.push(contact.jid.clone());
+
+	// WA Web's New Chat pins you at the top as "Message yourself" (so Enter in
+	// the empty search box opens your own chat); a search lists you like any
+	// other match, without that second line.
+	if open_chat && !own_jid.is_empty() {
+		let title = own_chat_title(&s);
+		let you = crate::i18n::tr("You");
+		let names = [title.as_str(), s.own_push_name.as_str(), you];
+		if search.is_empty() {
+			labels.push(format!("{title}\t{}", crate::i18n::tr("Message yourself")));
+			jids.push(own_jid.clone());
+		} else if search.matches(&whatsnap::search::Searchable { names: &names, phone: own_phone }) {
+			labels.push(title.clone());
+			jids.push(own_jid.clone());
 		}
 	}
-	parts.new_conv_dialog.results_list.clear();
-	for label in &labels {
-		parts.new_conv_dialog.results_list.append(label);
+
+	// A pasted wa.me link, or an unsaved number looked up on WhatsApp.
+	if !open_chat {
+		// Blocking or adding to a call picks from your contacts only.
+	} else if let Some(lp) = &link_phone {
+		labels.push(format!(
+			"{}\t{}",
+			crate::i18n::tr_fmt("Chat with {}", &[&format_phone_digits(lp)]),
+			crate::i18n::tr("From WhatsApp link")
+		));
+		jids.push(format!("{lp}@s.whatsapp.net"));
+	} else if is_numeric_query && s.settings.new_chat_auto_lookup {
+		let formatted = format_phone_digits(&query_digits);
+		let checking = || {
+			format!(
+				"{}\t{}",
+				crate::i18n::tr_fmt("Checking {} on WhatsApp...", &[&formatted]),
+				crate::i18n::tr("Please wait")
+			)
+		};
+		let lookup = &s.contact_picker_number_lookup;
+		if lookup.digits != query_digits {
+			s.contact_picker_number_lookup =
+				crate::NumberLookup { digits: query_digits.clone(), pending: true, ..Default::default() };
+			let payload = serde_json::json!({
+				"action": "lookup_number",
+				"data": { "phone": raw_q, "digits": query_digits }
+			});
+			let _ = s.ws_tx.send(payload.to_string());
+			labels.push(checking());
+			jids.push(String::new());
+		} else if lookup.pending {
+			labels.push(checking());
+			jids.push(String::new());
+		} else if !lookup.jid.is_empty() {
+			labels.push(format!(
+				"{}\t{}",
+				crate::i18n::tr_fmt("Chat with {}", &[&formatted]),
+				crate::i18n::tr("Not in your contacts")
+			));
+			jids.push(lookup.jid.clone());
+		} else {
+			labels.push(crate::i18n::tr_fmt("{} is not on WhatsApp", &[&formatted]));
+			jids.push(String::new());
+		}
 	}
+
+	// Contacts, matched by name and number the way WA Web's contact search
+	// does (never by their About), in address-book order.
+	let mut matched: Vec<&Contact> = s
+		.all_contacts
+		.iter()
+		.filter(|c| !open_chat || own_jid.is_empty() || c.jid != own_jid)
+		.filter(|c| {
+			let name = c.name.trim();
+			search.matches(&whatsnap::search::Searchable { names: &[name], phone: contact_phone(c) })
+		})
+		.collect();
+	if search.is_empty() && s.settings.new_chat_frequently_contacted {
+		let chat_rank: std::collections::HashMap<&str, usize> =
+			s.chats.iter().enumerate().map(|(idx, jid)| (jid.as_str(), idx)).collect();
+		matched.sort_by_cached_key(|c| {
+			(chat_rank.get(c.jid.as_str()).copied().unwrap_or(usize::MAX), contact_sort_key(c))
+		});
+	}
+	for contact in matched {
+		labels.push(new_chat_row_label(&s, contact));
+		jids.push(contact.jid.clone());
+	}
+
+	let list = &parts.new_conv_dialog.results_list;
+	let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+	list.freeze();
+	list.set_items(&label_refs);
+	if !labels.is_empty() {
+		list.set_selection(0, true);
+	}
+	list.thaw();
 	s.contact_picker_current_jids = jids;
+	drop(s);
+
+	// Only a search's result count is spoken: on opening, NVDA is reading the
+	// dialog and its search box, and the full list's size would cut in.
+	let text = if raw_q.is_empty() {
+		String::new()
+	} else {
+		match labels.len() {
+			0 => crate::i18n::tr("No contacts found.").to_string(),
+			1 => crate::i18n::tr("1 contact found.").to_string(),
+			n => crate::i18n::tr_fmt("{} contacts found.", &[&n]),
+		}
+	};
+	if text.is_empty() {
+		parts.new_conv_dialog.announcer.set_label("");
+	} else {
+		crate::platform::announce::announce(parts.new_conv_dialog.announcer, &text);
+	}
 }
 
 #[cfg(test)]
@@ -308,6 +469,8 @@ mod tests {
 			name: String::new(),
 			phone: "0".to_string(),
 			saved: false,
+			about: String::new(),
+			is_business: false,
 		};
 		assert_eq!(contact_picker_label(&unnamed), "WhatsApp");
 	}

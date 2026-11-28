@@ -417,6 +417,10 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	if jid.ends_with("@newsletter") {
 		return format!("{name} ({})", crate::i18n::tr("Channel"));
 	}
+	// WA Web's header shows "Message yourself" here, never your own presence.
+	if crate::ui::contact_picker::is_own_chat(s, jid) {
+		return format!("{name} ({})", crate::i18n::tr("Message yourself"));
+	}
 	if !jid.ends_with("@g.us")
 		&& !jid.ends_with("@newsletter")
 		&& kind == 0

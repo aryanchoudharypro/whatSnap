@@ -147,12 +147,15 @@ pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	parts.new_conv_dialog.search_label.set_label(heading);
 	let is_open_chat = mode == ContactPickerMode::OpenChat;
 	parts.new_conv_dialog.new_group_btn.show(is_open_chat);
+	parts.new_conv_dialog.new_community_btn.show(is_open_chat);
 	parts.new_conv_dialog.new_contact_btn.show(is_open_chat);
 	parts.new_conv_dialog.message_meta_ai_btn.show(is_open_chat && state.borrow().settings.meta_ai_enabled);
+	parts.new_conv_dialog.announcer.set_label("");
 	parts.new_conv_dialog.dialog.layout();
 	apply_contact_picker_filter("", state, parts);
 	let payload = serde_json::json!({ "action": "get_contacts" });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
+	parts.new_conv_dialog.search_field.set_focus();
 	crate::ui::show_modal_again(&parts.new_conv_dialog.dialog);
 }
 
@@ -168,6 +171,9 @@ pub(crate) fn select_contact_picker_result(state: &Rc<RefCell<AppState>>, parts:
 	let Some(jid) = jid_opt else {
 		return;
 	};
+	if jid.is_empty() {
+		return;
+	}
 	parts.new_conv_dialog.dialog.end_modal(wxdragon::id::ID_OK);
 	match mode {
 		ContactPickerMode::OpenChat => {

@@ -97,6 +97,10 @@ pub struct SettingsDialogParts {
 	pub spell_announce_check: CheckBox,
 	pub spell_language_combo: ComboBox,
 	pub status_auto_advance_check: CheckBox,
+	pub new_chat_hide_saved_numbers_check: CheckBox,
+	pub new_chat_show_status_check: CheckBox,
+	pub new_chat_auto_lookup_check: CheckBox,
+	pub new_chat_frequently_contacted_check: CheckBox,
 
 	pub notifications_panel: Panel,
 	pub sounds_check: CheckBox,
@@ -383,6 +387,23 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	chats_sizer.add_spacer(10);
 	section_header(&chats_panel, &chats_sizer, "Status Updates");
 	let status_auto_advance_check = setting_switch(&chats_panel, &chats_sizer, "Play next status update automatically");
+
+	chats_sizer.add_spacer(10);
+	section_header(&chats_panel, &chats_sizer, "New Chat & Contacts");
+	let new_chat_hide_saved_numbers_check = setting_switch(
+		&chats_panel,
+		&chats_sizer,
+		"Hide phone numbers for saved contacts: show only name and About status",
+	);
+	let new_chat_show_status_check =
+		setting_switch(&chats_panel, &chats_sizer, "Show contact's About (status) in New Chat");
+	let new_chat_auto_lookup_check = setting_switch(
+		&chats_panel,
+		&chats_sizer,
+		"Automatically check unsaved phone numbers on WhatsApp while typing",
+	);
+	let new_chat_frequently_contacted_check =
+		setting_switch(&chats_panel, &chats_sizer, "List recent chats first in New Chat");
 	chats_panel.set_sizer(chats_sizer, true);
 
 	// 4. Notifications Panel
@@ -799,6 +820,10 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		spell_announce_check,
 		spell_language_combo,
 		status_auto_advance_check,
+		new_chat_hide_saved_numbers_check,
+		new_chat_show_status_check,
+		new_chat_auto_lookup_check,
+		new_chat_frequently_contacted_check,
 		notifications_panel,
 		sounds_check,
 		notifications_check,
@@ -1119,6 +1144,10 @@ impl SettingsDialogParts {
 		self.announce_outgoing_check.set_value(settings.announce_outgoing);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
 		self.status_auto_advance_check.set_value(settings.status_auto_advance);
+		self.new_chat_hide_saved_numbers_check.set_value(settings.new_chat_hide_saved_numbers);
+		self.new_chat_show_status_check.set_value(settings.new_chat_show_status);
+		self.new_chat_auto_lookup_check.set_value(settings.new_chat_auto_lookup);
+		self.new_chat_frequently_contacted_check.set_value(settings.new_chat_frequently_contacted);
 		self.spell_check_check.set_value(settings.spell_check);
 		self.spell_announce_check.set_value(settings.spell_check_announce);
 		let languages = crate::ui::spell_check::languages();
@@ -1161,6 +1190,10 @@ impl SettingsDialogParts {
 		settings.keep_list_position = self.keep_list_position_check.is_checked();
 		settings.open_chat_in_message_box = self.open_in_message_box_check.is_checked();
 		settings.up_arrow_edits_last = self.up_arrow_edits_check.is_checked();
+		settings.new_chat_hide_saved_numbers = self.new_chat_hide_saved_numbers_check.is_checked();
+		settings.new_chat_show_status = self.new_chat_show_status_check.is_checked();
+		settings.new_chat_auto_lookup = self.new_chat_auto_lookup_check.is_checked();
+		settings.new_chat_frequently_contacted = self.new_chat_frequently_contacted_check.is_checked();
 		if let Some(seconds) =
 			self.voice_seek_combo.get_selection().and_then(|i| VOICE_SEEK_SECONDS.get(i as usize).copied())
 		{

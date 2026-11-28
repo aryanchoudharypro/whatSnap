@@ -122,10 +122,14 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 	let mut preview_lines = std::collections::HashMap::new();
 	let mut row_parts = std::collections::HashMap::new();
 	let row_template = state.borrow().settings.chat_list_template.clone();
+	// WA Web names your own chat "<your name> (You)"; the backend says "You".
+	let own_jid = crate::ui::owner_draw::own_jid();
+	let own_title = crate::ui::contact_picker::own_chat_title(&state.borrow());
 	for chat in &chats {
 		let jid: &str = &chat.jid;
 		if !jid.is_empty() {
-			let name = chat.full_name.as_deref().unwrap_or(jid).to_string();
+			let is_own = !own_jid.is_empty() && (jid == own_jid || chat.twin_jid.as_deref() == Some(own_jid.as_str()));
+			let name = if is_own { own_title.clone() } else { chat.full_name.as_deref().unwrap_or(jid).to_string() };
 			chat_list.push(jid.to_string());
 
 			let unread = chat.unread_count;

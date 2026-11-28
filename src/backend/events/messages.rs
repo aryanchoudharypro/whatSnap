@@ -1307,6 +1307,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let unavailable = data.get("unavailable").and_then(|u| u.as_bool()).unwrap_or(false);
 				let last_seen = data.get("last_seen").and_then(|l| l.as_i64()).unwrap_or(0);
 				let mut s = state.borrow_mut();
+				// Your own chat's header says "Message yourself" (chat_status_label).
+				if crate::ui::contact_picker::is_own_chat(&s, &clean_jid)
+					|| crate::ui::contact_picker::is_own_chat(&s, jid)
+				{
+					return true;
+				}
 
 				let name = s
 					.contacts

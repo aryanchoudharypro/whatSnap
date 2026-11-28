@@ -439,6 +439,8 @@ fn show_list_chats(state: &Rc<RefCell<AppState>>, manager: &Rc<ListManager>, id:
 					name: s.contacts.get(j).cloned().unwrap_or_default(),
 					phone: String::new(),
 					saved: false,
+					about: String::new(),
+					is_business: false,
 				})
 				.collect()
 		};

@@ -457,12 +457,14 @@ pub(crate) struct PendingVoiceRecording {
 	pub(crate) result: crate::error::Result<voice_recorder::RecordingSession>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Contact {
 	pub(crate) jid: String,
 	pub(crate) name: String,
 	pub(crate) phone: String,
 	pub(crate) saved: bool,
+	pub(crate) about: String,
+	pub(crate) is_business: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

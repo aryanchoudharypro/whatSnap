@@ -263,7 +263,14 @@ mod tests {
 	use super::*;
 
 	fn contact(jid: &str, name: &str, phone: &str) -> Contact {
-		Contact { jid: jid.to_string(), name: name.to_string(), phone: phone.to_string(), saved: true }
+		Contact {
+			jid: jid.to_string(),
+			name: name.to_string(),
+			phone: phone.to_string(),
+			saved: true,
+			about: String::new(),
+			is_business: false,
+		}
 	}
 
 	#[test]

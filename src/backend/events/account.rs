@@ -10,8 +10,15 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"own_profile" => {
 			if let Some(data) = val.get("data") {
 				let mut s = state.borrow_mut();
-				if let Some(push_name) = data.get("pushName").and_then(|p| p.as_str()) {
+				if let Some(push_name) = data.get("pushName").and_then(|p| p.as_str())
+					&& s.own_push_name != push_name
+				{
 					s.own_push_name = push_name.to_string();
+					// Your own chat is titled with this name ("<name> (You)").
+					let own = crate::ui::owner_draw::own_jid();
+					if s.chats.iter().any(|jid| *jid == own || s.jid_twins.get(jid).is_some_and(|t| *t == own)) {
+						let _ = s.ws_tx.send(serde_json::json!({ "action": "get_chats" }).to_string());
+					}
 				}
 				let about_arrived = if let Some(about) = data.get("about").and_then(|a| a.as_str()) {
 					s.own_about = about.to_string();
@@ -100,6 +107,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 										name: field("name"),
 										phone: field("phone"),
 										saved: true,
+										about: field("about"),
+										is_business: entry.get("isBusiness").and_then(|v| v.as_bool()).unwrap_or(false),
 									})
 								})
 								.collect()

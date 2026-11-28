@@ -400,6 +400,7 @@ pub struct WindowParts {
 	pub pairing_cancel_btn: Button,
 	pub pairing_panel: Panel,
 	pub new_conv_dialog: crate::ui::dialogs::new_conversation::NewConversationDialogParts,
+	pub new_conv_contacts_timer: Rc<Timer<Dialog>>,
 	pub new_contact_dialog: crate::ui::dialogs::new_contact::NewContactDialogParts,
 	pub poll_dialog: crate::ui::dialogs::poll_dialog::PollDialogParts,
 	pub new_group_dialog: crate::ui::dialogs::new_group::NewGroupDialogParts,
@@ -1219,6 +1220,7 @@ pub fn build_main_window() -> WindowParts {
 	let pairing_dialog = login_panel;
 
 	let new_conv_dialog = crate::ui::dialogs::new_conversation::build_new_conversation_dialog(&frame);
+	let new_conv_contacts_timer = Rc::new(Timer::new(&new_conv_dialog.dialog));
 	let new_contact_dialog = crate::ui::dialogs::new_contact::build_new_contact_dialog(&frame);
 	let poll_dialog = crate::ui::dialogs::poll_dialog::build_poll_dialog(&frame);
 	let new_group_dialog = crate::ui::dialogs::new_group::build_new_group_dialog(&frame);
@@ -1291,6 +1293,7 @@ pub fn build_main_window() -> WindowParts {
 		pairing_cancel_btn,
 		pairing_panel,
 		new_conv_dialog,
+		new_conv_contacts_timer,
 		new_contact_dialog,
 		poll_dialog,
 		new_group_dialog,
@@ -1744,6 +1747,13 @@ pub fn bind_input_handlers(
 		let _ = tx_new_contact_form.send(UiCommand::OpenNewContactForm);
 	});
 
+	let tx_community_from_new_conv = ui_tx.clone();
+	let new_conv_dlg_for_community = parts.new_conv_dialog.dialog;
+	parts.new_conv_dialog.new_community_btn.on_click(move |_| {
+		new_conv_dlg_for_community.end_modal(0);
+		let _ = tx_community_from_new_conv.send(UiCommand::NewCommunity);
+	});
+
 	let new_conv_dlg_for_meta_ai = parts.new_conv_dialog.dialog;
 	let tx_meta_ai = ui_tx.clone();
 	parts.new_conv_dialog.message_meta_ai_btn.on_click(move |_| {
@@ -1751,22 +1761,44 @@ pub fn bind_input_handlers(
 		let _ = tx_meta_ai.send(UiCommand::OpenChatByJid(crate::types::META_AI_JID.to_string()));
 	});
 
-	let tx_picker_filter = ui_tx.clone();
+	let timer_new_conv = parts.new_conv_contacts_timer.clone();
 	let picker_search_field = parts.new_conv_dialog.search_field;
 	picker_search_field.on_text_changed(move |_| {
-		let query = picker_search_field.get_value();
-		let _ = tx_picker_filter.send(UiCommand::FilterContactPicker(query));
+		timer_new_conv.stop();
+		timer_new_conv.start(200, true);
 	});
 
-	// Enter in the search field jumps straight to the top match, so picking
-	// a contact never requires touching the results list at all.
+	let timer_for_tick = parts.new_conv_contacts_timer.clone();
+	let search_field_for_tick = parts.new_conv_dialog.search_field;
+	let tx_filter_on_tick = ui_tx.clone();
+	timer_for_tick.on_tick(move |_| {
+		let query = search_field_for_tick.get_value();
+		let _ = tx_filter_on_tick.send(UiCommand::FilterContactPicker(query));
+	});
+
+	let picker_dialog_esc_search = parts.new_conv_dialog.dialog;
 	let tx_picker_select_from_search = ui_tx.clone();
 	let picker_results_list_from_search = parts.new_conv_dialog.results_list;
 	picker_search_field.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			if keys::is_escape(code) {
+				picker_dialog_esc_search.end_modal(0);
+				event.skip(false);
+				return;
+			}
+			// Down Arrow moves focus directly into results list
+			if keys::is_down(code) && picker_results_list_from_search.get_count() > 0 {
+				picker_results_list_from_search.set_focus();
+				if picker_results_list_from_search.get_selection().is_none() {
+					picker_results_list_from_search.set_selection(0, true);
+				}
+				event.skip(false);
+				return;
+			}
 			if keys::is_enter(code) && picker_results_list_from_search.get_count() > 0 {
-				let _ = tx_picker_select_from_search.send(UiCommand::SelectContactPickerResult(0));
+				let sel = picker_results_list_from_search.get_selection().unwrap_or(0);
+				let _ = tx_picker_select_from_search.send(UiCommand::SelectContactPickerResult(sel as usize));
 				event.skip(false);
 				return;
 			}
@@ -1784,16 +1816,32 @@ pub fn bind_input_handlers(
 
 	let tx_picker_select_key = ui_tx.clone();
 	let picker_results_list_key = parts.new_conv_dialog.results_list;
+	let search_field_up = parts.new_conv_dialog.search_field;
 	let picker_dialog_esc = parts.new_conv_dialog.dialog;
-	// Plain Enter on a ListBox row never reaches on_key_down here - this
-	// dialog's IsDialogMessage handling takes it for the default button (only
-	// Alt+Enter got through) - which is what on_enter's key-up half is for.
 	keys::on_enter(&picker_results_list_key, Rc::default(), move || {
 		if let Some(idx) = picker_results_list_key.get_selection() {
 			let _ = tx_picker_select_key.send(UiCommand::SelectContactPickerResult(idx as usize));
 		}
 	});
-	picker_results_list_key.on_key_down(keys::escape_cancels(picker_dialog_esc));
+	picker_results_list_key.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if keys::is_up(code) {
+				// Up Arrow returns to search field from top
+				if picker_results_list_key.get_selection().unwrap_or(0) == 0 {
+					search_field_up.set_focus();
+					event.skip(false);
+					return;
+				}
+			}
+			if keys::is_escape(code) {
+				picker_dialog_esc.end_modal(0);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
 
 	let tx_conv_data = ui_tx.clone();
 	parts.conversations_parts.conv_data_btn.on_click(move |_| {
@@ -7393,6 +7441,8 @@ fn choose_excluded_contacts(
 							name: String::new(),
 							phone: String::new(),
 							saved: false,
+							about: String::new(),
+							is_business: false,
 						})
 				})
 				.collect())
