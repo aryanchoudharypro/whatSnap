@@ -2160,11 +2160,7 @@ pub fn bind_input_handlers(
 	parts.conversation_data_dialog.delete_contact_btn.on_click(move |_| {
 		let _ = tx_delete_contact.send(UiCommand::DeleteContact);
 	});
-	let tx_info_privacy = ui_tx.clone();
-	parts.conversation_data_dialog.chat_privacy_btn.on_click(move |_| {
-		let _ = tx_info_privacy.send(UiCommand::ShowChatPrivacy);
-	});
-
+	// chat_privacy_btn is the overview's privacy button, which `wire` handles.
 	crate::ui::chat_overview::wire(&parts, &state, &ui_tx);
 
 	let conv_data_dialog_back = parts.conversation_data_dialog.dialog;

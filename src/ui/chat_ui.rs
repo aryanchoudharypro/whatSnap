@@ -405,21 +405,14 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	} else {
 		0
 	};
-	if jid.ends_with("@g.us") && kind == 0 && presence_label.map_or(true, |l| l.is_empty()) {
-		if !s.group_data_members.is_empty() {
-			let members_preview: Vec<&str> = s
-				.group_data_members
-				.iter()
-				.take(4)
-				.map(|m| m.split_once(" (").map_or(m.as_str(), |(n, _)| n))
-				.collect();
-			let suffix = if s.group_data_members.len() > 4 {
-				format!("{}, ...", members_preview.join(", "))
-			} else {
-				members_preview.join(", ")
-			};
-			return format!("{name} ({suffix})");
-		}
+	if jid.ends_with("@g.us")
+		&& kind == 0
+		&& presence_label.is_none_or(|l| l.is_empty())
+		&& let Some(members) = s.group_header_members.get(jid).filter(|m| !m.is_empty())
+	{
+		let preview = members.iter().take(4).map(String::as_str).collect::<Vec<_>>().join(", ");
+		let suffix = if members.len() > 4 { format!("{preview}, ...") } else { preview };
+		return format!("{name} ({suffix})");
 	}
 	if jid.ends_with("@newsletter") {
 		return format!("{name} ({})", crate::i18n::tr("Channel"));
@@ -544,18 +537,16 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		}
 	};
 	let _ = s.ws_tx.send(payload.to_string());
-	if jid.ends_with("@g.us") {
+	// The header's member names: like WA Web, fetch a group's metadata the
+	// first time it's opened, not on every open, and not for a group we've
+	// left (the query would only fail and show an error).
+	if jid.ends_with("@g.us") && !s.not_member_jids.contains(jid) && s.group_info_fetched.insert(jid.to_string()) {
 		let group_req = serde_json::json!({
 			"action": "get_group_info",
 			"data": { "jid": jid }
 		});
 		let _ = s.ws_tx.send(group_req.to_string());
 	}
-	let avatar_req = serde_json::json!({
-		"action": "get_avatar",
-		"data": { "jid": jid }
-	});
-	let _ = s.ws_tx.send(avatar_req.to_string());
 	drop(s);
 	crate::handle_ui_command(UiCommand::SubscribePresence(jid.to_string()), state, parts);
 	crate::handle_ui_command(UiCommand::MarkRead { jid: jid.to_string(), message_ids: Vec::new() }, state, parts);

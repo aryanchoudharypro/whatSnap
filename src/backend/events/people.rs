@@ -136,8 +136,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let info = payload.get("Info").unwrap_or(payload);
 				let viewer_is_admin = payload.get("ViewerIsAdmin").and_then(|v| v.as_bool()).unwrap_or(false);
 
-				if let Some(group_jid) = info.get("JID").and_then(|j| j.get("User")).and_then(|u| u.as_str()) {
-					let full_jid = format!("{}@g.us", group_jid);
+				if let Some(full_jid) = json_jid(info.get("JID")) {
 					let mut s = state.borrow_mut();
 					if viewer_is_admin {
 						s.admin_group_jids.insert(full_jid);
@@ -304,16 +303,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					.group_data_dialog
 					.notebook
 					.set_page_text(1, &format!("{} ({})", crate::i18n::tr("Members"), member_count));
-				let search_label = if query_members.is_empty() {
-					format!("{} ({} total)", crate::i18n::tr("Search members"), member_count)
-				} else {
-					format!(
-						"{} (showing {} of {})",
-						crate::i18n::tr("Search members"),
-						s_mut.group_data_visible_member_jids.len(),
-						member_count
-					)
-				};
+				let search_label = crate::ui_commands::contacts_groups::members_search_label(
+					!query_members.is_empty(),
+					s_mut.group_data_visible_member_jids.len(),
+					member_count,
+				);
 				parts.group_data_dialog.members_search_label.set_label(&search_label);
 
 				let (m_len, d_len, l_len) =
@@ -337,24 +331,33 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						.set_page_text(4, &format!("{} ({})", crate::i18n::tr("Links"), l_len));
 				}
 
-				let owner_user =
-					info.get("OwnerJID").and_then(|j| j.get("User")).and_then(|u| u.as_str()).unwrap_or("");
+				// whatsmeow sends JIDs as "user@server" strings. The owner may be a
+				// LID, whose digits aren't a phone number; OwnerPN has the number.
+				let owner = json_jid(info.get("OwnerJID"));
+				let owner_pn = json_jid(info.get("OwnerPN"));
 				let created_iso = info.get("GroupCreated").and_then(|t| t.as_str()).unwrap_or("");
-				let creator_name = if !owner_user.is_empty() {
-					let owner_jid = format!("{}@s.whatsapp.net", owner_user);
-					if let Some(contact) = s_mut.contacts.get(&owner_jid) {
-						contact.clone()
-					} else {
-						whatsnap::phone::format_international(owner_user).unwrap_or_else(|| owner_user.to_string())
-					}
-				} else {
-					String::new()
-				};
+				let creator_name = [owner.as_deref(), owner_pn.as_deref()]
+					.into_iter()
+					.flatten()
+					.find_map(|j| s_mut.contacts.get(j).cloned())
+					.or_else(|| {
+						let pn = owner.iter().chain(owner_pn.iter()).find(|j| j.ends_with("@s.whatsapp.net"))?;
+						let user = pn.split('@').next().unwrap_or(pn);
+						Some(whatsnap::phone::format_international(user).unwrap_or_else(|| user.to_string()))
+					})
+					.unwrap_or_default();
 				let date_str =
 					if created_iso.len() >= 10 && !created_iso.starts_with("0001") { &created_iso[..10] } else { "" };
 
-				let full_jid_opt =
-					info.get("JID").and_then(|j| j.get("User")).and_then(|u| u.as_str()).map(|u| format!("{}@g.us", u));
+				let full_jid_opt = json_jid(info.get("JID"));
+				if let Some(jid) = &full_jid_opt {
+					let names = s_mut
+						.group_data_member_info
+						.iter()
+						.map(|m| if m.me { crate::i18n::tr("You").to_string() } else { m.name.clone() })
+						.collect();
+					s_mut.group_header_members.insert(jid.clone(), names);
+				}
 				let local_name = full_jid_opt.as_ref().and_then(|j| s_mut.contacts.get(j).cloned()).unwrap_or_default();
 				let locked = full_jid_opt.as_ref().is_some_and(|j| s_mut.is_chat_locked(j));
 				let muted = full_jid_opt.as_ref().is_some_and(|j| s_mut.muted_jids.contains(j));
@@ -383,14 +386,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				));
 				parts.group_data_dialog.overview.summary.set_value(&summary_lines.join("\n"));
 
-				if let Some(group_jid) = info.get("JID").and_then(|j| j.get("User")).and_then(|u| u.as_str()) {
-					let full_jid = format!("{}@g.us", group_jid);
-					if s_mut.selected_chat.as_deref() == Some(&full_jid) {
-						parts
-							.conversations_parts
-							.conv_data_btn
-							.set_label(&crate::ui::chat_ui::chat_status_label(&s_mut, &full_jid));
-					}
+				if let Some(full_jid) = full_jid_opt.as_deref()
+					&& s_mut.selected_chat.as_deref() == Some(full_jid)
+				{
+					parts
+						.conversations_parts
+						.conv_data_btn
+						.set_label(&crate::ui::chat_ui::chat_status_label(&s_mut, full_jid));
 				}
 				drop(s_mut);
 			}
@@ -766,4 +768,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		_ => return false,
 	}
 	true
+}
+
+/// A JID from the backend's JSON: whatsmeow writes a JID as its
+/// "user@server" string. None for a missing or empty one.
+fn json_jid(v: Option<&serde_json::Value>) -> Option<String> {
+	v.and_then(|j| j.as_str()).filter(|j| j.contains('@')).map(str::to_string)
 }

@@ -402,6 +402,11 @@ struct AppState {
 	call_self_phone: String,
 	call_participants: Vec<CallParticipant>,
 	call_video: CallVideo,
+	/// Each fetched group's member names, for the chat header.
+	group_header_members: std::collections::HashMap<String, Vec<String>>,
+	/// Groups whose info was fetched on opening this session, so the chat
+	/// header's member names don't cost a server query on every open.
+	group_info_fetched: std::collections::HashSet<String>,
 	group_data_members: Vec<String>,
 	group_data_member_jids: Vec<String>,
 	group_data_member_info: Vec<GroupMember>,
@@ -1054,6 +1059,8 @@ pub(crate) fn new_app_state(
 		call_self_phone: String::new(),
 		call_participants: Vec::new(),
 		call_video: CallVideo::default(),
+		group_header_members: std::collections::HashMap::new(),
+		group_info_fetched: std::collections::HashSet::new(),
 		group_data_members: Vec::new(),
 		group_data_member_jids: Vec::new(),
 		group_data_member_info: Vec::new(),

@@ -46,20 +46,12 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 	let panel = Panel::builder(notebook).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let contact = (!is_group).then(|| {
+	// The photo's row goes at the top, but its widgets are made after the
+	// details box: Tab follows creation order, so the box comes first.
+	let photo_row = (!is_group).then(|| {
 		let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
 		sizer.add_sizer(&photo_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 8);
-		let empty = wxdragon::bitmap::Bitmap::from_rgba(&[0, 0, 0, 0], 1, 1).expect("a 1x1 bitmap");
-		let photo = StaticBitmap::builder(&panel).with_bitmap(Some(empty)).build();
-		photo_row.add(&photo, 0, SizerFlag::AlignCenterVertical, 0);
-		photo.show(false);
-
-		let voice_call_btn = Button::builder(&panel).with_label(crate::i18n::tr("Voice call")).build();
-		let video_call_btn = Button::builder(&panel).with_label(crate::i18n::tr("Video call")).build();
-		let contact_btn = Button::builder(&panel).with_label(crate::i18n::tr("Add contact")).build();
-		let delete_contact_btn = Button::builder(&panel).with_label(crate::i18n::tr("Delete contact")).build();
-
-		ContactActions { photo, voice_call_btn, video_call_btn, contact_btn, delete_contact_btn }
+		photo_row
 	});
 
 	let group = is_group.then(|| {
@@ -86,19 +78,27 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 	summary.set_font(&crate::ui::theme::Fonts::body());
 	sizer.add(&summary, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
-	if let Some(c) = contact {
+	let contact = photo_row.map(|photo_row| {
 		let actions_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-		crate::ui::owner_draw::install_tile(&c.voice_call_btn, crate::ui::theme::Palette::PANEL_BG());
-		actions_sizer.add(&c.voice_call_btn, 0, SizerFlag::Right, 6);
-		crate::ui::owner_draw::install_tile(&c.video_call_btn, crate::ui::theme::Palette::PANEL_BG());
-		actions_sizer.add(&c.video_call_btn, 0, SizerFlag::Right, 6);
-		crate::ui::owner_draw::install_tile(&c.contact_btn, crate::ui::theme::Palette::PANEL_BG());
-		actions_sizer.add(&c.contact_btn, 0, SizerFlag::Right, 6);
-		crate::ui::owner_draw::install_tile(&c.delete_contact_btn, crate::ui::theme::Palette::PANEL_BG());
-		actions_sizer.add(&c.delete_contact_btn, 0, SizerFlag::Right, 6);
-		c.delete_contact_btn.show(false);
+		let action = |text: &'static str| {
+			let btn = Button::builder(&panel).with_label(crate::i18n::tr(text)).build();
+			crate::ui::owner_draw::install_tile(&btn, crate::ui::theme::Palette::PANEL_BG());
+			actions_sizer.add(&btn, 0, SizerFlag::Right, 6);
+			btn
+		};
+		let voice_call_btn = action("Voice call");
+		let video_call_btn = action("Video call");
+		let contact_btn = action("Add contact");
+		let delete_contact_btn = action("Delete contact");
+		delete_contact_btn.show(false);
 		sizer.add_sizer(&actions_sizer, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::All, 6);
-	}
+		// wx needs a picture to make it with; the real one comes later.
+		let empty = wxdragon::bitmap::Bitmap::from_rgba(&[0, 0, 0, 0], 1, 1).expect("a 1x1 bitmap");
+		let photo = StaticBitmap::builder(&panel).with_bitmap(Some(empty)).build();
+		photo_row.add(&photo, 0, SizerFlag::AlignCenterVertical, 0);
+		photo.show(false);
+		ContactActions { photo, voice_call_btn, video_call_btn, contact_btn, delete_contact_btn }
+	});
 
 	let lock_chk = CheckBox::builder(&panel).with_label(crate::i18n::tr("Lock this chat")).build();
 	sizer.add(&lock_chk, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
@@ -171,48 +171,27 @@ fn applies(jid: &str) -> Applies {
 pub(crate) fn refresh_block_state(s: &AppState, o: &ChatOverviewParts, jid: &str) {
 	let a = applies(jid);
 	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
-	let is_group = jid.ends_with("@g.us");
 	let locked = s.is_chat_locked(jid);
 	let blocked = crate::ui_commands::blocking::is_blocked(s, jid);
-	let mut lines = Vec::new();
-	if !is_group {
-		let raw_phone = jid.split('@').next().unwrap_or(jid);
-		let phone = whatsnap::phone::format_international(raw_phone).unwrap_or_else(|| raw_phone.to_string());
-		lines.push(format!("{}: {}", crate::i18n::tr("Name"), name));
-		lines.push(format!("{}: {}", crate::i18n::tr("Phone"), phone));
-		let blocked_line = crate::ui_commands::blocking::info_line(s, jid);
-		if !blocked_line.is_empty() {
-			lines.push(blocked_line.trim_end().to_string());
-		}
-		if let Some(card) = &s.conversation_data_contact {
-			let push = if !card.push_name.is_empty() {
-				&card.push_name
-			} else if !card.full_name.is_empty() {
-				&card.full_name
-			} else {
-				""
-			};
-			if !push.is_empty() {
-				lines.push(format!("{}: {}", crate::i18n::tr("WhatsApp Name"), push));
-			}
-		}
-	} else {
-		lines.push(format!("{}: {}", crate::i18n::tr("Group"), name));
+	// A contact's summary is Contact info's details box: its text (About,
+	// WhatsApp name, a phone number that isn't a LID) comes from user_info,
+	// and blocking.rs updates its block line; rewriting it here would lose that.
+	if jid.ends_with("@g.us") {
+		let lines = [
+			format!("{}: {}", crate::i18n::tr("Group"), name),
+			format!(
+				"{}: {}",
+				crate::i18n::tr("Notifications"),
+				if s.muted_jids.contains(jid) { crate::i18n::tr("muted") } else { crate::i18n::tr("on") }
+			),
+			format!(
+				"{}: {}",
+				crate::i18n::tr("Locked"),
+				if locked { crate::i18n::tr("yes") } else { crate::i18n::tr("no") }
+			),
+		];
+		o.summary.set_value(&lines.join("\n"));
 	}
-	lines.push(format!(
-		"{}: {}",
-		crate::i18n::tr("Notifications"),
-		if s.muted_jids.contains(jid) { crate::i18n::tr("muted") } else { crate::i18n::tr("on") }
-	));
-	lines.push(format!(
-		"{}: {}",
-		crate::i18n::tr("Locked"),
-		if locked { crate::i18n::tr("yes") } else { crate::i18n::tr("no") }
-	));
-	if a.block && blocked {
-		lines.push(crate::i18n::tr("Blocked: yes").to_string());
-	}
-	o.summary.set_value(&lines.join("\n"));
 	o.block_btn.show(a.block);
 	o.block_btn.set_label(if blocked {
 		crate::i18n::tr("Unblock contact")

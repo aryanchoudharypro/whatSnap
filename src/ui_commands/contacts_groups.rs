@@ -111,12 +111,20 @@ pub(crate) fn filter_group_members(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	s.group_data_visible_member_jids = visible_jids;
 	drop(s);
 
-	let label = if lower_query.is_empty() {
-		format!("{} ({} total)", crate::i18n::tr("Search members"), total)
+	parts.group_data_dialog.members_search_label.set_label(&members_search_label(
+		!lower_query.is_empty(),
+		showing,
+		total,
+	));
+}
+
+/// Group info's member search label, with how many members it shows.
+pub(crate) fn members_search_label(searching: bool, showing: usize, total: usize) -> String {
+	if searching {
+		crate::i18n::tr_fmt("Search members (showing {} of {})", &[&showing, &total])
 	} else {
-		format!("{} (showing {} of {})", crate::i18n::tr("Search members"), showing, total)
-	};
-	parts.group_data_dialog.members_search_label.set_label(&label);
+		crate::i18n::tr_fmt("Search members ({} total)", &[&total])
+	}
 }
 
 pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, mode: ContactPickerMode) {
@@ -487,7 +495,14 @@ pub(crate) fn open_contact_form(
 }
 
 pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let (saved, form_name, form_surname, phone) = if let Some(card) = state.borrow().conversation_data_contact.clone() {
+	// Bound first so no AppState borrow is still held while the message box
+	// below runs its own event loop.
+	let card = state.borrow().conversation_data_contact.clone();
+	let info_chat = state.borrow().info_chat.clone();
+	// Before user_info arrives there's no card; only a phone-number JID can
+	// stand in for the number then (a LID's digits aren't one).
+	let fallback_phone = info_chat.as_deref().and_then(|jid| jid.strip_suffix("@s.whatsapp.net"));
+	let (saved, form_name, form_surname, phone) = if let Some(card) = card {
 		if card.phone.is_empty() {
 			MessageDialog::builder(
 				&parts.conversation_data_dialog.dialog,
@@ -503,11 +518,10 @@ pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 		let (name, surname) = card.form_names();
 		(card.saved, name, surname, format!("+{}", card.phone))
-	} else if let Some(jid) = state.borrow().info_chat.clone() {
+	} else if let (Some(jid), Some(raw_phone)) = (info_chat.as_deref(), fallback_phone) {
 		let s = state.borrow();
-		let raw_phone = jid.split('@').next().unwrap_or(&jid).to_string();
-		let name = s.contacts.get(&jid).cloned().unwrap_or_default();
-		(s.contacts.contains_key(&jid), name, String::new(), format!("+{}", raw_phone))
+		let name = s.contacts.get(jid).cloned().unwrap_or_default();
+		(s.contacts.contains_key(jid), name, String::new(), format!("+{raw_phone}"))
 	} else {
 		return;
 	};
