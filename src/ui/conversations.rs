@@ -40,6 +40,7 @@ pub struct ConversationsPanelParts {
 	pub place_call_btn: Button,
 	pub place_video_call_btn: Button,
 	pub join_call_btn: Button,
+	pub conv_menu_btn: Button,
 	pub top_btns_panel: Panel,
 
 	pub search_panel: Panel,
@@ -72,6 +73,9 @@ pub struct ConversationsPanelParts {
 	/// @mention suggestions, shown above the composer while completing one.
 	/// Never focused: the composer keeps focus and announces the highlight.
 	pub mention_list: ListBox,
+	pub reply_preview_panel: Panel,
+	pub reply_title_label: StaticText,
+	pub reply_text_label: StaticText,
 	pub cancel_edit_btn: Button,
 	pub remove_quote_btn: Button,
 	pub send_message_btn: Button,
@@ -645,6 +649,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	top_btns_sizer.add(&join_call_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	join_call_btn.show(false);
 
+	let conv_menu_btn = Button::builder(&top_btns_panel).with_label(crate::i18n::tr("More options")).build();
+	conv_menu_btn.set_font(&theme::Fonts::body());
+	crate::ui::owner_draw::install_icon_button(&conv_menu_btn, header_bg);
+	top_btns_sizer.add(&conv_menu_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
+
 	top_btns_panel.set_sizer(top_btns_sizer, true);
 	conv_sizer.add(&top_btns_panel, 0, SizerFlag::Expand, 0);
 
@@ -858,24 +867,61 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	mention_list.set_min_size(Size::new(-1, 120));
 	conv_sizer.add(&mention_list, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	mention_list.show(false);
+
+	let reply_preview_panel = Panel::builder(&conversation_panel).build();
+	theme::style_content(&reply_preview_panel);
+	if theme::use_custom_colours() {
+		let panel_c = reply_preview_panel;
+		panel_c.set_background_style(BackgroundStyle::Paint);
+		panel_c.on_paint(move |_| {
+			let dc = AutoBufferedPaintDC::new(&panel_c);
+			let size = panel_c.get_client_size();
+			let bg = theme::Palette::PANEL_BG();
+			dc.set_brush(bg, BrushStyle::Solid);
+			dc.set_pen(bg, 1, PenStyle::Solid);
+			dc.draw_rectangle(0, 0, size.width, size.height);
+			let bar = theme::Palette::ACCENT();
+			dc.set_brush(bar, BrushStyle::Solid);
+			dc.set_pen(bar, 1, PenStyle::Solid);
+			dc.draw_rounded_rectangle(8, 4, 4, (size.height - 8).max(4), 2.0);
+		});
+	}
+	let reply_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let reply_text_col = BoxSizer::builder(Orientation::Vertical).build();
+	let reply_title_label = StaticText::builder(&reply_preview_panel).with_label("").build();
+	reply_title_label.set_font(&theme::Fonts::body_strong());
+	reply_text_col.add(&reply_title_label, 0, SizerFlag::Left | SizerFlag::Bottom, 2);
+	let reply_text_label = StaticText::builder(&reply_preview_panel).with_label("").build();
+	reply_text_label.set_font(&theme::Fonts::label());
+	theme::style_muted_label(&reply_text_label);
+	reply_text_col.add(&reply_text_label, 0, SizerFlag::Left, 0);
+	reply_sizer.add_sizer(&reply_text_col, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left | SizerFlag::Right, 20);
+
+	let cancel_edit_btn = Button::builder(&reply_preview_panel).with_label(crate::i18n::tr("Cancel edit")).build();
+	cancel_edit_btn.set_font(&theme::Fonts::body());
+	crate::ui::owner_draw::install_icon_button(&cancel_edit_btn, composer_bg);
+	reply_sizer.add(&cancel_edit_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 4);
+	cancel_edit_btn.show(false);
+
+	let remove_quote_btn = Button::builder(&reply_preview_panel).with_label(crate::i18n::tr("Remove quote")).build();
+	remove_quote_btn.set_font(&theme::Fonts::body());
+	crate::ui::owner_draw::install_icon_button(&remove_quote_btn, composer_bg);
+	reply_sizer.add(&remove_quote_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 4);
+	remove_quote_btn.show(false);
+
+	reply_preview_panel.set_sizer(reply_sizer, true);
+	conv_sizer.add(&reply_preview_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
+	reply_preview_panel.show(false);
+
 	let add_attachment_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Add attachment")).build();
 	add_attachment_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&add_attachment_btn, composer_bg);
 	message_row.add(&add_attachment_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
-	let cancel_edit_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Cancel edit")).build();
-	cancel_edit_btn.set_font(&theme::Fonts::body());
-	crate::ui::owner_draw::install_icon_button(&cancel_edit_btn, composer_bg);
-	message_row.add(&cancel_edit_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
-	cancel_edit_btn.show(false);
-	let remove_quote_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Remove quote")).build();
-	remove_quote_btn.set_font(&theme::Fonts::body());
-	crate::ui::owner_draw::install_icon_button(&remove_quote_btn, composer_bg);
-	message_row.add(&remove_quote_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
-	remove_quote_btn.show(false);
 	let send_message_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Send message")).build();
 	send_message_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&send_message_btn, composer_bg);
 	message_row.add(&send_message_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
+	send_message_btn.show(false);
 	let record_voice_btn =
 		Button::builder(&conversation_panel).with_label(crate::i18n::tr("Record voice message")).build();
 	record_voice_btn.set_font(&theme::Fonts::body());
@@ -1001,6 +1047,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		place_call_btn,
 		place_video_call_btn,
 		join_call_btn,
+		conv_menu_btn,
 		top_btns_panel,
 		search_panel,
 		search_close_btn,
@@ -1025,6 +1072,9 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		message_field,
 		blocked_banner_btn,
 		mention_list,
+		reply_preview_panel,
+		reply_title_label,
+		reply_text_label,
 		cancel_edit_btn,
 		remove_quote_btn,
 		send_message_btn,

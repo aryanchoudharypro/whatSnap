@@ -56,53 +56,17 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	}
 
 	let overview = crate::ui::chat_overview::build(&notebook, false);
+	let c = overview.contact.expect("contact overview has contact actions");
+	let photo = c.photo;
+	let voice_call_btn = c.voice_call_btn;
+	let video_call_btn = c.video_call_btn;
+	let contact_btn = c.contact_btn;
+	let delete_contact_btn = c.delete_contact_btn;
+	let info_panel = overview.panel;
+	let info_field = overview.summary;
+	let chat_privacy_btn = overview.privacy_btn;
 
-	let details_dialog = Dialog::builder(&dialog, crate::i18n::tr("Contact Details")).with_size(560, 420).build();
-	theme::style_content(&details_dialog);
-	let info_panel = Panel::builder(&details_dialog).build();
-	theme::style_content(&info_panel);
-	let info_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
-	info_sizer.add_sizer(&photo_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 10);
-
-	let info_field = TextCtrl::builder(&info_panel)
-		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::from_bits_retain(0x0020_0000))
-		.build();
-	info_field.set_font(&theme::Fonts::body());
-	info_sizer.add(&info_field, 1, SizerFlag::Expand | SizerFlag::All, 12);
-
-	let actions_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let voice_call_btn = Button::builder(&info_panel).with_label(crate::i18n::tr("Voice call")).build();
-	crate::ui::owner_draw::install_tile(&voice_call_btn, theme::Palette::PANEL_BG());
-	actions_sizer.add(&voice_call_btn, 0, SizerFlag::Right, 6);
-	let video_call_btn = Button::builder(&info_panel).with_label(crate::i18n::tr("Video call")).build();
-	crate::ui::owner_draw::install_tile(&video_call_btn, theme::Palette::PANEL_BG());
-	actions_sizer.add(&video_call_btn, 0, SizerFlag::Right, 6);
-	let contact_btn = Button::builder(&info_panel).with_label(crate::i18n::tr("Edit contact")).build();
-	crate::ui::owner_draw::install_tile(&contact_btn, theme::Palette::PANEL_BG());
-	actions_sizer.add(&contact_btn, 0, SizerFlag::Right, 6);
-	let delete_contact_btn = Button::builder(&info_panel).with_label(crate::i18n::tr("Delete contact")).build();
-	crate::ui::owner_draw::install_tile(&delete_contact_btn, theme::Palette::PANEL_BG());
-	actions_sizer.add(&delete_contact_btn, 0, SizerFlag::Right, 6);
-	let chat_privacy_btn = Button::builder(&info_panel).with_label(crate::i18n::tr("Advanced chat privacy...")).build();
-	crate::ui::owner_draw::install_tile(&chat_privacy_btn, theme::Palette::PANEL_BG());
-	actions_sizer.add(&chat_privacy_btn, 0, SizerFlag::Right, 6);
-	info_sizer.add_sizer(&actions_sizer, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::All, 8);
-	let close_btn = Button::builder(&info_panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
-	info_sizer.add(&close_btn, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Bottom, 8);
-	// Made after everything else, so it's never what names the info box
-	// (Windows names a box from the control just before it) and is never
-	// in the way of Tab.
-	// wx needs a picture to make it with; the real one comes later.
-	let empty = wxdragon::bitmap::Bitmap::from_rgba(&[0, 0, 0, 0], 1, 1).expect("a 1x1 bitmap");
-	let photo = StaticBitmap::builder(&info_panel).with_bitmap(Some(empty)).build();
-	photo_row.add(&photo, 0, SizerFlag::AlignCenterVertical, 0);
-	photo.show(false);
-
-	info_panel.set_sizer(info_sizer, true);
-	let details_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	details_sizer.add(&info_panel, 1, SizerFlag::Expand, 0);
-	details_dialog.set_sizer(details_sizer, true);
+	let details_dialog = Dialog::builder(&dialog, crate::i18n::tr("Contact Details")).with_size(1, 1).build();
 
 	let media_panel = Panel::builder(&notebook).build();
 	theme::style_content(&media_panel);

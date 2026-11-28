@@ -118,6 +118,7 @@ mod glyph {
 	pub const FORWARD: char = '\u{E76C}';
 	pub const VOLUME: char = '\u{E767}';
 	pub const VOLUME_OFF: char = '\u{E74F}';
+	pub const MORE: char = '\u{E712}';
 }
 
 fn nav_look(text: &str) -> (Option<char>, &str, u32) {
@@ -187,6 +188,8 @@ fn button_glyph(label: &str) -> Option<char> {
 		glyph::VOLUME
 	} else if is("Unmute") {
 		glyph::VOLUME_OFF
+	} else if is("More options") || is("Menu") || is("&More options") || is("Chat menu") {
+		glyph::MORE
 	} else {
 		return None;
 	})
@@ -1169,10 +1172,11 @@ fn paint_header(
 	}
 	let (name, status) = split_header(label);
 	let x = pad + size + 12;
-	let typing = status.contains("typing")
+	let active = status.contains("typing")
 		|| status.contains("recording")
 		|| status.contains("mengetik")
-		|| status.contains("merekam");
+		|| status.contains("merekam")
+		|| status.eq_ignore_ascii_case("online");
 	if status.is_empty() {
 		gdi::text(dc, fonts.bold, c.text, name, rect(x, 0, width - pad, height), Default::default());
 	} else {
@@ -1185,7 +1189,7 @@ fn paint_header(
 			rect(x, mid - fonts.line - 1, width - pad, mid + 1),
 			Default::default(),
 		);
-		let colour = if typing && c.custom { rgb(Palette::ACCENT()) } else { c.muted };
+		let colour = if active && c.custom { rgb(Palette::ACCENT()) } else { c.muted };
 		gdi::text(
 			dc,
 			fonts.small,

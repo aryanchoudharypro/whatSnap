@@ -106,7 +106,17 @@ pub(crate) fn filter_group_members(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 			visible_jids.push(s.group_data_member_jids[i].clone());
 		}
 	}
+	let total = s.group_data_members.len();
+	let showing = visible_jids.len();
 	s.group_data_visible_member_jids = visible_jids;
+	drop(s);
+
+	let label = if lower_query.is_empty() {
+		format!("{} ({} total)", crate::i18n::tr("Search members"), total)
+	} else {
+		format!("{} (showing {} of {})", crate::i18n::tr("Search members"), showing, total)
+	};
+	parts.group_data_dialog.members_search_label.set_label(&label);
 }
 
 pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, mode: ContactPickerMode) {
@@ -447,7 +457,7 @@ pub(crate) fn show_contact_card(parts: &Rc<WindowParts>, card: Option<&ContactCa
 	let info = &parts.conversation_data_dialog;
 	let saved = card.is_some_and(|c| c.saved);
 	info.contact_btn.set_label(if saved { crate::i18n::tr("Edit contact") } else { crate::i18n::tr("Add contact") });
-	info.contact_btn.enable(card.is_some());
+	info.contact_btn.enable(true);
 	info.delete_contact_btn.show(saved);
 	info.info_panel.layout();
 }
@@ -477,22 +487,30 @@ pub(crate) fn open_contact_form(
 }
 
 pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let Some(card) = state.borrow().conversation_data_contact.clone() else { return };
-	if card.phone.is_empty() {
-		MessageDialog::builder(
-			&parts.conversation_data_dialog.details_dialog,
-			crate::i18n::tr("WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact."),
-			crate::i18n::tr("Add Contact"),
-		)
-		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-		.build()
-		.show_modal();
+	let (saved, form_name, form_surname, phone) = if let Some(card) = state.borrow().conversation_data_contact.clone() {
+		if card.phone.is_empty() {
+			MessageDialog::builder(
+				&parts.conversation_data_dialog.dialog,
+				crate::i18n::tr("WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact."),
+				crate::i18n::tr("Add Contact"),
+			)
+			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+			.build()
+			.show_modal();
+			return;
+		}
+		let (name, surname) = card.form_names();
+		(card.saved, name, surname, format!("+{}", card.phone))
+	} else if let Some(jid) = state.borrow().info_chat.clone() {
+		let s = state.borrow();
+		let raw_phone = jid.split('@').next().unwrap_or(&jid).to_string();
+		let name = s.contacts.get(&jid).cloned().unwrap_or_default();
+		(s.contacts.contains_key(&jid), name, String::new(), format!("+{}", raw_phone))
+	} else {
 		return;
-	}
-	let (name, surname) = card.form_names();
-	let phone = format!("+{}", card.phone);
-	let title = if card.saved { crate::i18n::tr("Edit Contact") } else { crate::i18n::tr("Add Contact") };
-	open_contact_form(parts, title, crate::i18n::tr("Save"), &name, &surname, &phone, false);
+	};
+	let title = if saved { crate::i18n::tr("Edit Contact") } else { crate::i18n::tr("Add Contact") };
+	open_contact_form(parts, title, crate::i18n::tr("Save"), &form_name, &form_surname, &phone, false);
 }
 
 pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -503,7 +521,7 @@ pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 		&[&name],
 	);
 	let confirm = MessageDialog::builder(
-		&parts.conversation_data_dialog.details_dialog,
+		&parts.conversation_data_dialog.dialog,
 		&question,
 		crate::i18n::tr("Delete Contact"),
 	)

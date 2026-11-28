@@ -588,6 +588,10 @@ fn show_common_groups(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, da
 		n => crate::i18n::tr_fmt("{} groups in common", &[&n]),
 	};
 	parts.conversation_data_dialog.common_groups_label.set_label(&label);
+	parts.conversation_data_dialog.notebook.set_page_text(
+		4,
+		&format!("{} ({})", crate::i18n::tr("Groups in Common"), groups.len()),
+	);
 }
 
 pub(crate) fn open_common_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
