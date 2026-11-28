@@ -44,11 +44,8 @@ pub(crate) fn suggest(query: &str, limit: usize) -> Vec<(&'static str, &'static 
 	let mut found: Vec<(&'static str, &'static str)> =
 		all.iter().filter(|e| starts(e.name)).map(|e| (e.emoji, e.name)).collect();
 	if found.len() < limit {
-		found.extend(
-			all.iter()
-				.filter(|e| !starts(e.name) && emoji_matches(e.name, &query))
-				.map(|e| (e.emoji, e.name)),
-		);
+		found
+			.extend(all.iter().filter(|e| !starts(e.name) && emoji_matches(e.name, &query)).map(|e| (e.emoji, e.name)));
 	}
 	found.dedup_by_key(|(emoji, _)| *emoji);
 	found.truncate(limit);

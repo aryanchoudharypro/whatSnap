@@ -17,6 +17,7 @@ use serde::Deserialize;
 use whatsnap::ChatMessage;
 use wxdragon::prelude::*;
 
+pub(super) use crate::calls::call_rows::translate_call_text;
 use crate::{
 	AppState, CallLogEntry, CallTarget, CallVideo, Contact, NotificationSound, StarredEntry, StatusGroup, StatusItem,
 	UiCommand,
@@ -42,8 +43,6 @@ use crate::{
 		window::WindowParts,
 	},
 };
-
-pub(super) use crate::calls::call_rows::translate_call_text;
 
 pub(crate) fn format_conv_data_label(
 	chat_jid: &str,

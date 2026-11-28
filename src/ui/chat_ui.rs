@@ -424,7 +424,11 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	if jid.ends_with("@newsletter") {
 		return format!("{name} ({})", crate::i18n::tr("Channel"));
 	}
-	if !jid.ends_with("@g.us") && !jid.ends_with("@newsletter") && kind == 0 && presence_label.map_or(true, |l| l.is_empty()) {
+	if !jid.ends_with("@g.us")
+		&& !jid.ends_with("@newsletter")
+		&& kind == 0
+		&& presence_label.map_or(true, |l| l.is_empty())
+	{
 		let is_online = s.contact_online.get(jid).or_else(|| s.contact_online.get(&norm_jid)).copied().unwrap_or(false);
 		if is_online {
 			return format!("{name} (online)");

@@ -59,13 +59,7 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 		let contact_btn = Button::builder(&panel).with_label(crate::i18n::tr("Add contact")).build();
 		let delete_contact_btn = Button::builder(&panel).with_label(crate::i18n::tr("Delete contact")).build();
 
-		ContactActions {
-			photo,
-			voice_call_btn,
-			video_call_btn,
-			contact_btn,
-			delete_contact_btn,
-		}
+		ContactActions { photo, voice_call_btn, video_call_btn, contact_btn, delete_contact_btn }
 	});
 
 	let group = is_group.then(|| {
@@ -82,7 +76,9 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 		GroupFields { name_label, name, desc_label, desc, save_btn }
 	});
 
-	let label = StaticText::builder(&panel).with_label(if is_group { crate::i18n::tr("Group overview") } else { crate::i18n::tr("Contact details") }).build();
+	let label = StaticText::builder(&panel)
+		.with_label(if is_group { crate::i18n::tr("Group overview") } else { crate::i18n::tr("Contact details") })
+		.build();
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 	let summary = TextCtrl::builder(&panel)
 		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::from_bits_retain(0x0020_0000))

@@ -480,11 +480,7 @@ fn show_attach_menu(button: Button, tx: &UiCommandSender) {
 			crate::i18n::tr("&Document"),
 			crate::i18n::tr("Send any file as a document, photos at full quality"),
 		)
-		.append_item(
-			ATTACH_MEDIA_ID,
-			crate::i18n::tr("&Photos and videos"),
-			crate::i18n::tr("Send photos and videos"),
-		)
+		.append_item(ATTACH_MEDIA_ID, crate::i18n::tr("&Photos and videos"), crate::i18n::tr("Send photos and videos"))
 		.append_item(
 			ATTACH_AUDIO_ID,
 			crate::i18n::tr("&Audio"),
@@ -496,11 +492,7 @@ fn show_attach_menu(button: Button, tx: &UiCommandSender) {
 			crate::i18n::tr("Attach a contact from your WhatsApp contacts"),
 		)
 		.append_item(ATTACH_POLL_ID, crate::i18n::tr("P&oll"), crate::i18n::tr("Create a poll or a quiz"))
-		.append_item(
-			ATTACH_EVENT_ID,
-			crate::i18n::tr("&Event"),
-			crate::i18n::tr("Create an event people can answer"),
-		)
+		.append_item(ATTACH_EVENT_ID, crate::i18n::tr("&Event"), crate::i18n::tr("Create an event people can answer"))
 		.append_item(
 			ATTACH_STICKER_ID,
 			crate::i18n::tr("&Sticker"),
@@ -4395,8 +4387,8 @@ pub fn bind_input_handlers(
 			return;
 		}
 		let mins = s.settings.chat_lock_auto_lock_mins;
-		let idle = mins > 0
-			&& s.chat_lock_last_activity.elapsed() >= std::time::Duration::from_secs(u64::from(mins) * 60);
+		let idle =
+			mins > 0 && s.chat_lock_last_activity.elapsed() >= std::time::Duration::from_secs(u64::from(mins) * 60);
 		let minimized = s.settings.chat_lock_on_minimize && frame_chat_lock_timer.is_iconized();
 		if idle || minimized {
 			drop(s);

@@ -261,10 +261,7 @@ pub(crate) fn execute_forward(
 		let messages = format!("{count} {}", crate::i18n::tr_str("messages"));
 		crate::i18n::tr_fmt("{} forwarded to {}.", &[&messages, &names_joined])
 	};
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&spoken,
-	);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 	open_forward_destination(state, parts, &to_jids);
 }
 

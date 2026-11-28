@@ -367,11 +367,8 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 		})
 		.collect();
 	let current = s.message_search.query == s.search_query;
-	let hits: Vec<&crate::MessageHit> = if current {
-		s.message_search.hits.iter().filter(|h| !s.is_chat_locked(&h.jid)).collect()
-	} else {
-		Vec::new()
-	};
+	let hits: Vec<&crate::MessageHit> =
+		if current { s.message_search.hits.iter().filter(|h| !s.is_chat_locked(&h.jid)).collect() } else { Vec::new() };
 
 	if !chats.is_empty() {
 		rows.notice(crate::i18n::tr("Chats"));
@@ -396,11 +393,8 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 		} else {
 			rows.notice(crate::i18n::tr("Not in your contacts"));
 			let same_as_number = lookup.name == number || lookup.name.trim_start_matches('+') == phone;
-			let label = if lookup.name.is_empty() || same_as_number {
-				number
-			} else {
-				format!("{number}, ~{}", lookup.name)
-			};
+			let label =
+				if lookup.name.is_empty() || same_as_number { number } else { format!("{number}, ~{}", lookup.name) };
 			rows.push(&lookup.jid, label, "");
 		}
 	}

@@ -491,7 +491,9 @@ pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		if card.phone.is_empty() {
 			MessageDialog::builder(
 				&parts.conversation_data_dialog.dialog,
-				crate::i18n::tr("WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact."),
+				crate::i18n::tr(
+					"WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact.",
+				),
 				crate::i18n::tr("Add Contact"),
 			)
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
@@ -520,13 +522,10 @@ pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 		"Delete {} from your contacts? They'll be removed from your phone's contacts too.",
 		&[&name],
 	);
-	let confirm = MessageDialog::builder(
-		&parts.conversation_data_dialog.dialog,
-		&question,
-		crate::i18n::tr("Delete Contact"),
-	)
-	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-	.build();
+	let confirm =
+		MessageDialog::builder(&parts.conversation_data_dialog.dialog, &question, crate::i18n::tr("Delete Contact"))
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build();
 	confirm.set_yes_no_labels(crate::i18n::tr("Delete"), crate::i18n::tr("Cancel"));
 	if confirm.show_modal() != wxdragon::id::ID_YES {
 		return;

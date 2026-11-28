@@ -300,26 +300,45 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 				s_mut.group_data_visible_member_jids = visible_jids;
 				let member_count = s_mut.group_data_members.len();
-				parts.group_data_dialog.notebook.set_page_text(1, &format!("{} ({})", crate::i18n::tr("Members"), member_count));
+				parts
+					.group_data_dialog
+					.notebook
+					.set_page_text(1, &format!("{} ({})", crate::i18n::tr("Members"), member_count));
 				let search_label = if query_members.is_empty() {
 					format!("{} ({} total)", crate::i18n::tr("Search members"), member_count)
 				} else {
-					format!("{} (showing {} of {})", crate::i18n::tr("Search members"), s_mut.group_data_visible_member_jids.len(), member_count)
+					format!(
+						"{} (showing {} of {})",
+						crate::i18n::tr("Search members"),
+						s_mut.group_data_visible_member_jids.len(),
+						member_count
+					)
 				};
 				parts.group_data_dialog.members_search_label.set_label(&search_label);
 
-				let (m_len, d_len, l_len) = (s_mut.group_data_media.len(), s_mut.group_data_documents.len(), s_mut.group_data_links.len());
+				let (m_len, d_len, l_len) =
+					(s_mut.group_data_media.len(), s_mut.group_data_documents.len(), s_mut.group_data_links.len());
 				if m_len > 0 {
-					parts.group_data_dialog.notebook.set_page_text(2, &format!("{} ({})", crate::i18n::tr("Media"), m_len));
+					parts
+						.group_data_dialog
+						.notebook
+						.set_page_text(2, &format!("{} ({})", crate::i18n::tr("Media"), m_len));
 				}
 				if d_len > 0 {
-					parts.group_data_dialog.notebook.set_page_text(3, &format!("{} ({})", crate::i18n::tr("Documents"), d_len));
+					parts
+						.group_data_dialog
+						.notebook
+						.set_page_text(3, &format!("{} ({})", crate::i18n::tr("Documents"), d_len));
 				}
 				if l_len > 0 {
-					parts.group_data_dialog.notebook.set_page_text(4, &format!("{} ({})", crate::i18n::tr("Links"), l_len));
+					parts
+						.group_data_dialog
+						.notebook
+						.set_page_text(4, &format!("{} ({})", crate::i18n::tr("Links"), l_len));
 				}
 
-				let owner_user = info.get("OwnerJID").and_then(|j| j.get("User")).and_then(|u| u.as_str()).unwrap_or("");
+				let owner_user =
+					info.get("OwnerJID").and_then(|j| j.get("User")).and_then(|u| u.as_str()).unwrap_or("");
 				let created_iso = info.get("GroupCreated").and_then(|t| t.as_str()).unwrap_or("");
 				let creator_name = if !owner_user.is_empty() {
 					let owner_jid = format!("{}@s.whatsapp.net", owner_user);
@@ -331,13 +350,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				} else {
 					String::new()
 				};
-				let date_str = if created_iso.len() >= 10 && !created_iso.starts_with("0001") {
-					&created_iso[..10]
-				} else {
-					""
-				};
+				let date_str =
+					if created_iso.len() >= 10 && !created_iso.starts_with("0001") { &created_iso[..10] } else { "" };
 
-				let full_jid_opt = info.get("JID").and_then(|j| j.get("User")).and_then(|u| u.as_str()).map(|u| format!("{}@g.us", u));
+				let full_jid_opt =
+					info.get("JID").and_then(|j| j.get("User")).and_then(|u| u.as_str()).map(|u| format!("{}@g.us", u));
 				let local_name = full_jid_opt.as_ref().and_then(|j| s_mut.contacts.get(j).cloned()).unwrap_or_default();
 				let locked = full_jid_opt.as_ref().is_some_and(|j| s_mut.is_chat_locked(j));
 				let muted = full_jid_opt.as_ref().is_some_and(|j| s_mut.muted_jids.contains(j));
@@ -369,7 +386,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if let Some(group_jid) = info.get("JID").and_then(|j| j.get("User")).and_then(|u| u.as_str()) {
 					let full_jid = format!("{}@g.us", group_jid);
 					if s_mut.selected_chat.as_deref() == Some(&full_jid) {
-						parts.conversations_parts.conv_data_btn.set_label(&crate::ui::chat_ui::chat_status_label(&s_mut, &full_jid));
+						parts
+							.conversations_parts
+							.conv_data_btn
+							.set_label(&crate::ui::chat_ui::chat_status_label(&s_mut, &full_jid));
 					}
 				}
 				drop(s_mut);
@@ -440,7 +460,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.group_data_subgroup_jids = subgroup_jids;
 					s.group_data_subgroup_joined = subgroup_joined;
 					s.group_data_community = Some(community);
-					parts.group_data_dialog.notebook.set_page_text(5, &format!("{} ({})", crate::i18n::tr("Groups"), s.group_data_subgroup_jids.len()));
+					parts.group_data_dialog.notebook.set_page_text(
+						5,
+						&format!("{} ({})", crate::i18n::tr("Groups"), s.group_data_subgroup_jids.len()),
+					);
 					drop(s);
 					crate::ui_commands::contacts_groups::community_subgroup_selection_changed(state, parts);
 				}

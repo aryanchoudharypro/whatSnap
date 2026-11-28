@@ -1024,13 +1024,22 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	parts.conversation_data_dialog.notebook.set_page_text(3, crate::i18n::tr("Links"));
 	parts.conversation_data_dialog.notebook.set_page_text(4, crate::i18n::tr("Groups in Common"));
 	if media_len > 0 {
-		parts.conversation_data_dialog.notebook.set_page_text(1, &format!("{} ({})", crate::i18n::tr("Media"), media_len));
+		parts
+			.conversation_data_dialog
+			.notebook
+			.set_page_text(1, &format!("{} ({})", crate::i18n::tr("Media"), media_len));
 	}
 	if documents_len > 0 {
-		parts.conversation_data_dialog.notebook.set_page_text(2, &format!("{} ({})", crate::i18n::tr("Documents"), documents_len));
+		parts
+			.conversation_data_dialog
+			.notebook
+			.set_page_text(2, &format!("{} ({})", crate::i18n::tr("Documents"), documents_len));
 	}
 	if links_len > 0 {
-		parts.conversation_data_dialog.notebook.set_page_text(3, &format!("{} ({})", crate::i18n::tr("Links"), links_len));
+		parts
+			.conversation_data_dialog
+			.notebook
+			.set_page_text(3, &format!("{} ({})", crate::i18n::tr("Links"), links_len));
 	}
 
 	parts.conversation_data_dialog.notebook.set_selection(0);
@@ -1553,20 +1562,26 @@ pub(crate) fn show_chat_overflow_menu(
 	let Some(jid) = s.selected_chat.clone() else { return };
 	let is_group = jid.ends_with("@g.us");
 	let is_channel = jid.ends_with("@newsletter");
-	let is_muted = s.muted_jids.contains(&jid)
-		|| s.group_quiet_until.get(&jid).is_some_and(|u| u.elapsed().as_secs() == 0);
+	let is_muted =
+		s.muted_jids.contains(&jid) || s.group_quiet_until.get(&jid).is_some_and(|u| u.elapsed().as_secs() == 0);
 	let is_blocked = crate::ui_commands::blocking::is_blocked(&s, &jid);
-	let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(&jid));
+	let can_schedule = crate::ui_commands::scheduled::schedulable(&s, &jid);
+	let chat_name =
+		s.contacts.get(&jid).cloned().unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(&jid));
 	drop(s);
 
 	let info_id = 9101;
 	let select_id = 9102;
-	let close_id = 9103;
+	let scheduled_id = 9103;
+	let export_id = 9111;
+	let export_text_id = 9112;
+	let leave_id = 9113;
+	let mute_for_id = 9120;
 	let mute_id = 9104;
 	let disappearing_id = 9105;
 	let pinned_id = 9110;
 	let clear_id = 9106;
-	let delete_leave_id = 9107;
+	let delete_id = 9107;
 	let block_id = 9108;
 	let report_id = 9109;
 
@@ -1580,39 +1595,101 @@ pub(crate) fn show_chat_overflow_menu(
 
 	let mut builder = Menu::builder()
 		.append_item(info_id, info_label, crate::i18n::tr("View information about this chat"))
-		.append_item(select_id, crate::i18n::tr("&Select messages"), crate::i18n::tr("Select multiple messages to copy, forward, or delete"))
-		.append_item(close_id, crate::i18n::tr("C&lose chat"), crate::i18n::tr("Close the current conversation"));
-
-	if is_muted {
-		builder = builder.append_item(mute_id, crate::i18n::tr("&Unmute notifications"), crate::i18n::tr("Unmute notifications for this chat"));
-	} else {
-		builder = builder.append_item(mute_id, crate::i18n::tr("&Mute notifications..."), crate::i18n::tr("Mute notifications for this chat"));
-	}
+		.append_item(
+			select_id,
+			crate::i18n::tr("&Select messages"),
+			crate::i18n::tr("Select multiple messages to copy, forward, or delete"),
+		);
 
 	if !is_channel {
-		builder = builder.append_item(disappearing_id, crate::i18n::tr("&Disappearing messages..."), crate::i18n::tr("Set timer for messages to disappear"));
-		builder = builder.append_item(pinned_id, crate::i18n::tr("&Pinned messages..."), crate::i18n::tr("See and go to the open chat's pinned messages"));
+		builder = builder.append_item(
+			disappearing_id,
+			crate::i18n::tr("&Disappearing messages..."),
+			crate::i18n::tr("Set timer for messages to disappear"),
+		);
+		builder = builder.append_item(
+			pinned_id,
+			crate::i18n::tr("&Pinned messages..."),
+			crate::i18n::tr("See and go to the open chat's pinned messages"),
+		);
 	}
 
-	builder = builder.append_item(clear_id, crate::i18n::tr("Clea&r chat..."), crate::i18n::tr("Delete all messages in this chat"));
+	if can_schedule {
+		builder = builder.append_item(
+			scheduled_id,
+			crate::i18n::tr("Sc&heduled messages..."),
+			crate::i18n::tr("See, send now or delete the open chat's scheduled messages"),
+		);
+	}
+
+	builder = builder
+		.append_item(
+			export_id,
+			crate::i18n::tr("&Export chat..."),
+			crate::i18n::tr("Export this chat's transcript and media"),
+		)
+		.append_item(
+			export_text_id,
+			crate::i18n::tr("Export &text only (Markdown)..."),
+			crate::i18n::tr("Export just the message text as a Markdown file, no media"),
+		);
+
+	builder = builder.append_item(
+		clear_id,
+		crate::i18n::tr("Clea&r chat..."),
+		crate::i18n::tr("Delete all messages in this chat"),
+	);
 
 	if is_group {
-		builder = builder.append_item(delete_leave_id, crate::i18n::tr("&Leave group..."), crate::i18n::tr("Exit this group"));
-	} else {
-		builder = builder.append_item(delete_leave_id, crate::i18n::tr("&Delete chat..."), crate::i18n::tr("Delete this chat and all its messages"));
+		builder = builder.append_item(leave_id, crate::i18n::tr("&Leave group..."), crate::i18n::tr("Exit this group"));
 	}
+	builder = builder.append_item(
+		delete_id,
+		crate::i18n::tr("&Delete chat..."),
+		crate::i18n::tr("Delete this chat and all its messages"),
+	);
 
 	if !is_group && !is_channel {
 		if is_blocked {
-			builder = builder.append_item(block_id, crate::i18n::tr("&Unblock contact"), crate::i18n::tr("Unblock this contact"));
+			builder = builder.append_item(
+				block_id,
+				crate::i18n::tr("&Unblock contact"),
+				crate::i18n::tr("Unblock this contact"),
+			);
 		} else {
-			builder = builder.append_item(block_id, crate::i18n::tr("&Block contact..."), crate::i18n::tr("Block this contact"));
+			builder = builder.append_item(
+				block_id,
+				crate::i18n::tr("&Block contact..."),
+				crate::i18n::tr("Block this contact"),
+			);
 		}
 	}
 
-	builder = builder.append_item(report_id, crate::i18n::tr("&Report..."), crate::i18n::tr("Report this contact or group"));
+	builder =
+		builder.append_item(report_id, crate::i18n::tr("&Report..."), crate::i18n::tr("Report this contact or group"));
 
 	let mut menu = builder.build();
+
+	// Mute sits third, after info and select. A submenu can only go into a
+	// built `Menu`, and its choices reach only its own handler.
+	let mute_pos = 2;
+	if is_muted || !has_mute_durations(&jid) {
+		let label = crate::i18n::tr(if is_muted { "&Unmute notifications" } else { "&Mute notifications" });
+		menu.insert(mute_pos, mute_id, label, crate::i18n::tr("Mute or unmute notifications"), ItemKind::Normal);
+	} else {
+		let tx_mute = tx.clone();
+		let jid_mute = jid.clone();
+		let mute_menu = mute_duration_menu(mute_for_id, move |seconds| {
+			let _ = tx_mute.send(UiCommand::ToggleMuteChat { jid: jid_mute.clone(), mute: true, seconds });
+		});
+		menu.insert_submenu(
+			mute_pos,
+			mute_menu,
+			crate::i18n::tr("&Mute notifications"),
+			crate::i18n::tr("Choose how long to mute this chat"),
+		);
+	}
+
 	let tx_menu = tx.clone();
 	let state_menu = state.clone();
 	let jid_clone = jid.clone();
@@ -1624,13 +1701,43 @@ pub(crate) fn show_chat_overflow_menu(
 			let _ = tx_menu.send(UiCommand::ShowConversationData);
 		} else if sel == select_id {
 			let _ = tx_menu.send(UiCommand::ToggleSelectionMode);
-		} else if sel == close_id {
-			let _ = tx_menu.send(UiCommand::CloseConversation);
+		} else if sel == scheduled_id {
+			let _ = tx_menu.send(UiCommand::ShowScheduledMessages);
 		} else if sel == mute_id {
-			if is_muted {
-				let _ = tx_menu.send(UiCommand::ToggleMuteChat { jid: jid_clone.clone(), mute: false, seconds: 0 });
-			} else {
-				let _ = tx_menu.send(UiCommand::ChooseMuteDuration { jid: jid_clone.clone() });
+			let _ = tx_menu.send(UiCommand::ToggleMuteChat { jid: jid_clone.clone(), mute: !is_muted, seconds: 0 });
+		} else if sel == export_id {
+			let default_name = format!("{}.zip", crate::ui::window::sanitize_export_filename(&chat_name_clone));
+			let dialog = FileDialog::builder(&frame)
+				.with_message(crate::i18n::tr("Export chat as"))
+				.with_default_file(&default_name)
+				.with_wildcard(crate::i18n::tr("Zip archive (*.zip)|*.zip"))
+				.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+				.build();
+			if dialog.show_modal() == wxdragon::id::ID_OK
+				&& let Some(path) = dialog.get_path()
+			{
+				let _ = tx_menu.send(UiCommand::ExportChat { jid: jid_clone.clone(), dest_path: path });
+			}
+		} else if sel == export_text_id {
+			let default_name = format!("{}.md", crate::ui::window::sanitize_export_filename(&chat_name_clone));
+			let dialog = FileDialog::builder(&frame)
+				.with_message(crate::i18n::tr("Export chat text as"))
+				.with_default_file(&default_name)
+				.with_wildcard(crate::i18n::tr("Markdown file (*.md)|*.md"))
+				.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+				.build();
+			if dialog.show_modal() == wxdragon::id::ID_OK
+				&& let Some(path) = dialog.get_path()
+			{
+				let _ = tx_menu.send(UiCommand::ExportChatText { jid: jid_clone.clone(), dest_path: path });
+			}
+		} else if sel == leave_id {
+			let prompt = crate::i18n::tr_fmt("Are you sure you want to leave {}?", &[&chat_name_clone]);
+			let dialog = MessageDialog::builder(&frame, &prompt, crate::i18n::tr("Leave Group"))
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+				.build();
+			if dialog.show_modal() == wxdragon::id::ID_OK {
+				let _ = tx_menu.send(UiCommand::LeaveGroup { jid: jid_clone.clone() });
 			}
 		} else if sel == disappearing_id {
 			let _ = tx_menu.send(UiCommand::ChooseDisappearingTimer { jid: jid_clone.clone() });
@@ -1647,23 +1754,13 @@ pub(crate) fn show_chat_overflow_menu(
 			if dialog.show_modal() == wxdragon::id::ID_OK {
 				let _ = tx_menu.send(UiCommand::ClearChat { jid: jid_clone.clone() });
 			}
-		} else if sel == delete_leave_id {
-			if is_group {
-				let prompt = crate::i18n::tr_fmt("Are you sure you want to leave {}?", &[&chat_name_clone]);
-				let dialog = MessageDialog::builder(&frame, &prompt, crate::i18n::tr("Leave Group"))
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
-					.build();
-				if dialog.show_modal() == wxdragon::id::ID_OK {
-					let _ = tx_menu.send(UiCommand::LeaveGroup { jid: jid_clone.clone() });
-				}
-			} else {
-				let prompt = crate::i18n::tr_fmt("Are you sure you want to delete the chat with {}?", &[&chat_name_clone]);
-				let dialog = MessageDialog::builder(&frame, &prompt, crate::i18n::tr("Confirm Delete Chat"))
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
-					.build();
-				if dialog.show_modal() == wxdragon::id::ID_OK {
-					let _ = tx_menu.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
-				}
+		} else if sel == delete_id {
+			let prompt = crate::i18n::tr_fmt("Are you sure you want to delete the chat with {}?", &[&chat_name_clone]);
+			let dialog = MessageDialog::builder(&frame, &prompt, crate::i18n::tr("Confirm Delete Chat"))
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+				.build();
+			if dialog.show_modal() == wxdragon::id::ID_OK {
+				let _ = tx_menu.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
 			}
 		} else if sel == block_id {
 			let _ = tx_menu.send(UiCommand::ToggleBlockChat { jid: jid_clone.clone() });
