@@ -727,7 +727,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
 					let (title, body) = match data.get("kind").and_then(|k| k.as_str()) {
 						Some("joined") => (
-							if names.is_empty() { crate::i18n::tr("Someone joined your call link").to_string() } else { names.to_string() },
+							if names.is_empty() {
+								crate::i18n::tr("Someone joined your call link").to_string()
+							} else {
+								names.to_string()
+							},
 							crate::i18n::tr("Joined your call link").to_string(),
 						),
 						Some("waiting") => (

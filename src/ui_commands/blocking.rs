@@ -125,7 +125,10 @@ fn block_with_confirm(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 		let s = state.borrow();
 		(chat_name(&s, jid), s.business_jids.contains(jid))
 	};
-	let result = match active_modal_parent(&state.borrow(), parts) {
+	// A borrow in the match scrutinee lives through the modal; the window
+	// regaining focus when it closes then borrows state mutably and panics.
+	let parent = active_modal_parent(&state.borrow(), parts);
+	let result = match parent {
 		Some(dlg) => ask_block_confirm(&dlg, &name, is_biz),
 		None => ask_block_confirm(&parts.frame, &name, is_biz),
 	};
@@ -266,7 +269,8 @@ pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	);
 	let title = crate::i18n::tr("Error");
 	let style = MessageDialogStyle::OK | MessageDialogStyle::IconError;
-	if let Some(dialog) = active_modal_parent(&state.borrow(), parts) {
+	let parent = active_modal_parent(&state.borrow(), parts);
+	if let Some(dialog) = parent {
 		let owner = windows::Win32::Foundation::HWND(dialog.get_handle());
 		crate::platform::focus::show_modal_and_refocus(owner, false, || {
 			MessageDialog::builder(&dialog, &message, title).with_style(style).build().show_modal()
@@ -320,7 +324,8 @@ pub(crate) fn stop_if_blocked_jid(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	let question = crate::i18n::tr_fmt("You blocked {}. Unblock them to message or call them?", &[&name]);
 	let title = crate::i18n::tr("Blocked contact");
 	let style = MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion;
-	let answer = if let Some(dialog) = active_modal_parent(&state.borrow(), parts) {
+	let parent = active_modal_parent(&state.borrow(), parts);
+	let answer = if let Some(dialog) = parent {
 		MessageDialog::builder(&dialog, &question, title).with_style(style).build().show_modal()
 	} else {
 		MessageDialog::builder(&parts.frame, &question, title).with_style(style).build().show_modal()

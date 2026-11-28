@@ -398,11 +398,15 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					crate::ui_commands::chat_list::show_locked_chats(state, parts);
 					crate::ui_commands::chat_list::offer_chat_lock_hello(state, parts);
 				} else {
-					let mut s = state.borrow_mut();
-					s.pending_locked_chat = None;
-					s.pending_forward = None;
-					s.pending_send_files = None;
-					s.pending_send_text = None;
+					{
+						let mut s = state.borrow_mut();
+						s.pending_locked_chat = None;
+						s.pending_forward = None;
+						s.pending_send_files = None;
+						s.pending_send_text = None;
+					}
+					// No borrow across the dialog: closing it refocuses the window,
+					// which borrows state mutably.
 					let err = data.get("error").and_then(|e| e.as_str()).unwrap_or("");
 					if err == "no secret code configured" {
 						crate::ui_commands::chat_list::show_secret_code_required(parts);
