@@ -1109,7 +1109,7 @@ fn fit_edit_menu(s: &crate::AppState, menu_bar: &MenuBar) {
 		menu.append_separator();
 		menu.append(MENU_ID_BOLD, &crate::i18n::tr("&Bold\tCtrl+B"), crate::i18n::tr("Format selected text as bold with *"), ItemKind::Normal);
 		menu.append(MENU_ID_ITALIC, &crate::i18n::tr("&Italic\tCtrl+I"), crate::i18n::tr("Format selected text as italic with _"), ItemKind::Normal);
-		menu.append(MENU_ID_STRIKETHROUGH, &crate::i18n::tr("Stri&kethrough\tCtrl+Shift+X"), crate::i18n::tr("Format selected text with strikethrough with ~"), ItemKind::Normal);
+		menu.append(MENU_ID_STRIKETHROUGH, &crate::i18n::tr("&Strikethrough\tCtrl+Shift+X"), crate::i18n::tr("Format selected text with strikethrough with ~"), ItemKind::Normal);
 		menu.append(MENU_ID_INLINE_CODE, &crate::i18n::tr("&Inline Code\tCtrl+Shift+I"), crate::i18n::tr("Format selected text as monospace inline code with `"), ItemKind::Normal);
 		menu.append_separator();
 		menu.append(MENU_ID_EMOJI_PANEL, &default_menu_label(MENU_ID_EMOJI_PANEL), crate::i18n::tr("Pick an emoji to insert"), ItemKind::Normal);
@@ -3194,14 +3194,15 @@ pub fn bind_input_handlers(
 					UI::{
 						Controls::EM_SETSEL,
 						Input::KeyboardAndMouse::GetFocus,
-						WindowsAndMessaging::{SendMessageW, WM_CLEAR, WM_COPY, WM_CUT, WM_PASTE, WM_UNDO},
+						WindowsAndMessaging::{SendMessageW, WM_COPY, WM_CUT, WM_PASTE, WM_UNDO, WM_USER},
 					},
 				};
+				const EM_REDO: u32 = WM_USER + 84;
 				let focused = unsafe { GetFocus() };
 				if !focused.0.is_null() {
 					let (msg, wparam, lparam) = match id {
 						MENU_ID_UNDO => (WM_UNDO, Some(WPARAM(0)), Some(LPARAM(0))),
-						MENU_ID_REDO => (WM_CLEAR, Some(WPARAM(0)), Some(LPARAM(0))),
+						MENU_ID_REDO => (EM_REDO, Some(WPARAM(0)), Some(LPARAM(0))),
 						MENU_ID_CUT => (WM_CUT, Some(WPARAM(0)), Some(LPARAM(0))),
 						MENU_ID_COPY => (WM_COPY, Some(WPARAM(0)), Some(LPARAM(0))),
 						MENU_ID_PASTE => (WM_PASTE, Some(WPARAM(0)), Some(LPARAM(0))),
