@@ -256,17 +256,14 @@ fn show_text(parts: &Rc<WindowParts>, title: &str, label: &str, text: &str) {
 }
 
 fn translate_order_text(text: &str) -> String {
-	if !crate::i18n::is_indonesian() {
-		return text.to_string();
-	}
 	text.lines()
 		.map(|line| {
 			if let Some(rest) = line.strip_prefix("Placed ") {
-				format!("Dipesan {rest}")
+				crate::i18n::tr_fmt("Placed {}", &[&rest])
 			} else if let Some(rest) = line.strip_prefix("Note: ") {
-				format!("Catatan: {rest}")
+				crate::i18n::tr_fmt("Note: {}", &[&rest])
 			} else if let Some(rest) = line.strip_suffix(" each") {
-				format!("{rest} per item")
+				crate::i18n::tr_fmt("{} each", &[&rest])
 			} else {
 				line.to_string()
 			}

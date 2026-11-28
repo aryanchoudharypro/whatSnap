@@ -6,12 +6,14 @@
   python3 tools/i18n.py --check  only report what is missing or untranslated
 
 Strings are collected from tr("..."), tr_str("..."), tr_fmt("...", ...) and the
-`if cond { "A" } else { "B" }` form passed straight to them. Strings that reach
-tr() through a variable, such as table entries, are not found here, so entries
+`if cond { "A" } else { "B" }` form passed straight to them, plus the tables
+listed in collect_code_strings(), such as `static ..._TEXTS` arrays. Other
+strings that reach tr() through a variable are not found here, so entries
 already in a .po file are never removed.
 """
 
 import glob
+import os
 import re
 import sys
 
@@ -61,14 +63,23 @@ def unescape_po(text):
 def collect_code_strings():
     found = set()
     call = re.compile(r"i18n::tr(?:_str|_fmt)?\(\s*(?:if [^{]+\{\s*(" + LIT + r")\s*\}\s*else\s*\{\s*)?(" + LIT + ")")
+    backend = os.path.join("src", "i18n", "backend.rs")
     for path in glob.glob("src/**/*.rs", recursive=True):
-        if path.startswith("src/i18n/"):
+        if path.startswith(os.path.join("src", "i18n", "")) and path != backend:
             continue
         content = open(path, encoding="utf-8").read()
         for m in call.finditer(content):
             for g in m.groups():
                 if g:
                     found.add(unescape_rust(g))
+        # Tables of English text named `static ..._TEXTS`, and the contact
+        # picker's PickerWords, reach tr() through a variable.
+        code = content.split("#[cfg(test)]")[0]
+        blocks = re.findall(r"static\s+[A-Z_]+_TEXTS\s*:[^=]*=\s*\[(.*?)\];", code, re.DOTALL)
+        blocks += re.findall(r"PickerWords\s*\{(.*?)\n\s*\}", code, re.DOTALL)
+        for block in blocks:
+            for m in re.finditer(LIT, block):
+                found.add(unescape_rust(m.group(0)))
 
     palette = re.search(
         r"STATUS_PALETTE:\s*\[\(&str,\s*u32\);\s*\d+\]\s*=\s*\[(.*?)\];",
@@ -90,9 +101,29 @@ def collect_code_strings():
         r"notify_switch\(\s*(" + LIT + r")\s*,?\s*\)",
         r"(?:setting_switch|setting_note|section_header|setting_button)\([^;()]*,\s*(" + LIT + r")\s*,?\s*\)",
         r"visibility_combo\([^;()]*,\s*(" + LIT + r")\s*,",
+        r"template_field\(\s*(" + LIT + r")\s*\)",
+        r"sound_picker\(\s*(" + LIT + r")\s*,",
     ):
         for m in re.finditer(pat, sd):
             found.add(unescape_rust(m.group(1)))
+
+    # src/i18n/backend.rs also replaces the parts in `for part in [...]`
+    # lists, and passes by_who() a "You ..." and a "{} ..." form.
+    be = open(backend, encoding="utf-8").read().split("#[cfg(test)]")[0]
+    blocks = re.findall(r"for\s+part\s+in\s+\[(.*?)\]", be, re.DOTALL)
+    blocks += re.findall(r"by_who\(\s*\w+,\s*(" + LIT + r"\s*,\s*" + LIT + ")", be)
+    for block in blocks:
+        for m in re.finditer(LIT, block):
+            found.add(unescape_rust(m.group(0)))
+
+    # The shortcut editor's tabs and action names, also used as menu labels.
+    km = open("src/keymap.rs", encoding="utf-8").read()
+    for m in re.finditer(r"\blabel:\s*(" + LIT + ")", km):
+        found.add(unescape_rust(m.group(1)))
+    tabs = re.search(r"pub const TABS:[^=]*=\s*\[(.*?)\];", km, re.DOTALL)
+    if tabs:
+        for m in re.finditer(LIT, tabs.group(1)):
+            found.add(unescape_rust(m.group(0)))
 
     found.update([
         "Mobile", "iPhone", "Main", "Home fax", "Work fax", "Home", "Work",

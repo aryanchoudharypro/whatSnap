@@ -129,7 +129,7 @@ pub fn format_file_size(bytes: i64) -> Option<String> {
 		size /= 1000.0;
 		unit += 1;
 	}
-	Some(if unit == 0 { format!("{} {}", bytes, UNITS[0]) } else { format!("{:.1} {}", size, UNITS[unit]) })
+	Some(if unit == 0 { i18n::tr_fmt("{} bytes", &[&bytes]) } else { format!("{:.1} {}", size, UNITS[unit]) })
 }
 
 pub fn format_date_divider_label(local_dt: LocalTime) -> String {
@@ -249,11 +249,7 @@ pub fn friendly_preview_text(text: &str) -> String {
 			i18n::tr("This message was deleted").to_string()
 		}
 		"[Unsupported Message]" => {
-			if i18n::is_indonesian() {
-				"Pesan belum didukung".to_string()
-			} else {
-				"Message".to_string()
-			}
+			if i18n::is_indonesian() { "Pesan belum didukung".to_string() } else { i18n::tr("Message").to_string() }
 		}
 		// Shown without *bold* / _italic_ markers, like WhatsApp Web's
 		// previews and notifications.
@@ -661,29 +657,22 @@ impl ChatMessage {
 
 	/// The ", X reacted with Y" suffix for `reactions` as read on this message.
 	fn reactor_label(&self, r: &ChatReaction) -> String {
-		let is_id = i18n::is_indonesian();
 		if r.reactor_name == "me" || r.reactor_name == "You" || r.reactor_jid == "me" {
-			if is_id { "Anda".to_string() } else { "You".to_string() }
+			i18n::tr("You").to_string()
 		} else if !is_placeholder_name(&r.reactor_name) && !r.reactor_name.contains('@') {
 			r.reactor_name.clone()
 		} else if !is_placeholder_name(&self.sender_name) && !self.sender_name.contains('@') && !self.from_me {
 			self.sender_name.clone()
-		} else if is_id {
-			"Kontak".to_string()
 		} else {
-			"Contact".to_string()
+			i18n::tr("Contact").to_string()
 		}
 	}
 
 	fn reactions_text(&self, reactions: &[ChatReaction]) -> String {
-		let is_id = i18n::is_indonesian();
 		let active: Vec<String> = reactions
 			.iter()
 			.filter(|r| !r.emoji.is_empty())
-			.map(|r| {
-				let name = self.reactor_label(r);
-				if is_id { format!("{name} bereaksi {}", r.emoji) } else { format!("{name} reacted with {}", r.emoji) }
-			})
+			.map(|r| i18n::tr_fmt("{} reacted with {}", &[&self.reactor_label(r), &r.emoji]))
 			.collect();
 
 		if !active.is_empty() { format!(", {}", active.join(", ")) } else { String::new() }
@@ -2741,17 +2730,17 @@ pub fn community_group_label(
 	joined: bool,
 	participant_count: u64,
 ) -> String {
-	let mut parts = vec![if name.is_empty() { "Unnamed group".to_string() } else { name.to_string() }];
+	let mut parts = vec![if name.is_empty() { i18n::tr("Unnamed group").to_string() } else { name.to_string() }];
 	if announcements {
-		parts.push("announcements".to_string());
+		parts.push(i18n::tr("announcements").to_string());
 	} else if general_chat {
-		parts.push("general chat".to_string());
+		parts.push(i18n::tr("general chat").to_string());
 	}
-	parts.push(if joined { "joined" } else { "not joined" }.to_string());
+	parts.push(if joined { i18n::tr("joined") } else { i18n::tr("not joined") }.to_string());
 	match participant_count {
 		0 => {}
-		1 => parts.push("1 member".to_string()),
-		n => parts.push(format!("{} members", n)),
+		1 => parts.push(i18n::tr("1 member").to_string()),
+		n => parts.push(i18n::tr_fmt("{} members", &[&n])),
 	}
 	parts.join(", ")
 }

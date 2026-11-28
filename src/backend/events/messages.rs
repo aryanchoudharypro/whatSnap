@@ -1,52 +1,14 @@
 use super::*;
 
 fn translate_event_results(results: &str) -> String {
-	if !crate::i18n::is_indonesian() || results.is_empty() {
-		return results.to_string();
-	}
-	let prefixed = format!("[Event] {results}");
-	let translated = crate::i18n::translate_rich_message_text(&prefixed);
-	let clean = translated.strip_prefix("Acara: ").unwrap_or(&translated);
-	clean.replace(" You're going.", " Anda akan hadir.").replace(" (including 1 guest)", " (termasuk 1 tamu)")
+	crate::i18n::backend::event_text(results)
 }
 
 fn translate_poll_results(results: &str) -> String {
-	if !crate::i18n::is_indonesian() || results.is_empty() {
-		return results.to_string();
+	match results.find("Options: ") {
+		Some(pos) => format!("{}{}", &results[..pos], crate::i18n::backend::poll_results_text(&results[pos..])),
+		None => crate::i18n::backend::poll_results_text(results),
 	}
-	let mut out = results.to_string();
-	if out == "No votes yet." || out == "No votes yet" {
-		return "Belum ada suara.".to_string();
-	}
-	if let Some(pos) = out.find("Options: ") {
-		let (head, options) = out.split_at(pos);
-		let options_tr = options
-			.replace("Options: ", "Opsi: ")
-			.replace(". No votes yet.", ". Belum ada suara.")
-			.replace(". No votes yet", ". Belum ada suara")
-			.replace(" people voted", " orang memilih")
-			.replace("1 person voted", "1 orang memilih")
-			.replace(" votes in all", " suara keseluruhan")
-			.replace("1 vote in all", "1 suara keseluruhan");
-		return format!("{head}{options_tr}");
-	}
-	out = out
-		.replace("1 person voted", "1 orang memilih")
-		.replace(" people voted", " orang memilih")
-		.replace("1 vote in all", "1 suara keseluruhan")
-		.replace(" votes in all", " suara keseluruhan")
-		.replace(", 1 vote", ", 1 suara")
-		.replace("; 1 vote", "; 1 suara")
-		.replace(". 1 vote", ". 1 suara")
-		.replace(" 1 vote", " 1 suara")
-		.replace(" votes", " suara")
-		.replace("You got it right: the answer is ", "Jawaban Anda benar: jawabannya adalah ")
-		.replace("The answer is ", "Jawabannya adalah ");
-	if let Some((before_voted, after_voted)) = out.split_once(", you voted ") {
-		let after_tr = after_voted.replace(" and ", " dan ");
-		out = format!("{before_voted}, Anda memilih {after_tr}");
-	}
-	out
 }
 
 pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {

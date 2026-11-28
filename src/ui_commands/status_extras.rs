@@ -383,15 +383,10 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 				apply_chat_filter(&mut s, parts);
 			}
 			drop(s);
-			let spoken = if crate::i18n::is_indonesian() {
-				if muted {
-					format!("Pembaruan status {name} dibisukan.")
-				} else {
-					format!("Pembaruan status {name} dibunyikan.")
-				}
+			let spoken = if muted {
+				crate::i18n::tr_fmt("{}'s status updates muted.", &[&name])
 			} else {
-				let verb = if muted { "muted" } else { "unmuted" };
-				format!("{name}'s status updates {verb}.")
+				crate::i18n::tr_fmt("{}'s status updates unmuted.", &[&name])
 			};
 			announce(parts, &spoken);
 		}
@@ -412,10 +407,8 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 				}
 			} else if emoji.is_empty() {
 				crate::i18n::tr("Reaction removed.").to_string()
-			} else if crate::i18n::is_indonesian() {
-				format!("Anda memberi reaksi {emoji}.")
 			} else {
-				format!("You reacted {emoji}.")
+				crate::i18n::tr_fmt("You reacted {}.", &[&emoji])
 			};
 			update_item(state, parts, &text(data, "id"), |it| it.my_reaction = emoji);
 			announce(parts, &spoken);
@@ -451,21 +444,17 @@ fn show_viewers(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 		let reaction = text(v, "reaction");
 		let mut label = format!("{name}, {time}");
 		if !reaction.is_empty() {
-			if crate::i18n::is_indonesian() {
-				label.push_str(&format!(", bereaksi {reaction}"));
-			} else {
-				label.push_str(&format!(", reacted {reaction}"));
-			}
+			label.push_str(&crate::i18n::tr_fmt(", reacted {}", &[&reaction]));
 		}
 		items.push((jid, name));
 		labels.push(label);
 	}
 	let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 	let count = labels.len();
-	let title = if crate::i18n::is_indonesian() {
-		format!("Dilihat oleh {count} orang")
+	let title = if count == 1 {
+		crate::i18n::tr("Viewed by 1 person").to_string()
 	} else {
-		format!("Viewed by {count} {}", if count == 1 { "person" } else { "people" })
+		crate::i18n::tr_fmt("Viewed by {} people", &[&count])
 	};
 	let dialog = SingleChoiceDialog::builder(&parts.frame, &title, crate::i18n::tr("Viewed By"), &refs).build();
 	if dialog.show_modal() == wxdragon::id::ID_OK

@@ -59,52 +59,32 @@ fn in_window(earliest: &str, latest: &str, date: &str, time: &str) -> bool {
 }
 
 fn translate_day_label(label: &str) -> String {
-	if !crate::i18n::is_indonesian() {
-		return label.to_string();
-	}
-	let mut out = label.to_string();
-	if let Some(rest) = out.strip_prefix("Today, ") {
-		out = format!("Hari ini, {rest}");
-	} else if let Some(rest) = out.strip_prefix("Tomorrow, ") {
-		out = format!("Besok, {rest}");
-	}
-	for (en, id) in [
-		("Sunday", "Minggu"),
-		("Monday", "Senin"),
-		("Tuesday", "Selasa"),
-		("Wednesday", "Rabu"),
-		("Thursday", "Kamis"),
-		("Friday", "Jumat"),
-		("Saturday", "Sabtu"),
-		("January", "Januari"),
-		("February", "Februari"),
-		("March", "Maret"),
-		("April", "April"),
-		("May", "Mei"),
-		("June", "Juni"),
-		("July", "Juli"),
-		("August", "Agustus"),
-		("September", "September"),
-		("October", "Oktober"),
-		("November", "November"),
-		("December", "Desember"),
-	] {
-		out = out.replace(en, id);
-	}
-	out
+	let out = if let Some(rest) = label.strip_prefix("Today, ") {
+		crate::i18n::tr_fmt("Today, {}", &[&rest])
+	} else if let Some(rest) = label.strip_prefix("Tomorrow, ") {
+		crate::i18n::tr_fmt("Tomorrow, {}", &[&rest])
+	} else {
+		label.to_string()
+	};
+	whatsnap::local_time::translate_day_and_month_names(&out)
+}
+
+/// The minutes and days in "Choose a time at least 15 minutes from now and
+/// no more than 30 days ahead."
+fn window_limits(err: &str) -> Option<(&str, &str)> {
+	let rest = err.strip_prefix("Choose a time at least ")?;
+	let (mins, tail) = rest.split_once(" minutes from now and no more than ")?;
+	Some((mins, tail.strip_suffix(" days ahead.")?))
 }
 
 fn translate_window_error(err: &str) -> String {
-	if !crate::i18n::is_indonesian() {
-		return err.to_string();
+	match window_limits(err) {
+		Some((mins, days)) => crate::i18n::tr_fmt(
+			"Choose a time at least {} minutes from now and no more than {} days ahead.",
+			&[&mins, &days],
+		),
+		None => crate::i18n::translate_backend_message(err),
 	}
-	if let Some(rest) = err.strip_prefix("Choose a time at least ")
-		&& let Some((mins, tail)) = rest.split_once(" minutes from now and no more than ")
-		&& let Some(days) = tail.strip_suffix(" days ahead.")
-	{
-		return format!("Pilih waktu minimal {mins} menit dari sekarang dan paling lambat {days} hari ke depan.");
-	}
-	crate::i18n::translate_backend_message(err)
 }
 
 fn error(parent: &Dialog, message: &str) {
@@ -178,17 +158,17 @@ pub fn show_schedule_dialog(parent: &impl WxWidget, options: &ScheduleOptions, t
 	minute_combo.set_selection(minutes.iter().position(|m| m == default_minute).unwrap_or(0) as u32);
 	sizer.add(&minute_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let info_text = if crate::i18n::is_indonesian() {
-		let rule = translate_window_error(&options.window_error).replacen("Pilih waktu", "Waktu harus", 1);
-		format!("{} {} dari {} pesan dijadwalkan di chat ini.", rule, options.pending, options.limit)
-	} else {
-		format!(
-			"{} {} of {} messages are scheduled in this chat.",
-			options.window_error.replacen("Choose a time", "The time has to be", 1),
-			options.pending,
-			options.limit
-		)
+	let rule = match window_limits(&options.window_error) {
+		Some((mins, days)) => crate::i18n::tr_fmt(
+			"The time has to be at least {} minutes from now and no more than {} days ahead.",
+			&[&mins, &days],
+		),
+		None => options.window_error.replacen("Choose a time", "The time has to be", 1),
 	};
+	let info_text = crate::i18n::tr_fmt(
+		"{} {} of {} messages are scheduled in this chat.",
+		&[&rule, &options.pending, &options.limit],
+	);
 	let info = StaticText::builder(&panel).with_label(&info_text).build();
 	theme::style_muted_label(&info);
 	sizer.add(&info, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);

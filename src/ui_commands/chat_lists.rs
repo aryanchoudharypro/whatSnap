@@ -447,8 +447,9 @@ fn show_list_chats(state: &Rc<RefCell<AppState>>, manager: &Rc<ListManager>, id:
 			search: "Search chats",
 			on: "chosen",
 			off: "not chosen",
-			one: "chat",
-			many: "chats",
+			none: "No chats chosen.",
+			one: "1 chat chosen.",
+			many: "{} chats chosen.",
 			require_one: None,
 		};
 		let title = crate::i18n::tr_fmt("Add Chats to {}", &[&name]);

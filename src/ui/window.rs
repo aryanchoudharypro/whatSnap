@@ -43,31 +43,25 @@ fn contact_toggled_announcement(label: &str, checked: bool, selected: usize) -> 
 	}
 }
 
+/// What adding whatSnap to the Windows Share menu said, when it's one of these.
+static SHARE_MENU_TEXTS: [&str; 3] = [
+	"whatSnap is now in the Windows Share menu.",
+	"This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again.",
+	"whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu.",
+];
+
 fn translate_share_menu_result(text: &str) -> String {
-	if !crate::i18n::is_indonesian() {
-		return text.to_string();
+	if let Some(exact) = SHARE_MENU_TEXTS.iter().copied().find(|s| *s == text) {
+		return crate::i18n::tr(exact).to_string();
 	}
-	match text {
-		"whatSnap is now in the Windows Share menu." => {
-			"whatSnap kini ada di menu Bagikan Windows.".to_string()
+	let Some(rest) = text.strip_prefix("whatSnap couldn't be added to the Share menu.\n\n") else {
+		return text.to_string();
+	};
+	match rest.strip_prefix("Signing failed: ") {
+		Some(reason) => {
+			crate::i18n::tr_fmt("whatSnap couldn't be added to the Share menu.\n\nSigning failed: {}", &[&reason])
 		}
-		"This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again." => {
-			"Salinan whatSnap ini tidak menyertakan paket menu Bagikan. Instal ulang whatSnap lalu coba lagi."
-				.to_string()
-		}
-		"whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu." => {
-			"whatSnap tidak ditambahkan ke menu Bagikan karena diperlukan persetujuan administrator satu kali. Anda tetap dapat mengirim file lewat Kirim ke di menu Explorer."
-				.to_string()
-		}
-		_ => {
-			if let Some(reason) = text.strip_prefix("whatSnap couldn't be added to the Share menu.\n\nSigning failed: ") {
-				format!("whatSnap tidak dapat ditambahkan ke menu Bagikan.\n\nPenandatanganan gagal: {reason}")
-			} else if let Some(err) = text.strip_prefix("whatSnap couldn't be added to the Share menu.\n\n") {
-				format!("whatSnap tidak dapat ditambahkan ke menu Bagikan.\n\n{err}")
-			} else {
-				text.to_string()
-			}
-		}
+		None => crate::i18n::tr_fmt("whatSnap couldn't be added to the Share menu.\n\n{}", &[&rest]),
 	}
 }
 

@@ -6868,3 +6868,1137 @@ msgstr ""
 msgid "{}, sent at {}"
 msgstr ""
 
+msgid "Always show the Locked Chats button, even when locked chats are hidden on the phone"
+msgstr ""
+
+msgid "Anyone with the link can join right away."
+msgstr ""
+
+msgid "Joined your call link"
+msgstr ""
+
+msgid "New participants will wait until you let them in."
+msgstr ""
+
+msgid "Protect IP address in calls: calls always go through WhatsApp's servers, on all your devices"
+msgstr ""
+
+msgid "Someone joined your call link"
+msgstr ""
+
+msgid "Stop ringing {}"
+msgstr ""
+
+msgid "Stopped ringing {}."
+msgstr ""
+
+msgid "Want to join your call link"
+msgstr ""
+
+msgid "Wants to join your call link"
+msgstr ""
+
+msgid "Add Attachment"
+msgstr ""
+
+msgid "Chat list template"
+msgstr ""
+
+msgid "Say only the status and time"
+msgstr ""
+
+msgid "Video Call"
+msgstr ""
+
+msgid "Voice Call"
+msgstr ""
+
+msgid "Voice message: go back"
+msgstr ""
+
+msgid "Voice message: go forward"
+msgstr ""
+
+msgid "Window title template"
+msgstr ""
+
+msgid " (including "
+msgstr " (termasuk "
+
+msgid " (including 1 guest)"
+msgstr " (termasuk 1 tamu)"
+
+msgid " 1 vote"
+msgstr " 1 suara"
+
+msgid " You can't go."
+msgstr " Anda tidak bisa hadir."
+
+msgid " You said maybe."
+msgstr " Anda menjawab mungkin."
+
+msgid " You're going."
+msgstr " Anda akan hadir."
+
+msgid " can't go."
+msgstr " tidak bisa hadir."
+
+msgid " going"
+msgstr " hadir"
+
+msgid " guests)"
+msgstr " tamu)"
+
+msgid " maybe, "
+msgstr " mungkin, "
+
+msgid " people voted"
+msgstr " orang memilih"
+
+msgid " votes"
+msgstr " suara"
+
+msgid " votes in all"
+msgstr " suara keseluruhan"
+
+msgid ", out of stock"
+msgstr ", stok habis"
+
+msgid ". No votes yet"
+msgstr ". Belum ada suara"
+
+msgid ". No votes yet."
+msgstr ". Belum ada suara."
+
+msgid "1 person voted"
+msgstr "1 orang memilih"
+
+msgid "1 vote in all"
+msgstr "1 suara keseluruhan"
+
+msgid "Admin invite cancelled."
+msgstr "Undangan admin dibatalkan."
+
+msgid "Admin invite sent."
+msgstr "Undangan admin terkirim."
+
+msgid "Admin invites sent to {} people."
+msgstr "Undangan admin dikirim ke {} orang."
+
+msgid "Admin removed."
+msgstr "Admin dihapus."
+
+msgid "An option added to a poll was removed"
+msgstr "Opsi yang ditambahkan ke polling telah dihapus"
+
+msgid "Calls aren't available yet."
+msgstr "Fitur panggilan belum tersedia."
+
+msgid "Can't create the event: {}"
+msgstr "Tidak dapat membuat acara: {}"
+
+msgid "Can't pin this post: it hasn't finished loading from the channel."
+msgstr "Belum dapat menyematkan postingan ini karena masih dimuat dari saluran."
+
+msgid "Can't reach WhatsApp. Check your internet connection."
+msgstr "Tidak dapat terhubung ke WhatsApp. Periksa koneksi internet Anda."
+
+msgid "Can't react to this post: it hasn't finished loading from the channel."
+msgstr "Belum dapat bereaksi ke postingan ini karena masih dimuat dari saluran."
+
+msgid "Can't vote in this poll: it hasn't finished loading from the channel."
+msgstr "Belum dapat memilih di polling ini karena masih dimuat dari saluran."
+
+msgid "Channel picture changed."
+msgstr "Foto saluran diubah."
+
+msgid "Channel picture removed."
+msgstr "Foto saluran dihapus."
+
+msgid "Choose a date and a time for the message."
+msgstr "Pilih tanggal dan waktu untuk pesan."
+
+msgid "Could not start pairing: {}"
+msgstr "Tidak dapat memulai penautan: {}"
+
+msgid "Couldn't accept the invite: {}"
+msgstr "Tidak dapat menerima undangan: {}"
+
+msgid "Couldn't add {}"
+msgstr "Tidak dapat menambahkan {}"
+
+msgid "Couldn't add {}: WhatsApp hasn't sent the call details needed to invite someone yet. Try again in a moment."
+msgstr "Tidak dapat menambahkan {}: WhatsApp belum mengirim detail panggilan. Coba sebentar lagi."
+
+msgid "Couldn't add {}: the call is full."
+msgstr "Tidak dapat menambahkan {}: panggilan sudah penuh."
+
+msgid "Couldn't add {}: they have no device that can take a call."
+msgstr "Tidak dapat menambahkan {}: tidak ada perangkat yang bisa menerima panggilan."
+
+msgid "Couldn't answer the event: {}"
+msgstr "Tidak dapat menjawab acara: {}"
+
+msgid "Couldn't answer the join requests: {}"
+msgstr "Tidak dapat menjawab permintaan bergabung: {}"
+
+msgid "Couldn't cancel the invite: {}"
+msgstr "Tidak dapat membatalkan undangan: {}"
+
+msgid "Couldn't change a group setting: {}"
+msgstr "Tidak dapat mengubah setelan grup: {}"
+
+msgid "Couldn't change advanced chat privacy: {}"
+msgstr "Tidak dapat mengubah privasi chat lanjutan: {}"
+
+msgid "Couldn't change disappearing messages: {}"
+msgstr "Tidak dapat mengubah pesan sementara: {}"
+
+msgid "Couldn't change link previews: {}"
+msgstr "Tidak dapat mengubah pratinjau tautan: {}"
+
+msgid "Couldn't change muted status updates: {}"
+msgstr "Tidak dapat mengubah status yang dibisukan: {}"
+
+msgid "Couldn't change the channel's admins: {}"
+msgstr "Tidak dapat mengubah admin saluran: {}"
+
+msgid "Couldn't change the channel: {}"
+msgstr "Tidak dapat mengubah saluran: {}"
+
+msgid "Couldn't change the default message timer: {}"
+msgstr "Tidak dapat mengubah pengatur waktu pesan bawaan: {}"
+
+msgid "Couldn't change this channel's mute setting: {}"
+msgstr "Tidak dapat mengubah setelan bisukan saluran ini: {}"
+
+msgid "Couldn't change who sees your status: {}"
+msgstr "Tidak dapat mengubah siapa yang dapat melihat status Anda: {}"
+
+msgid "Couldn't change your favorite stickers: {}"
+msgstr "Tidak dapat mengubah stiker favorit Anda: {}"
+
+msgid "Couldn't change your profile photo: {}"
+msgstr "Tidak dapat mengubah foto profil Anda: {}"
+
+msgid "Couldn't change your tag: {}"
+msgstr "Tidak dapat mengubah label Anda: {}"
+
+msgid "Couldn't complete the secure connection to WhatsApp."
+msgstr "Tidak dapat menyelesaikan koneksi aman ke WhatsApp."
+
+msgid "Couldn't connect to WhatsApp."
+msgstr "Tidak dapat terhubung ke WhatsApp."
+
+msgid "Couldn't create the call link: {}"
+msgstr "Tidak dapat membuat tautan panggilan: {}"
+
+msgid "Couldn't create the channel: {}"
+msgstr "Tidak dapat membuat saluran: {}"
+
+msgid "Couldn't create the community: {}"
+msgstr "Tidak dapat membuat komunitas: {}"
+
+msgid "Couldn't deactivate the community: {}"
+msgstr "Tidak dapat menonaktifkan komunitas: {}"
+
+msgid "Couldn't delete scheduled message."
+msgstr "Tidak dapat menghapus pesan terjadwal."
+
+msgid "Couldn't delete scheduled message. Connect to the internet and try again."
+msgstr "Tidak dapat menghapus pesan terjadwal. Hubungkan ke internet lalu coba lagi."
+
+msgid "Couldn't delete the channel: {}"
+msgstr "Tidak dapat menghapus saluran: {}"
+
+msgid "Couldn't delete the contact: {}"
+msgstr "Tidak dapat menghapus kontak: {}"
+
+msgid "Couldn't delete the status: {}"
+msgstr "Tidak dapat menghapus status: {}"
+
+msgid "Couldn't find this channel."
+msgstr "Saluran ini tidak ditemukan."
+
+msgid "Couldn't forward the media: {}"
+msgstr "Tidak dapat meneruskan media: {}"
+
+msgid "Couldn't get the invite link: {}"
+msgstr "Tidak dapat mengambil tautan undangan: {}"
+
+msgid "Couldn't join the call: {}"
+msgstr "Tidak dapat bergabung ke panggilan: {}"
+
+msgid "Couldn't join this group: its community isn't known. Open the community's groups list and try again."
+msgstr "Tidak dapat bergabung ke grup ini karena komunitasnya belum diketahui. Buka daftar grup komunitas lalu coba lagi."
+
+msgid "Couldn't join this group: {}"
+msgstr "Tidak dapat bergabung ke grup ini: {}"
+
+msgid "Couldn't keep the message: {}"
+msgstr "Tidak dapat menyimpan pesan: {}"
+
+msgid "Couldn't like the status: {}"
+msgstr "Tidak dapat menyukai status: {}"
+
+msgid "Couldn't load WhatsApp's sticker packs: {}"
+msgstr "Tidak dapat memuat paket stiker WhatsApp: {}"
+
+msgid "Couldn't load channels: {}"
+msgstr "Tidak dapat memuat saluran: {}"
+
+msgid "Couldn't load member changes: {}"
+msgstr "Tidak dapat memuat riwayat perubahan anggota: {}"
+
+msgid "Couldn't load reported messages: {}"
+msgstr "Tidak dapat memuat pesan yang dilaporkan: {}"
+
+msgid "Couldn't load similar channels: {}"
+msgstr "Tidak dapat memuat saluran serupa: {}"
+
+msgid "Couldn't load the catalogue. This business may not have one."
+msgstr "Tidak dapat memuat katalog. Akun bisnis ini mungkin belum memilikinya."
+
+msgid "Couldn't load the channel's followers: {}"
+msgstr "Tidak dapat memuat pengikut saluran: {}"
+
+msgid "Couldn't load the community's groups: {}"
+msgstr "Tidak dapat memuat grup komunitas: {}"
+
+msgid "Couldn't load the group's members to mention: {}"
+msgstr "Tidak dapat memuat daftar anggota untuk disebut: {}"
+
+msgid "Couldn't load the group: {}"
+msgstr "Tidak dapat memuat grup: {}"
+
+msgid "Couldn't load the groups in common: {}"
+msgstr "Tidak dapat memuat grup yang sama: {}"
+
+msgid "Couldn't load the join requests: {}"
+msgstr "Tidak dapat memuat permintaan bergabung: {}"
+
+msgid "Couldn't load the order's details."
+msgstr "Tidak dapat memuat detail pesanan."
+
+msgid "Couldn't load the pending admin invites: {}"
+msgstr "Tidak dapat memuat undangan admin tertunda: {}"
+
+msgid "Couldn't load the pinned messages."
+msgstr "Tidak dapat memuat pesan yang disematkan."
+
+msgid "Couldn't load this channel's posts: {}"
+msgstr "Tidak dapat memuat postingan saluran ini: {}"
+
+msgid "Couldn't load this channel: {}"
+msgstr "Tidak dapat memuat saluran ini: {}"
+
+msgid "Couldn't load this sticker pack."
+msgstr "Tidak dapat memuat paket stiker ini."
+
+msgid "Couldn't load who reacted: {}"
+msgstr "Tidak dapat memuat daftar reaksi: {}"
+
+msgid "Couldn't load who voted: {}"
+msgstr "Tidak dapat memuat daftar pemilih: {}"
+
+msgid "Couldn't load your groups: {}"
+msgstr "Tidak dapat memuat grup Anda: {}"
+
+msgid "Couldn't open this invite link: {}"
+msgstr "Tidak dapat membuka tautan undangan ini: {}"
+
+msgid "Couldn't pin: {}"
+msgstr "Tidak dapat menyematkan: {}"
+
+msgid "Couldn't react to the status: {}"
+msgstr "Tidak dapat bereaksi terhadap status: {}"
+
+msgid "Couldn't react: {}"
+msgstr "Tidak dapat memberi reaksi: {}"
+
+msgid "Couldn't read the group's settings: {}"
+msgstr "Tidak dapat membaca setelan grup: {}"
+
+msgid "Couldn't recover this message's text to send it now."
+msgstr "Tidak dapat memulihkan teks pesan ini untuk dikirim sekarang."
+
+msgid "Couldn't refresh WhatsApp's connection token."
+msgstr "Tidak dapat menyegarkan token koneksi WhatsApp."
+
+msgid "Couldn't report to the admins: {}"
+msgstr "Tidak dapat melapor ke admin: {}"
+
+msgid "Couldn't save the excluded contacts: {}"
+msgstr "Tidak dapat menyimpan kontak yang dikecualikan: {}"
+
+msgid "Couldn't send an admin invite to {}"
+msgstr "Tidak dapat mengirim undangan admin ke {}"
+
+msgid "Couldn't send the message history: {}"
+msgstr "Tidak dapat mengirim riwayat pesan: {}"
+
+msgid "Couldn't send the report: {}"
+msgstr "Tidak dapat mengirim laporan: {}"
+
+msgid "Couldn't send the sticker: {}"
+msgstr "Tidak dapat mengirim stiker: {}"
+
+msgid "Couldn't send the vote: {}"
+msgstr "Tidak dapat mengirim pilihan: {}"
+
+msgid "Couldn't send your answer: {}"
+msgstr "Tidak dapat mengirim jawaban Anda: {}"
+
+msgid "Couldn't update participant(s): {}"
+msgstr "Tidak dapat memperbarui peserta: {}"
+
+msgid "Couldn't use that photo: {}"
+msgstr "Tidak dapat menggunakan foto tersebut: {}"
+
+msgid "Couldn't use the picture: {}"
+msgstr "Tidak dapat menggunakan foto tersebut: {}"
+
+msgid "Couldn't vote: {}"
+msgstr "Tidak dapat memilih: {}"
+
+msgid "Couldn't {}"
+msgstr "Tidak dapat memproses: {}"
+
+msgid "Disconnected: Connection lost. Attempting to reconnect..."
+msgstr "Terputus: koneksi terputus. Mencoba menghubungkan kembali..."
+
+msgid "Disconnected: Logged out from primary device."
+msgstr "Terputus: keluar dari perangkat utama."
+
+msgid "Events can't be posted in channels."
+msgstr "Acara tidak dapat diposting di saluran."
+
+msgid "Export failed while finalizing archive: {}"
+msgstr "Ekspor gagal saat menyelesaikan arsip: {}"
+
+msgid "Export failed: {}"
+msgstr "Ekspor gagal: {}"
+
+msgid "Failed to answer call: {}"
+msgstr "Gagal menjawab panggilan: {}"
+
+msgid "Failed to clear chat: {}"
+msgstr "Gagal membersihkan chat: {}"
+
+msgid "Failed to delete chat: {}"
+msgstr "Gagal menghapus chat: {}"
+
+msgid "Failed to leave group: {}"
+msgstr "Gagal keluar dari grup: {}"
+
+msgid "Failed to parse message protobuf for forwarding"
+msgstr "Gagal membaca data pesan untuk diteruskan"
+
+msgid "Failed to post status: {}"
+msgstr "Gagal memposting status: {}"
+
+msgid "Failed to send QR image"
+msgstr "Gagal mengirim gambar QR"
+
+msgid "Group created"
+msgstr "Grup dibuat"
+
+msgid "Group name changed to \"{}\""
+msgstr "Nama grup diubah menjadi \"{}\""
+
+msgid "Left the group, but failed to delete the chat: {}"
+msgstr "Berhasil keluar dari grup, tetapi gagal menghapus chat: {}"
+
+msgid "Logged out from primary device."
+msgstr "Terputus: keluar dari perangkat utama."
+
+msgid "Logout failed: {}"
+msgstr "Gagal keluar akun: {}"
+
+msgid "Message not found for forwarding"
+msgstr "Pesan tidak ditemukan untuk diteruskan"
+
+msgid "Message not found for retry"
+msgstr "Pesan tidak ditemukan untuk dikirim ulang"
+
+msgid "Messages can't be scheduled in this chat."
+msgstr "Pesan tidak dapat dijadwalkan di chat ini."
+
+msgid "No responses yet."
+msgstr "Belum ada tanggapan."
+
+msgid "Not on WhatsApp or query failed"
+msgstr "Tidak terdaftar di WhatsApp atau pemeriksaan gagal"
+
+msgid "Not responding."
+msgstr "Tidak merespons."
+
+msgid "Only group admins can see this group's invite link."
+msgstr "Hanya admin grup yang dapat melihat tautan undangan grup ini."
+
+msgid "Only this channel's admins can post in it."
+msgstr "Hanya admin saluran ini yang dapat memposting."
+
+msgid "Options were removed from a poll"
+msgstr "Opsi dihapus dari polling"
+
+msgid "Options: "
+msgstr "Opsi: "
+
+msgid "Ownership handed over. You're now an admin."
+msgstr "Kepemilikan diserahkan. Anda kini menjadi admin."
+
+msgid "Pairing failed: {}"
+msgstr "Penautan gagal: {}"
+
+msgid "Participant {} is not on WhatsApp"
+msgstr "Peserta {} tidak terdaftar di WhatsApp"
+
+msgid "Phone could not re-upload the expired media"
+msgstr "Ponsel tidak dapat mengunggah ulang media yang kedaluwarsa"
+
+msgid "Phone could not re-upload the media"
+msgstr "Ponsel tidak dapat mengunggah ulang media"
+
+msgid "Post pinned."
+msgstr "Postingan disematkan."
+
+msgid "Post unpinned."
+msgstr "Sematan postingan dilepas."
+
+msgid "Recent message history was shared with {}"
+msgstr "Riwayat pesan terbaru dibagikan dengan {}"
+
+msgid "Some participants have privacy settings that prevent being added directly. An invite link was sent to them instead."
+msgstr "Beberapa peserta memiliki setelan privasi yang membatasi penambahan langsung. Tautan undangan telah dikirim kepada mereka."
+
+msgid "That call has already ended."
+msgstr "Panggilan tersebut sudah berakhir."
+
+msgid "That call is no longer available."
+msgstr "Panggilan tersebut sudah tidak tersedia."
+
+msgid "That isn't a sticker that can be added to favorites."
+msgstr "Stiker ini tidak dapat ditambahkan ke favorit."
+
+msgid "That scheduled message is already gone."
+msgstr "Pesan terjadwal tersebut sudah tidak ada."
+
+msgid "That status update isn't here any more."
+msgstr "Pembaruan status tersebut sudah tidak tersedia."
+
+msgid "The answer is "
+msgstr "Jawabannya adalah "
+
+msgid "The community \"{}\" was deactivated"
+msgstr "Komunitas \"{}\" telah dinonaktifkan"
+
+msgid "The community was created, but its description couldn't be set: {}"
+msgstr "Komunitas berhasil dibuat, tetapi deskripsinya tidak dapat diatur: {}"
+
+msgid "The original file is no longer available to retry."
+msgstr "File asli tidak lagi tersedia untuk dikirim ulang."
+
+msgid "The pairing code expired. Ask for a new one to try again."
+msgstr "Kode penautan sudah kedaluwarsa. Minta kode baru untuk mencoba lagi."
+
+msgid "There's no one else in this group to call."
+msgstr "Tidak ada orang lain di grup ini untuk ditelepon."
+
+msgid "This contact card can't be opened here."
+msgstr "Kartu kontak ini tidak dapat dibuka di sini."
+
+msgid "This event can't be opened here."
+msgstr "Acara ini tidak dapat dibuka di sini."
+
+msgid "This event was cancelled."
+msgstr "Acara ini dibatalkan."
+
+msgid "This group invite has expired."
+msgstr "Undangan grup ini sudah kedaluwarsa."
+
+msgid "This group needs an admin to approve new members. Your request to join was sent."
+msgstr "Grup ini memerlukan persetujuan admin untuk anggota baru. Permintaan bergabung Anda telah dikirim."
+
+msgid "This group was added to the community \"{}\""
+msgstr "Grup ini ditambahkan ke komunitas \"{}\""
+
+msgid "This group was removed from the community \"{}\""
+msgstr "Grup ini dikeluarkan dari komunitas \"{}\""
+
+msgid "This invite is no longer valid: {}"
+msgstr "Undangan ini tidak lagi valid: {}"
+
+msgid "This invite link isn't valid."
+msgstr "Tautan undangan ini tidak valid."
+
+msgid "This invite link was reset by a group admin and no longer works."
+msgstr "Tautan undangan ini telah disetel ulang oleh admin grup dan tidak berlaku lagi."
+
+msgid "This kind of message can't be forwarded."
+msgstr "Jenis pesan ini tidak dapat diteruskan."
+
+msgid "This message can only be forwarded to {} chat(s) at a time."
+msgstr "Pesan ini hanya dapat diteruskan ke maksimal {} chat sekaligus."
+
+msgid "This message has no buttons."
+msgstr "Pesan ini tidak memiliki tombol."
+
+msgid "This message isn't a contact card."
+msgstr "Pesan ini bukan merupakan kartu kontak."
+
+msgid "This message's buttons can't be opened here."
+msgstr "Tombol pesan ini tidak dapat dibuka di sini."
+
+msgid "This poll can't be opened here."
+msgstr "Polling ini tidak dapat dibuka di sini."
+
+msgid "This poll hasn't finished loading from the channel."
+msgstr "Polling ini belum selesai dimuat dari saluran."
+
+msgid "This post hasn't finished loading from the channel."
+msgstr "Postingan ini belum selesai dimuat dari saluran."
+
+msgid "This version of whatSnap is outdated. Please update it."
+msgstr "Versi whatSnap ini sudah kedaluwarsa. Silakan perbarui."
+
+msgid "Timeout waiting for phone to re-upload media"
+msgstr "Waktu habis menunggu ponsel mengunggah ulang media"
+
+msgid "View once media opens outside the viewer."
+msgstr "Media sekali lihat dibuka di luar penampil."
+
+msgid "View once messages can't be forwarded."
+msgstr "Pesan sekali lihat tidak dapat diteruskan."
+
+msgid "Wait for the call to connect before adding someone."
+msgstr "Tunggu hingga panggilan terhubung sebelum menambahkan peserta."
+
+msgid "WhatsApp error 479: Failed to delete for everyone. The message key mismatch or the revoke time limit expired."
+msgstr "Gagal menghapus untuk semua orang: kunci pesan tidak cocok atau batas waktu penarikan telah habis."
+
+msgid "WhatsApp has rejected this version of whatSnap as outdated. Please update whatSnap to reconnect."
+msgstr "WhatsApp menolak versi whatSnap ini karena sudah kedaluwarsa. Perbarui whatSnap untuk menghubungkan kembali."
+
+msgid "WhatsApp hasn't turned on pinning channel posts for your account yet."
+msgstr "WhatsApp belum mengaktifkan fitur sematkan postingan saluran untuk akun Anda."
+
+msgid "You added this group to the community \"{}\""
+msgstr "Anda menambahkan grup ini ke komunitas \"{}\""
+
+msgid "You added {}"
+msgstr "Anda menambahkan {}"
+
+msgid "You blocked this contact."
+msgstr "Anda memblokir kontak ini."
+
+msgid "You can only forward to channels you run."
+msgstr "Anda hanya dapat meneruskan ke saluran yang Anda kelola."
+
+msgid "You can't add yourself to the call."
+msgstr "Anda tidak dapat menambahkan diri sendiri ke panggilan."
+
+msgid "You changed the group description"
+msgstr "Anda mengubah deskripsi grup"
+
+msgid "You changed the group name to \"{}\""
+msgstr "Anda mengubah nama grup menjadi \"{}\""
+
+msgid "You changed this group's icon"
+msgstr "Anda mengubah ikon grup ini"
+
+msgid "You changed this group's settings to allow all members to add others to this group"
+msgstr "Anda mengubah setelan grup agar semua anggota dapat menambahkan anggota"
+
+msgid "You changed this group's settings to allow all members to edit this group's info"
+msgstr "Anda mengubah setelan grup agar semua anggota dapat mengedit info grup"
+
+msgid "You changed this group's settings to allow all members to send messages to this group"
+msgstr "Anda mengubah setelan grup agar semua anggota dapat mengirim pesan"
+
+msgid "You changed this group's settings to allow only admins to add others to this group"
+msgstr "Anda mengubah setelan grup agar hanya admin yang dapat menambahkan anggota"
+
+msgid "You changed this group's settings to allow only admins to edit this group's info"
+msgstr "Anda mengubah setelan grup agar hanya admin yang dapat mengedit info grup"
+
+msgid "You changed this group's settings to allow only admins to send messages to this group"
+msgstr "Anda mengubah setelan grup agar hanya admin yang dapat mengirim pesan"
+
+msgid "You created the group"
+msgstr "Anda membuat grup ini"
+
+msgid "You created this group"
+msgstr "Anda membuat grup ini"
+
+msgid "You deleted the group description"
+msgstr "Anda menghapus deskripsi grup"
+
+msgid "You deleted this group"
+msgstr "Anda menghapus grup ini"
+
+msgid "You deleted this group's icon"
+msgstr "Anda menghapus ikon grup ini"
+
+msgid "You got it right: the answer is "
+msgstr "Jawaban Anda benar: jawabannya adalah "
+
+msgid "You have reached the maximum number of messages you can schedule."
+msgstr "Anda telah mencapai batas maksimum pesan terjadwal."
+
+msgid "You joined"
+msgstr "Anda bergabung"
+
+msgid "You joined the group"
+msgstr "Anda bergabung ke grup ini"
+
+msgid "You joined using this group's invite link"
+msgstr "Anda bergabung melalui tautan undangan grup ini"
+
+msgid "You left"
+msgstr "Anda keluar"
+
+msgid "You made {} a group admin"
+msgstr "Anda menjadikan {} sebagai admin grup"
+
+msgid "You must configure a Secret Code for Chat Lock on your primary phone before you can lock or unlock chats from this device."
+msgstr "Atur Kode Rahasia Kunci Chat di ponsel utama Anda terlebih dahulu sebelum mengunci atau membuka chat dari perangkat ini."
+
+msgid "You pinned a message"
+msgstr "Anda menyematkan pesan"
+
+msgid "You received a view once message. For added privacy, you can only open it on your phone."
+msgstr "Anda menerima pesan sekali lihat. Demi privasi, pesan ini hanya bisa dibuka di ponsel Anda."
+
+msgid "You removed an option that was added to a poll"
+msgstr "Anda menghapus opsi yang ditambahkan ke polling"
+
+msgid "You removed options from a poll"
+msgstr "Anda menghapus opsi dari polling"
+
+msgid "You removed this group from the community \"{}\""
+msgstr "Anda mengeluarkan grup ini dari komunitas \"{}\""
+
+msgid "You removed {}"
+msgstr "Anda mengeluarkan {}"
+
+msgid "You removed {} as group admin"
+msgstr "Anda mencopot {} sebagai admin grup"
+
+msgid "You reset this group's invite link"
+msgstr "Anda menyetel ulang tautan undangan grup ini"
+
+msgid "You scheduled a message"
+msgstr "Anda menjadwalkan pesan"
+
+msgid "You sent a view once message from another device."
+msgstr "Anda mengirim pesan sekali lihat dari perangkat lain."
+
+msgid "You shared recent message history"
+msgstr "Anda membagikan riwayat pesan terbaru"
+
+msgid "You shared recent message history with {}"
+msgstr "Anda membagikan riwayat pesan terbaru dengan {}"
+
+msgid "You turned off admin approval to join this group"
+msgstr "Anda menonaktifkan persetujuan admin untuk bergabung ke grup ini"
+
+msgid "You turned off advanced chat privacy"
+msgstr "Anda menonaktifkan privasi chat lanjutan"
+
+msgid "You turned off disappearing messages."
+msgstr "Anda menonaktifkan pesan sementara."
+
+msgid "You turned on admin approval to join this group"
+msgstr "Anda mengaktifkan persetujuan admin untuk bergabung ke grup ini"
+
+msgid "You turned on advanced chat privacy"
+msgstr "Anda mengaktifkan privasi chat lanjutan"
+
+msgid "You turned on disappearing messages. New messages will disappear from this chat {} after they're sent."
+msgstr "Anda mengaktifkan pesan sementara. Pesan baru akan hilang dari chat ini {} setelah dikirim."
+
+msgid "You unblocked this contact."
+msgstr "Anda membuka blokir kontak ini."
+
+msgid "You're now an admin of this channel."
+msgstr "Anda kini menjadi admin saluran ini."
+
+msgid "You've already answered this quiz."
+msgstr "Anda sudah menjawab kuis ini."
+
+msgid "You've already opened this view once message."
+msgstr "Anda sudah membuka pesan sekali lihat ini."
+
+msgid "You've already played this view once voice message."
+msgstr "Anda sudah memutar pesan suara sekali lihat ini."
+
+msgid "Your security code with {} changed."
+msgstr "Kode keamanan Anda dengan {} telah berubah."
+
+msgid "[Asked for your phone number]"
+msgstr "Meminta nomor telepon Anda"
+
+msgid "[Audio]"
+msgstr "Audio"
+
+msgid "[Audio] {}"
+msgstr "Audio {}"
+
+msgid "[Channel Admin Invite]"
+msgstr "Undangan admin saluran"
+
+msgid "[Channel Admin Invite] {}"
+msgstr "Undangan admin saluran: {}"
+
+msgid "[Channel Invite]"
+msgstr "Undangan saluran"
+
+msgid "[Channel Invite] {}"
+msgstr "Undangan saluran: {}"
+
+msgid "[Event cancelled]"
+msgstr "Acara dibatalkan"
+
+msgid "[Event cancelled] {}"
+msgstr "Acara dibatalkan: {}"
+
+msgid "[Event]"
+msgstr "Acara"
+
+msgid "[Event] {}"
+msgstr "Acara: {}"
+
+msgid "[Group Invite]"
+msgstr "Undangan grup"
+
+msgid "[Group Invite] {}"
+msgstr "Undangan grup: {}"
+
+msgid "[Mentioned you in a status update]"
+msgstr "Menyebut Anda dalam pembaruan status"
+
+msgid "[Order]"
+msgstr "Pesanan"
+
+msgid "[Order] {}"
+msgstr "Pesanan: {}"
+
+msgid "[Payment] Open WhatsApp on your phone to see this payment."
+msgstr "Pembayaran: buka WhatsApp di ponsel Anda untuk melihat pembayaran ini."
+
+msgid "[Poll results]"
+msgstr "Hasil polling"
+
+msgid "[Poll results] {}"
+msgstr "Hasil polling: {}"
+
+msgid "[Product]"
+msgstr "Produk"
+
+msgid "[Product] {}"
+msgstr "Produk: {}"
+
+msgid "[Protocol Message]"
+msgstr "Pesan sistem"
+
+msgid "[Reaction]"
+msgstr "Reaksi"
+
+msgid "[Scheduled Call]"
+msgstr "Panggilan terjadwal"
+
+msgid "[Scheduled Call] {}"
+msgstr "Panggilan terjadwal: {}"
+
+msgid "[Sticker Pack]"
+msgstr "Paket stiker"
+
+msgid "[Sticker Pack] {}"
+msgstr "Paket stiker: {}"
+
+msgid "[Unsupported Message]"
+msgstr "Pesan belum didukung"
+
+msgid "[Video Note]"
+msgstr "Catatan video"
+
+msgid "[Video Note] {}"
+msgstr "Catatan video {}"
+
+msgid "[View once] Opened"
+msgstr "Sekali lihat (sudah dibuka)"
+
+msgid "[View once] {}"
+msgstr "Sekali lihat: {}"
+
+msgid "[Voice Message]"
+msgstr "Pesan suara"
+
+msgid "[Voice Message] {}"
+msgstr "Pesan suara {}"
+
+msgid "a poll can have at most twelve options"
+msgstr "polling maksimal memiliki dua belas pilihan"
+
+msgid "a poll needs at least two options"
+msgstr "polling membutuhkan setidaknya dua pilihan"
+
+msgid "a poll option is too long"
+msgstr "pilihan polling terlalu panjang"
+
+msgid "invalid jid"
+msgstr "JID tidak valid"
+
+msgid "invalid participant number(s), skipped: {}"
+msgstr "nomor peserta tidak valid, dilewati: {}"
+
+msgid "not logged in"
+msgstr "belum masuk"
+
+msgid "poll options must all be different"
+msgstr "pilihan polling harus berbeda satu sama lain"
+
+msgid "the poll needs a question"
+msgstr "polling membutuhkan pertanyaan"
+
+msgid "the poll question is too long"
+msgstr "pertanyaan polling terlalu panjang"
+
+msgid "the quiz's correct answer isn't one of its options"
+msgstr "jawaban benar kuis bukan termasuk salah satu pilihannya"
+
+msgid "unknown participant action: {}"
+msgstr "aksi peserta tidak dikenal: {}"
+
+msgid "user info not found"
+msgstr "info pengguna tidak ditemukan"
+
+msgid "{} added this group to the community \"{}\""
+msgstr "{} menambahkan grup ini ke komunitas \"{}\""
+
+msgid "{} added you"
+msgstr "{} menambahkan Anda"
+
+msgid "{} added {}"
+msgstr "{} menambahkan {}"
+
+msgid "{} changed the group description"
+msgstr "{} mengubah deskripsi grup"
+
+msgid "{} changed the group name to \"{}\""
+msgstr "{} mengubah nama grup menjadi \"{}\""
+
+msgid "{} changed their phone number"
+msgstr "{} mengubah nomor teleponnya"
+
+msgid "{} changed this group's icon"
+msgstr "{} mengubah ikon grup ini"
+
+msgid "{} changed this group's settings to allow all members to add others to this group"
+msgstr "{} mengubah setelan grup agar semua anggota dapat menambahkan anggota"
+
+msgid "{} changed this group's settings to allow all members to edit this group's info"
+msgstr "{} mengubah setelan grup agar semua anggota dapat mengedit info grup"
+
+msgid "{} changed this group's settings to allow all members to send messages to this group"
+msgstr "{} mengubah setelan grup agar semua anggota dapat mengirim pesan"
+
+msgid "{} changed this group's settings to allow only admins to add others to this group"
+msgstr "{} mengubah setelan grup agar hanya admin yang dapat menambahkan anggota"
+
+msgid "{} changed this group's settings to allow only admins to edit this group's info"
+msgstr "{} mengubah setelan grup agar hanya admin yang dapat mengedit info grup"
+
+msgid "{} changed this group's settings to allow only admins to send messages to this group"
+msgstr "{} mengubah setelan grup agar hanya admin yang dapat mengirim pesan"
+
+msgid "{} created the group"
+msgstr "{} membuat grup ini"
+
+msgid "{} created this group"
+msgstr "{} membuat grup ini"
+
+msgid "{} days"
+msgstr "{} hari"
+
+msgid "{} deleted the group description"
+msgstr "{} menghapus deskripsi grup"
+
+msgid "{} deleted this group"
+msgstr "{} menghapus grup ini"
+
+msgid "{} deleted this group's icon"
+msgstr "{} menghapus ikon grup ini"
+
+msgid "{} is already in the call."
+msgstr "{} sudah berada dalam panggilan."
+
+msgid "{} is no longer a group admin"
+msgstr "{} tidak lagi menjadi admin grup"
+
+msgid "{} is now a group admin"
+msgstr "{} kini menjadi admin grup"
+
+msgid "{} is on in this chat, so Meta AI can't be mentioned here."
+msgstr "{} aktif di chat ini sehingga Meta AI tidak dapat disebut di sini."
+
+msgid "{} is on in this chat, so it can't be exported."
+msgstr "{} aktif di chat ini sehingga chat tidak dapat diekspor."
+
+msgid "{} joined"
+msgstr "{} bergabung"
+
+msgid "{} joined using this group's invite link"
+msgstr "{} bergabung melalui tautan undangan grup ini"
+
+msgid "{} left"
+msgstr "{} keluar"
+
+msgid "{} made {} a group admin"
+msgstr "{} menjadikan {} sebagai admin grup"
+
+msgid "{} pinned a message"
+msgstr "{} menyematkan pesan"
+
+msgid "{} removed an option that was added to a poll"
+msgstr "{} menghapus opsi yang ditambahkan ke polling"
+
+msgid "{} removed options from a poll"
+msgstr "{} menghapus opsi dari polling"
+
+msgid "{} removed this group from the community \"{}\""
+msgstr "{} mengeluarkan grup ini dari komunitas \"{}\""
+
+msgid "{} removed {}"
+msgstr "{} mengeluarkan {}"
+
+msgid "{} removed {} as group admin"
+msgstr "{} mencopot {} sebagai admin grup"
+
+msgid "{} reset this group's invite link"
+msgstr "{} menyetel ulang tautan undangan grup ini"
+
+msgid "{} shared recent message history"
+msgstr "{} membagikan riwayat pesan terbaru"
+
+msgid "{} shared recent message history with {}"
+msgstr "{} membagikan riwayat pesan terbaru dengan {}"
+
+msgid "{} turned off admin approval to join this group"
+msgstr "{} menonaktifkan persetujuan admin untuk bergabung ke grup ini"
+
+msgid "{} turned off advanced chat privacy"
+msgstr "{} menonaktifkan privasi chat lanjutan"
+
+msgid "{} turned off disappearing messages."
+msgstr "{} menonaktifkan pesan sementara."
+
+msgid "{} turned on admin approval to join this group"
+msgstr "{} mengaktifkan persetujuan admin untuk bergabung ke grup ini"
+
+msgid "{} turned on advanced chat privacy"
+msgstr "{} mengaktifkan privasi chat lanjutan"
+
+msgid "{} turned on disappearing messages. New messages will disappear from this chat {} after they're sent."
+msgstr "{} mengaktifkan pesan sementara. Pesan baru akan hilang dari chat ini {} setelah dikirim."
+
+msgid "{}, you voted {}"
+msgstr "{}, Anda memilih {}"
+
+msgid "No votes yet"
+msgstr "Belum ada suara."
+
+msgid "1 chat chosen."
+msgstr ""
+
+msgid "1 contact excluded."
+msgstr "1 kontak dikecualikan."
+
+msgid "1 member"
+msgstr "1 anggota"
+
+msgid "Choose a time at least {} minutes from now and no more than {} days ahead."
+msgstr "Pilih waktu minimal {} menit dari sekarang dan paling lambat {} hari ke depan."
+
+msgid "No chats chosen."
+msgstr ""
+
+msgid "No contacts excluded."
+msgstr "Tidak ada kontak dikecualikan."
+
+msgid "Note: {}"
+msgstr "Catatan: {}"
+
+msgid "Placed {}"
+msgstr "Dipesan {}"
+
+msgid "The time has to be at least {} minutes from now and no more than {} days ahead."
+msgstr "Waktu harus minimal {} menit dari sekarang dan paling lambat {} hari ke depan."
+
+msgid "This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again."
+msgstr "Salinan whatSnap ini tidak menyertakan paket menu Bagikan. Instal ulang whatSnap lalu coba lagi."
+
+msgid "Today, {}"
+msgstr "Hari ini, {}"
+
+msgid "Tomorrow, {}"
+msgstr "Besok, {}"
+
+msgid "Unnamed group"
+msgstr "Grup tanpa nama"
+
+msgid "Viewed by 1 person"
+msgstr "Dilihat oleh 1 orang"
+
+msgid "Viewed by {} people"
+msgstr "Dilihat oleh {} orang"
+
+msgid "announcements"
+msgstr "pengumuman"
+
+msgid "chosen"
+msgstr ""
+
+msgid "general chat"
+msgstr "chat umum"
+
+msgid "joined"
+msgstr "bergabung"
+
+msgid "not chosen"
+msgstr ""
+
+msgid "not joined"
+msgstr "belum bergabung"
+
+msgid "whatSnap couldn't be added to the Share menu.\n\nSigning failed: {}"
+msgstr "whatSnap tidak dapat ditambahkan ke menu Bagikan.\n\nPenandatanganan gagal: {}"
+
+msgid "whatSnap couldn't be added to the Share menu.\n\n{}"
+msgstr "whatSnap tidak dapat ditambahkan ke menu Bagikan.\n\n{}"
+
+msgid "whatSnap is now in the Windows Share menu."
+msgstr "whatSnap kini ada di menu Bagikan Windows."
+
+msgid "whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu."
+msgstr "whatSnap tidak ditambahkan ke menu Bagikan karena diperlukan persetujuan administrator satu kali. Anda tetap dapat mengirim file lewat Kirim ke di menu Explorer."
+
+msgid "{} bytes"
+msgstr "{} byte"
+
+msgid "{} each"
+msgstr "{} per item"
+
+msgid "{} members"
+msgstr "{} anggota"
+
+msgid "{} {} of {} messages are scheduled in this chat."
+msgstr "{} {} dari {} pesan dijadwalkan di chat ini."
+
+msgid "{} chats chosen."
+msgstr ""
+
+msgid "{} contacts excluded."
+msgstr "{} kontak dikecualikan."
+

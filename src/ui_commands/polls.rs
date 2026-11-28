@@ -182,34 +182,7 @@ pub(crate) fn update_poll_results(
 }
 
 fn translate_event_when(when: &str) -> String {
-	if !crate::i18n::is_indonesian() || when.is_empty() {
-		return when.to_string();
-	}
-	let mut out = when.to_string();
-	for (en, id) in [
-		("Sunday", "Minggu"),
-		("Monday", "Senin"),
-		("Tuesday", "Selasa"),
-		("Wednesday", "Rabu"),
-		("Thursday", "Kamis"),
-		("Friday", "Jumat"),
-		("Saturday", "Sabtu"),
-		("January", "Januari"),
-		("February", "Februari"),
-		("March", "Maret"),
-		("April", "April"),
-		("May", "Mei"),
-		("June", "Juni"),
-		("July", "Juli"),
-		("August", "Agustus"),
-		("September", "September"),
-		("October", "Oktober"),
-		("November", "November"),
-		("December", "Desember"),
-	] {
-		out = out.replace(en, id);
-	}
-	out
+	whatsnap::local_time::translate_day_and_month_names(when)
 }
 
 pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
@@ -218,13 +191,7 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	let (jid, message_id, name) = (str_of("jid"), str_of("message_id"), str_of("name"));
 	let (when, location, current, results) =
 		(translate_event_when(&str_of("when")), str_of("location"), str_of("response"), str_of("results"));
-	let results = if !results.is_empty() && crate::i18n::is_indonesian() {
-		let wrapped = format!("[Event] {results}");
-		let translated = crate::i18n::translate_rich_message_text(&wrapped);
-		translated.strip_prefix("Acara: ").unwrap_or(&results).to_string()
-	} else {
-		results
-	};
+	let results = crate::i18n::backend::event_text(&results);
 	let guests_allowed = data.get("extra_guests_allowed").and_then(|v| v.as_bool()).unwrap_or(false);
 	let current_guests = data.get("extra_guests").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
 

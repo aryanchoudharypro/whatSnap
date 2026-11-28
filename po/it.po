@@ -6868,3 +6868,1137 @@ msgstr "{} non potrà più scriverti né chiamarti."
 msgid "{}, sent at {}"
 msgstr "{}, inviato alle {}"
 
+msgid "Always show the Locked Chats button, even when locked chats are hidden on the phone"
+msgstr "Mostra sempre il pulsante Chat bloccate, anche quando le chat bloccate sono nascoste sul telefono"
+
+msgid "Anyone with the link can join right away."
+msgstr "Chiunque abbia il link può entrare subito."
+
+msgid "Joined your call link"
+msgstr "È entrato nel tuo link di chiamata"
+
+msgid "New participants will wait until you let them in."
+msgstr "I nuovi partecipanti aspetteranno finché non li fai entrare."
+
+msgid "Protect IP address in calls: calls always go through WhatsApp's servers, on all your devices"
+msgstr "Proteggi l'indirizzo IP nelle chiamate: le chiamate passano sempre dai server di WhatsApp, su tutti i tuoi dispositivi"
+
+msgid "Someone joined your call link"
+msgstr "Qualcuno è entrato nel tuo link di chiamata"
+
+msgid "Stop ringing {}"
+msgstr "Smetti di far squillare {}"
+
+msgid "Stopped ringing {}."
+msgstr "Non fai più squillare {}."
+
+msgid "Want to join your call link"
+msgstr "Vogliono entrare nel tuo link di chiamata"
+
+msgid "Wants to join your call link"
+msgstr "Vuole entrare nel tuo link di chiamata"
+
+msgid "Add Attachment"
+msgstr "Aggiungi allegato"
+
+msgid "Chat list template"
+msgstr "Modello dell'elenco chat"
+
+msgid "Say only the status and time"
+msgstr "Leggi solo lo stato e l'ora"
+
+msgid "Video Call"
+msgstr "Videochiamata"
+
+msgid "Voice Call"
+msgstr "Chiamata vocale"
+
+msgid "Voice message: go back"
+msgstr "Messaggio vocale: indietro"
+
+msgid "Voice message: go forward"
+msgstr "Messaggio vocale: avanti"
+
+msgid "Window title template"
+msgstr "Modello del titolo della finestra"
+
+msgid " (including "
+msgstr " (inclusi "
+
+msgid " (including 1 guest)"
+msgstr " (incluso 1 ospite)"
+
+msgid " 1 vote"
+msgstr " 1 voto"
+
+msgid " You can't go."
+msgstr " Non puoi partecipare."
+
+msgid " You said maybe."
+msgstr " Hai risposto forse."
+
+msgid " You're going."
+msgstr " Tu parteciperai."
+
+msgid " can't go."
+msgstr " non possono."
+
+msgid " going"
+msgstr " partecipano"
+
+msgid " guests)"
+msgstr " ospiti)"
+
+msgid " maybe, "
+msgstr " forse, "
+
+msgid " people voted"
+msgstr " persone hanno votato"
+
+msgid " votes"
+msgstr " voti"
+
+msgid " votes in all"
+msgstr " voti in tutto"
+
+msgid ", out of stock"
+msgstr ", esaurito"
+
+msgid ". No votes yet"
+msgstr ". Ancora nessun voto"
+
+msgid ". No votes yet."
+msgstr ". Ancora nessun voto."
+
+msgid "1 person voted"
+msgstr "1 persona ha votato"
+
+msgid "1 vote in all"
+msgstr "1 voto in tutto"
+
+msgid "Admin invite cancelled."
+msgstr "Invito ad amministratore annullato."
+
+msgid "Admin invite sent."
+msgstr "Invito ad amministratore inviato."
+
+msgid "Admin invites sent to {} people."
+msgstr "Inviti ad amministratore inviati a {} persone."
+
+msgid "Admin removed."
+msgstr "Amministratore rimosso."
+
+msgid "An option added to a poll was removed"
+msgstr "È stata rimossa un'opzione aggiunta a un sondaggio"
+
+msgid "Calls aren't available yet."
+msgstr "Le chiamate non sono ancora disponibili."
+
+msgid "Can't create the event: {}"
+msgstr "Impossibile creare l'evento: {}"
+
+msgid "Can't pin this post: it hasn't finished loading from the channel."
+msgstr "Impossibile fissare questo post: non è ancora stato caricato del tutto dal canale."
+
+msgid "Can't reach WhatsApp. Check your internet connection."
+msgstr "Impossibile raggiungere WhatsApp. Controlla la connessione a internet."
+
+msgid "Can't react to this post: it hasn't finished loading from the channel."
+msgstr "Impossibile reagire a questo post: non è ancora stato caricato del tutto dal canale."
+
+msgid "Can't vote in this poll: it hasn't finished loading from the channel."
+msgstr "Impossibile votare in questo sondaggio: non è ancora stato caricato del tutto dal canale."
+
+msgid "Channel picture changed."
+msgstr "Immagine del canale cambiata."
+
+msgid "Channel picture removed."
+msgstr "Immagine del canale rimossa."
+
+msgid "Choose a date and a time for the message."
+msgstr "Scegli una data e un'ora per il messaggio."
+
+msgid "Could not start pairing: {}"
+msgstr "Impossibile avviare il collegamento: {}"
+
+msgid "Couldn't accept the invite: {}"
+msgstr "Impossibile accettare l'invito: {}"
+
+msgid "Couldn't add {}"
+msgstr "Impossibile aggiungere {}"
+
+msgid "Couldn't add {}: WhatsApp hasn't sent the call details needed to invite someone yet. Try again in a moment."
+msgstr "Impossibile aggiungere {}: WhatsApp non ha ancora inviato i dati della chiamata necessari per invitare qualcuno. Riprova tra poco."
+
+msgid "Couldn't add {}: the call is full."
+msgstr "Impossibile aggiungere {}: la chiamata è piena."
+
+msgid "Couldn't add {}: they have no device that can take a call."
+msgstr "Impossibile aggiungere {}: non ha nessun dispositivo che possa ricevere chiamate."
+
+msgid "Couldn't answer the event: {}"
+msgstr "Impossibile rispondere all'evento: {}"
+
+msgid "Couldn't answer the join requests: {}"
+msgstr "Impossibile rispondere alle richieste di partecipazione: {}"
+
+msgid "Couldn't cancel the invite: {}"
+msgstr "Impossibile annullare l'invito: {}"
+
+msgid "Couldn't change a group setting: {}"
+msgstr "Impossibile cambiare un'impostazione del gruppo: {}"
+
+msgid "Couldn't change advanced chat privacy: {}"
+msgstr "Impossibile cambiare la privacy avanzata della chat: {}"
+
+msgid "Couldn't change disappearing messages: {}"
+msgstr "Impossibile cambiare i messaggi effimeri: {}"
+
+msgid "Couldn't change link previews: {}"
+msgstr "Impossibile cambiare le anteprime dei link: {}"
+
+msgid "Couldn't change muted status updates: {}"
+msgstr "Impossibile cambiare gli aggiornamenti di stato silenziati: {}"
+
+msgid "Couldn't change the channel's admins: {}"
+msgstr "Impossibile cambiare gli amministratori del canale: {}"
+
+msgid "Couldn't change the channel: {}"
+msgstr "Impossibile modificare il canale: {}"
+
+msgid "Couldn't change the default message timer: {}"
+msgstr "Impossibile cambiare la durata predefinita dei messaggi: {}"
+
+msgid "Couldn't change this channel's mute setting: {}"
+msgstr "Impossibile cambiare il silenziamento di questo canale: {}"
+
+msgid "Couldn't change who sees your status: {}"
+msgstr "Impossibile cambiare chi vede il tuo stato: {}"
+
+msgid "Couldn't change your favorite stickers: {}"
+msgstr "Impossibile cambiare i tuoi sticker preferiti: {}"
+
+msgid "Couldn't change your profile photo: {}"
+msgstr "Impossibile cambiare la tua foto del profilo: {}"
+
+msgid "Couldn't change your tag: {}"
+msgstr "Impossibile cambiare la tua etichetta: {}"
+
+msgid "Couldn't complete the secure connection to WhatsApp."
+msgstr "Impossibile completare la connessione sicura a WhatsApp."
+
+msgid "Couldn't connect to WhatsApp."
+msgstr "Impossibile connettersi a WhatsApp."
+
+msgid "Couldn't create the call link: {}"
+msgstr "Impossibile creare il link di chiamata: {}"
+
+msgid "Couldn't create the channel: {}"
+msgstr "Impossibile creare il canale: {}"
+
+msgid "Couldn't create the community: {}"
+msgstr "Impossibile creare la community: {}"
+
+msgid "Couldn't deactivate the community: {}"
+msgstr "Impossibile disattivare la community: {}"
+
+msgid "Couldn't delete scheduled message."
+msgstr "Impossibile eliminare il messaggio programmato."
+
+msgid "Couldn't delete scheduled message. Connect to the internet and try again."
+msgstr "Impossibile eliminare il messaggio programmato. Connettiti a internet e riprova."
+
+msgid "Couldn't delete the channel: {}"
+msgstr "Impossibile eliminare il canale: {}"
+
+msgid "Couldn't delete the contact: {}"
+msgstr "Impossibile eliminare il contatto: {}"
+
+msgid "Couldn't delete the status: {}"
+msgstr "Impossibile eliminare lo stato: {}"
+
+msgid "Couldn't find this channel."
+msgstr "Impossibile trovare questo canale."
+
+msgid "Couldn't forward the media: {}"
+msgstr "Impossibile inoltrare il media: {}"
+
+msgid "Couldn't get the invite link: {}"
+msgstr "Impossibile ottenere il link di invito: {}"
+
+msgid "Couldn't join the call: {}"
+msgstr "Impossibile entrare nella chiamata: {}"
+
+msgid "Couldn't join this group: its community isn't known. Open the community's groups list and try again."
+msgstr "Impossibile entrare in questo gruppo: la sua community non è nota. Apri l'elenco dei gruppi della community e riprova."
+
+msgid "Couldn't join this group: {}"
+msgstr "Impossibile entrare in questo gruppo: {}"
+
+msgid "Couldn't keep the message: {}"
+msgstr "Impossibile tenere il messaggio: {}"
+
+msgid "Couldn't like the status: {}"
+msgstr "Impossibile mettere mi piace allo stato: {}"
+
+msgid "Couldn't load WhatsApp's sticker packs: {}"
+msgstr "Impossibile caricare i pacchetti di sticker di WhatsApp: {}"
+
+msgid "Couldn't load channels: {}"
+msgstr "Impossibile caricare i canali: {}"
+
+msgid "Couldn't load member changes: {}"
+msgstr "Impossibile caricare le modifiche ai membri: {}"
+
+msgid "Couldn't load reported messages: {}"
+msgstr "Impossibile caricare i messaggi segnalati: {}"
+
+msgid "Couldn't load similar channels: {}"
+msgstr "Impossibile caricare i canali simili: {}"
+
+msgid "Couldn't load the catalogue. This business may not have one."
+msgstr "Impossibile caricare il catalogo. Forse questa attività non ne ha uno."
+
+msgid "Couldn't load the channel's followers: {}"
+msgstr "Impossibile caricare i follower del canale: {}"
+
+msgid "Couldn't load the community's groups: {}"
+msgstr "Impossibile caricare i gruppi della community: {}"
+
+msgid "Couldn't load the group's members to mention: {}"
+msgstr "Impossibile caricare i membri del gruppo da menzionare: {}"
+
+msgid "Couldn't load the group: {}"
+msgstr "Impossibile caricare il gruppo: {}"
+
+msgid "Couldn't load the groups in common: {}"
+msgstr "Impossibile caricare i gruppi in comune: {}"
+
+msgid "Couldn't load the join requests: {}"
+msgstr "Impossibile caricare le richieste di partecipazione: {}"
+
+msgid "Couldn't load the order's details."
+msgstr "Impossibile caricare i dettagli dell'ordine."
+
+msgid "Couldn't load the pending admin invites: {}"
+msgstr "Impossibile caricare gli inviti ad amministratore in sospeso: {}"
+
+msgid "Couldn't load the pinned messages."
+msgstr "Impossibile caricare i messaggi fissati."
+
+msgid "Couldn't load this channel's posts: {}"
+msgstr "Impossibile caricare i post di questo canale: {}"
+
+msgid "Couldn't load this channel: {}"
+msgstr "Impossibile caricare questo canale: {}"
+
+msgid "Couldn't load this sticker pack."
+msgstr "Impossibile caricare questo pacchetto di sticker."
+
+msgid "Couldn't load who reacted: {}"
+msgstr "Impossibile caricare chi ha reagito: {}"
+
+msgid "Couldn't load who voted: {}"
+msgstr "Impossibile caricare chi ha votato: {}"
+
+msgid "Couldn't load your groups: {}"
+msgstr "Impossibile caricare i tuoi gruppi: {}"
+
+msgid "Couldn't open this invite link: {}"
+msgstr "Impossibile aprire questo link di invito: {}"
+
+msgid "Couldn't pin: {}"
+msgstr "Impossibile fissare: {}"
+
+msgid "Couldn't react to the status: {}"
+msgstr "Impossibile reagire allo stato: {}"
+
+msgid "Couldn't react: {}"
+msgstr "Impossibile reagire: {}"
+
+msgid "Couldn't read the group's settings: {}"
+msgstr "Impossibile leggere le impostazioni del gruppo: {}"
+
+msgid "Couldn't recover this message's text to send it now."
+msgstr "Impossibile recuperare il testo di questo messaggio per inviarlo ora."
+
+msgid "Couldn't refresh WhatsApp's connection token."
+msgstr "Impossibile rinnovare il token di connessione di WhatsApp."
+
+msgid "Couldn't report to the admins: {}"
+msgstr "Impossibile segnalare agli amministratori: {}"
+
+msgid "Couldn't save the excluded contacts: {}"
+msgstr "Impossibile salvare i contatti esclusi: {}"
+
+msgid "Couldn't send an admin invite to {}"
+msgstr "Impossibile inviare un invito ad amministratore a {}"
+
+msgid "Couldn't send the message history: {}"
+msgstr "Impossibile inviare la cronologia dei messaggi: {}"
+
+msgid "Couldn't send the report: {}"
+msgstr "Impossibile inviare la segnalazione: {}"
+
+msgid "Couldn't send the sticker: {}"
+msgstr "Impossibile inviare lo sticker: {}"
+
+msgid "Couldn't send the vote: {}"
+msgstr "Impossibile inviare il voto: {}"
+
+msgid "Couldn't send your answer: {}"
+msgstr "Impossibile inviare la tua risposta: {}"
+
+msgid "Couldn't update participant(s): {}"
+msgstr "Impossibile aggiornare i partecipanti: {}"
+
+msgid "Couldn't use that photo: {}"
+msgstr "Impossibile usare quella foto: {}"
+
+msgid "Couldn't use the picture: {}"
+msgstr "Impossibile usare l'immagine: {}"
+
+msgid "Couldn't vote: {}"
+msgstr "Impossibile votare: {}"
+
+msgid "Couldn't {}"
+msgstr "Couldn't {}"
+
+msgid "Disconnected: Connection lost. Attempting to reconnect..."
+msgstr "Disconnesso: connessione persa. Nuovo tentativo di connessione..."
+
+msgid "Disconnected: Logged out from primary device."
+msgstr "Disconnesso: uscito dal dispositivo principale."
+
+msgid "Events can't be posted in channels."
+msgstr "Gli eventi non si possono pubblicare nei canali."
+
+msgid "Export failed while finalizing archive: {}"
+msgstr "Esportazione non riuscita durante il completamento dell'archivio: {}"
+
+msgid "Export failed: {}"
+msgstr "Esportazione non riuscita: {}"
+
+msgid "Failed to answer call: {}"
+msgstr "Impossibile rispondere alla chiamata: {}"
+
+msgid "Failed to clear chat: {}"
+msgstr "Impossibile svuotare la chat: {}"
+
+msgid "Failed to delete chat: {}"
+msgstr "Impossibile eliminare la chat: {}"
+
+msgid "Failed to leave group: {}"
+msgstr "Impossibile uscire dal gruppo: {}"
+
+msgid "Failed to parse message protobuf for forwarding"
+msgstr "Impossibile leggere i dati del messaggio da inoltrare"
+
+msgid "Failed to post status: {}"
+msgstr "Impossibile pubblicare lo stato: {}"
+
+msgid "Failed to send QR image"
+msgstr "Impossibile inviare l'immagine del codice QR"
+
+msgid "Group created"
+msgstr "Gruppo creato"
+
+msgid "Group name changed to \"{}\""
+msgstr "Nome del gruppo cambiato in \"{}\""
+
+msgid "Left the group, but failed to delete the chat: {}"
+msgstr "Sei uscito dal gruppo, ma non è stato possibile eliminare la chat: {}"
+
+msgid "Logged out from primary device."
+msgstr "Disconnesso: uscito dal dispositivo principale."
+
+msgid "Logout failed: {}"
+msgstr "Disconnessione non riuscita: {}"
+
+msgid "Message not found for forwarding"
+msgstr "Messaggio da inoltrare non trovato"
+
+msgid "Message not found for retry"
+msgstr "Messaggio da reinviare non trovato"
+
+msgid "Messages can't be scheduled in this chat."
+msgstr "In questa chat non si possono programmare messaggi."
+
+msgid "No responses yet."
+msgstr "Ancora nessuna risposta."
+
+msgid "Not on WhatsApp or query failed"
+msgstr "Non è su WhatsApp oppure la verifica non è riuscita"
+
+msgid "Not responding."
+msgstr "Non risponde."
+
+msgid "Only group admins can see this group's invite link."
+msgstr "Solo gli amministratori del gruppo possono vedere il link di invito di questo gruppo."
+
+msgid "Only this channel's admins can post in it."
+msgstr "Solo gli amministratori di questo canale possono pubblicare."
+
+msgid "Options were removed from a poll"
+msgstr "Sono state rimosse delle opzioni da un sondaggio"
+
+msgid "Options: "
+msgstr "Opzioni: "
+
+msgid "Ownership handed over. You're now an admin."
+msgstr "Proprietà ceduta. Ora sei amministratore."
+
+msgid "Pairing failed: {}"
+msgstr "Collegamento non riuscito: {}"
+
+msgid "Participant {} is not on WhatsApp"
+msgstr "Il partecipante {} non è su WhatsApp"
+
+msgid "Phone could not re-upload the expired media"
+msgstr "Il telefono non è riuscito a ricaricare il media scaduto"
+
+msgid "Phone could not re-upload the media"
+msgstr "Il telefono non è riuscito a ricaricare il media"
+
+msgid "Post pinned."
+msgstr "Post fissato."
+
+msgid "Post unpinned."
+msgstr "Post non più fissato."
+
+msgid "Recent message history was shared with {}"
+msgstr "La cronologia recente dei messaggi è stata condivisa con {}"
+
+msgid "Some participants have privacy settings that prevent being added directly. An invite link was sent to them instead."
+msgstr "Alcuni partecipanti hanno impostazioni della privacy che impediscono di aggiungerli direttamente. È stato inviato loro un link di invito."
+
+msgid "That call has already ended."
+msgstr "Quella chiamata è già terminata."
+
+msgid "That call is no longer available."
+msgstr "Quella chiamata non è più disponibile."
+
+msgid "That isn't a sticker that can be added to favorites."
+msgstr "Questo sticker non si può aggiungere ai preferiti."
+
+msgid "That scheduled message is already gone."
+msgstr "Quel messaggio programmato non c'è più."
+
+msgid "That status update isn't here any more."
+msgstr "Quell'aggiornamento di stato non c'è più."
+
+msgid "The answer is "
+msgstr "La risposta è "
+
+msgid "The community \"{}\" was deactivated"
+msgstr "La community \"{}\" è stata disattivata"
+
+msgid "The community was created, but its description couldn't be set: {}"
+msgstr "La community è stata creata, ma non è stato possibile impostarne la descrizione: {}"
+
+msgid "The original file is no longer available to retry."
+msgstr "Il file originale non è più disponibile per reinviarlo."
+
+msgid "The pairing code expired. Ask for a new one to try again."
+msgstr "Il codice di collegamento è scaduto. Chiedine uno nuovo per riprovare."
+
+msgid "There's no one else in this group to call."
+msgstr "In questo gruppo non c'è nessun altro da chiamare."
+
+msgid "This contact card can't be opened here."
+msgstr "Questa scheda contatto non si può aprire qui."
+
+msgid "This event can't be opened here."
+msgstr "Questo evento non si può aprire qui."
+
+msgid "This event was cancelled."
+msgstr "Questo evento è stato annullato."
+
+msgid "This group invite has expired."
+msgstr "Questo invito al gruppo è scaduto."
+
+msgid "This group needs an admin to approve new members. Your request to join was sent."
+msgstr "In questo gruppo un amministratore deve approvare i nuovi membri. La tua richiesta di partecipazione è stata inviata."
+
+msgid "This group was added to the community \"{}\""
+msgstr "Questo gruppo è stato aggiunto alla community \"{}\""
+
+msgid "This group was removed from the community \"{}\""
+msgstr "Questo gruppo è stato rimosso dalla community \"{}\""
+
+msgid "This invite is no longer valid: {}"
+msgstr "Questo invito non è più valido: {}"
+
+msgid "This invite link isn't valid."
+msgstr "Questo link di invito non è valido."
+
+msgid "This invite link was reset by a group admin and no longer works."
+msgstr "Questo link di invito è stato reimpostato da un amministratore del gruppo e non funziona più."
+
+msgid "This kind of message can't be forwarded."
+msgstr "Questo tipo di messaggio non si può inoltrare."
+
+msgid "This message can only be forwarded to {} chat(s) at a time."
+msgstr "Questo messaggio si può inoltrare al massimo a {} chat per volta."
+
+msgid "This message has no buttons."
+msgstr "Questo messaggio non ha pulsanti."
+
+msgid "This message isn't a contact card."
+msgstr "Questo messaggio non è una scheda contatto."
+
+msgid "This message's buttons can't be opened here."
+msgstr "I pulsanti di questo messaggio non si possono aprire qui."
+
+msgid "This poll can't be opened here."
+msgstr "Questo sondaggio non si può aprire qui."
+
+msgid "This poll hasn't finished loading from the channel."
+msgstr "Questo sondaggio non è ancora stato caricato del tutto dal canale."
+
+msgid "This post hasn't finished loading from the channel."
+msgstr "Questo post non è ancora stato caricato del tutto dal canale."
+
+msgid "This version of whatSnap is outdated. Please update it."
+msgstr "Questa versione di whatSnap è troppo vecchia. Aggiornala."
+
+msgid "Timeout waiting for phone to re-upload media"
+msgstr "Tempo scaduto in attesa che il telefono ricarichi il media"
+
+msgid "View once media opens outside the viewer."
+msgstr "I media a visualizzazione singola si aprono fuori dal visualizzatore."
+
+msgid "View once messages can't be forwarded."
+msgstr "I messaggi a visualizzazione singola non si possono inoltrare."
+
+msgid "Wait for the call to connect before adding someone."
+msgstr "Aspetta che la chiamata si colleghi prima di aggiungere qualcuno."
+
+msgid "WhatsApp error 479: Failed to delete for everyone. The message key mismatch or the revoke time limit expired."
+msgstr "Impossibile eliminare per tutti: la chiave del messaggio non corrisponde oppure è scaduto il tempo per eliminarlo."
+
+msgid "WhatsApp has rejected this version of whatSnap as outdated. Please update whatSnap to reconnect."
+msgstr "WhatsApp ha rifiutato questa versione di whatSnap perché è troppo vecchia. Aggiorna whatSnap per riconnetterti."
+
+msgid "WhatsApp hasn't turned on pinning channel posts for your account yet."
+msgstr "WhatsApp non ha ancora attivato per il tuo account la possibilità di fissare i post dei canali."
+
+msgid "You added this group to the community \"{}\""
+msgstr "Hai aggiunto questo gruppo alla community \"{}\""
+
+msgid "You added {}"
+msgstr "Hai aggiunto {}"
+
+msgid "You blocked this contact."
+msgstr "Hai bloccato questo contatto."
+
+msgid "You can only forward to channels you run."
+msgstr "Puoi inoltrare solo ai canali che gestisci."
+
+msgid "You can't add yourself to the call."
+msgstr "Non puoi aggiungere te stesso alla chiamata."
+
+msgid "You changed the group description"
+msgstr "Hai cambiato la descrizione del gruppo"
+
+msgid "You changed the group name to \"{}\""
+msgstr "Hai cambiato il nome del gruppo in \"{}\""
+
+msgid "You changed this group's icon"
+msgstr "Hai cambiato l'icona di questo gruppo"
+
+msgid "You changed this group's settings to allow all members to add others to this group"
+msgstr "Hai cambiato le impostazioni del gruppo: ora tutti i membri possono aggiungere altre persone"
+
+msgid "You changed this group's settings to allow all members to edit this group's info"
+msgstr "Hai cambiato le impostazioni del gruppo: ora tutti i membri possono modificare le info del gruppo"
+
+msgid "You changed this group's settings to allow all members to send messages to this group"
+msgstr "Hai cambiato le impostazioni del gruppo: ora tutti i membri possono inviare messaggi"
+
+msgid "You changed this group's settings to allow only admins to add others to this group"
+msgstr "Hai cambiato le impostazioni del gruppo: ora solo gli amministratori possono aggiungere altre persone"
+
+msgid "You changed this group's settings to allow only admins to edit this group's info"
+msgstr "Hai cambiato le impostazioni del gruppo: ora solo gli amministratori possono modificare le info del gruppo"
+
+msgid "You changed this group's settings to allow only admins to send messages to this group"
+msgstr "Hai cambiato le impostazioni del gruppo: ora solo gli amministratori possono inviare messaggi"
+
+msgid "You created the group"
+msgstr "Hai creato il gruppo"
+
+msgid "You created this group"
+msgstr "Hai creato questo gruppo"
+
+msgid "You deleted the group description"
+msgstr "Hai eliminato la descrizione del gruppo"
+
+msgid "You deleted this group"
+msgstr "Hai eliminato questo gruppo"
+
+msgid "You deleted this group's icon"
+msgstr "Hai eliminato l'icona di questo gruppo"
+
+msgid "You got it right: the answer is "
+msgstr "Hai risposto bene: la risposta è "
+
+msgid "You have reached the maximum number of messages you can schedule."
+msgstr "Hai raggiunto il numero massimo di messaggi che puoi programmare."
+
+msgid "You joined"
+msgstr "Sei entrato"
+
+msgid "You joined the group"
+msgstr "Sei entrato nel gruppo"
+
+msgid "You joined using this group's invite link"
+msgstr "Sei entrato usando il link di invito di questo gruppo"
+
+msgid "You left"
+msgstr "Sei uscito"
+
+msgid "You made {} a group admin"
+msgstr "Hai nominato {} amministratore del gruppo"
+
+msgid "You must configure a Secret Code for Chat Lock on your primary phone before you can lock or unlock chats from this device."
+msgstr "Prima di bloccare o sbloccare le chat da questo dispositivo devi impostare un codice segreto per il blocco chat sul telefono principale."
+
+msgid "You pinned a message"
+msgstr "Hai fissato un messaggio"
+
+msgid "You received a view once message. For added privacy, you can only open it on your phone."
+msgstr "Hai ricevuto un messaggio a visualizzazione singola. Per una maggiore privacy, puoi aprirlo solo sul telefono."
+
+msgid "You removed an option that was added to a poll"
+msgstr "Hai rimosso un'opzione aggiunta a un sondaggio"
+
+msgid "You removed options from a poll"
+msgstr "Hai rimosso delle opzioni da un sondaggio"
+
+msgid "You removed this group from the community \"{}\""
+msgstr "Hai rimosso questo gruppo dalla community \"{}\""
+
+msgid "You removed {}"
+msgstr "Hai rimosso {}"
+
+msgid "You removed {} as group admin"
+msgstr "Hai rimosso {} dagli amministratori del gruppo"
+
+msgid "You reset this group's invite link"
+msgstr "Hai reimpostato il link di invito di questo gruppo"
+
+msgid "You scheduled a message"
+msgstr "Hai programmato un messaggio"
+
+msgid "You sent a view once message from another device."
+msgstr "Hai inviato un messaggio a visualizzazione singola da un altro dispositivo."
+
+msgid "You shared recent message history"
+msgstr "Hai condiviso la cronologia recente dei messaggi"
+
+msgid "You shared recent message history with {}"
+msgstr "Hai condiviso la cronologia recente dei messaggi con {}"
+
+msgid "You turned off admin approval to join this group"
+msgstr "Hai disattivato l'approvazione degli amministratori per entrare nel gruppo"
+
+msgid "You turned off advanced chat privacy"
+msgstr "Hai disattivato la privacy avanzata della chat"
+
+msgid "You turned off disappearing messages."
+msgstr "Hai disattivato i messaggi effimeri."
+
+msgid "You turned on admin approval to join this group"
+msgstr "Hai attivato l'approvazione degli amministratori per entrare nel gruppo"
+
+msgid "You turned on advanced chat privacy"
+msgstr "Hai attivato la privacy avanzata della chat"
+
+msgid "You turned on disappearing messages. New messages will disappear from this chat {} after they're sent."
+msgstr "Hai attivato i messaggi effimeri. I nuovi messaggi scompariranno da questa chat {} dopo l'invio."
+
+msgid "You unblocked this contact."
+msgstr "Hai sbloccato questo contatto."
+
+msgid "You're now an admin of this channel."
+msgstr "Ora sei amministratore di questo canale."
+
+msgid "You've already answered this quiz."
+msgstr "Hai già risposto a questo quiz."
+
+msgid "You've already opened this view once message."
+msgstr "Hai già aperto questo messaggio a visualizzazione singola."
+
+msgid "You've already played this view once voice message."
+msgstr "Hai già ascoltato questo messaggio vocale a visualizzazione singola."
+
+msgid "Your security code with {} changed."
+msgstr "Il tuo codice di sicurezza con {} è cambiato."
+
+msgid "[Asked for your phone number]"
+msgstr "Ha chiesto il tuo numero di telefono"
+
+msgid "[Audio]"
+msgstr "Audio"
+
+msgid "[Audio] {}"
+msgstr "Audio {}"
+
+msgid "[Channel Admin Invite]"
+msgstr "Invito ad amministrare il canale"
+
+msgid "[Channel Admin Invite] {}"
+msgstr "Invito ad amministrare il canale: {}"
+
+msgid "[Channel Invite]"
+msgstr "Invito al canale"
+
+msgid "[Channel Invite] {}"
+msgstr "Invito al canale: {}"
+
+msgid "[Event cancelled]"
+msgstr "Evento annullato"
+
+msgid "[Event cancelled] {}"
+msgstr "Evento annullato: {}"
+
+msgid "[Event]"
+msgstr "Evento"
+
+msgid "[Event] {}"
+msgstr "Evento: {}"
+
+msgid "[Group Invite]"
+msgstr "Invito al gruppo"
+
+msgid "[Group Invite] {}"
+msgstr "Invito al gruppo: {}"
+
+msgid "[Mentioned you in a status update]"
+msgstr "Ti ha menzionato in un aggiornamento di stato"
+
+msgid "[Order]"
+msgstr "Ordine"
+
+msgid "[Order] {}"
+msgstr "Ordine: {}"
+
+msgid "[Payment] Open WhatsApp on your phone to see this payment."
+msgstr "Pagamento: apri WhatsApp sul telefono per vedere questo pagamento."
+
+msgid "[Poll results]"
+msgstr "Risultati del sondaggio"
+
+msgid "[Poll results] {}"
+msgstr "Risultati del sondaggio: {}"
+
+msgid "[Product]"
+msgstr "Prodotto"
+
+msgid "[Product] {}"
+msgstr "Prodotto: {}"
+
+msgid "[Protocol Message]"
+msgstr "Messaggio di sistema"
+
+msgid "[Reaction]"
+msgstr "Reazione"
+
+msgid "[Scheduled Call]"
+msgstr "Chiamata programmata"
+
+msgid "[Scheduled Call] {}"
+msgstr "Chiamata programmata: {}"
+
+msgid "[Sticker Pack]"
+msgstr "Pacchetto di sticker"
+
+msgid "[Sticker Pack] {}"
+msgstr "Pacchetto di sticker: {}"
+
+msgid "[Unsupported Message]"
+msgstr "Messaggio non supportato"
+
+msgid "[Video Note]"
+msgstr "Videomessaggio"
+
+msgid "[Video Note] {}"
+msgstr "Videomessaggio {}"
+
+msgid "[View once] Opened"
+msgstr "Visualizzazione singola (già aperto)"
+
+msgid "[View once] {}"
+msgstr "Visualizzazione singola: {}"
+
+msgid "[Voice Message]"
+msgstr "Messaggio vocale"
+
+msgid "[Voice Message] {}"
+msgstr "Messaggio vocale {}"
+
+msgid "a poll can have at most twelve options"
+msgstr "un sondaggio può avere al massimo dodici opzioni"
+
+msgid "a poll needs at least two options"
+msgstr "un sondaggio deve avere almeno due opzioni"
+
+msgid "a poll option is too long"
+msgstr "un'opzione del sondaggio è troppo lunga"
+
+msgid "invalid jid"
+msgstr "JID non valido"
+
+msgid "invalid participant number(s), skipped: {}"
+msgstr "numeri dei partecipanti non validi, saltati: {}"
+
+msgid "not logged in"
+msgstr "accesso non effettuato"
+
+msgid "poll options must all be different"
+msgstr "le opzioni del sondaggio devono essere tutte diverse"
+
+msgid "the poll needs a question"
+msgstr "il sondaggio deve avere una domanda"
+
+msgid "the poll question is too long"
+msgstr "la domanda del sondaggio è troppo lunga"
+
+msgid "the quiz's correct answer isn't one of its options"
+msgstr "la risposta giusta del quiz non è tra le sue opzioni"
+
+msgid "unknown participant action: {}"
+msgstr "azione sul partecipante sconosciuta: {}"
+
+msgid "user info not found"
+msgstr "informazioni sull'utente non trovate"
+
+msgid "{} added this group to the community \"{}\""
+msgstr "{} ha aggiunto questo gruppo alla community \"{}\""
+
+msgid "{} added you"
+msgstr "{} ti ha aggiunto"
+
+msgid "{} added {}"
+msgstr "{} ha aggiunto {}"
+
+msgid "{} changed the group description"
+msgstr "{} ha cambiato la descrizione del gruppo"
+
+msgid "{} changed the group name to \"{}\""
+msgstr "{} ha cambiato il nome del gruppo in \"{}\""
+
+msgid "{} changed their phone number"
+msgstr "{} ha cambiato numero di telefono"
+
+msgid "{} changed this group's icon"
+msgstr "{} ha cambiato l'icona di questo gruppo"
+
+msgid "{} changed this group's settings to allow all members to add others to this group"
+msgstr "{} ha cambiato le impostazioni del gruppo: ora tutti i membri possono aggiungere altre persone"
+
+msgid "{} changed this group's settings to allow all members to edit this group's info"
+msgstr "{} ha cambiato le impostazioni del gruppo: ora tutti i membri possono modificare le info del gruppo"
+
+msgid "{} changed this group's settings to allow all members to send messages to this group"
+msgstr "{} ha cambiato le impostazioni del gruppo: ora tutti i membri possono inviare messaggi"
+
+msgid "{} changed this group's settings to allow only admins to add others to this group"
+msgstr "{} ha cambiato le impostazioni del gruppo: ora solo gli amministratori possono aggiungere altre persone"
+
+msgid "{} changed this group's settings to allow only admins to edit this group's info"
+msgstr "{} ha cambiato le impostazioni del gruppo: ora solo gli amministratori possono modificare le info del gruppo"
+
+msgid "{} changed this group's settings to allow only admins to send messages to this group"
+msgstr "{} ha cambiato le impostazioni del gruppo: ora solo gli amministratori possono inviare messaggi"
+
+msgid "{} created the group"
+msgstr "{} ha creato il gruppo"
+
+msgid "{} created this group"
+msgstr "{} ha creato questo gruppo"
+
+msgid "{} days"
+msgstr "{} giorni"
+
+msgid "{} deleted the group description"
+msgstr "{} ha eliminato la descrizione del gruppo"
+
+msgid "{} deleted this group"
+msgstr "{} ha eliminato questo gruppo"
+
+msgid "{} deleted this group's icon"
+msgstr "{} ha eliminato l'icona di questo gruppo"
+
+msgid "{} is already in the call."
+msgstr "{} è già nella chiamata."
+
+msgid "{} is no longer a group admin"
+msgstr "{} non è più amministratore del gruppo"
+
+msgid "{} is now a group admin"
+msgstr "{} ora è amministratore del gruppo"
+
+msgid "{} is on in this chat, so Meta AI can't be mentioned here."
+msgstr "In questa chat è attiva l'opzione {}, quindi qui non si può menzionare Meta AI."
+
+msgid "{} is on in this chat, so it can't be exported."
+msgstr "In questa chat è attiva l'opzione {}, quindi non si può esportare."
+
+msgid "{} joined"
+msgstr "{} è entrato"
+
+msgid "{} joined using this group's invite link"
+msgstr "{} è entrato usando il link di invito di questo gruppo"
+
+msgid "{} left"
+msgstr "{} è uscito"
+
+msgid "{} made {} a group admin"
+msgstr "{} ha nominato {} amministratore del gruppo"
+
+msgid "{} pinned a message"
+msgstr "{} ha fissato un messaggio"
+
+msgid "{} removed an option that was added to a poll"
+msgstr "{} ha rimosso un'opzione aggiunta a un sondaggio"
+
+msgid "{} removed options from a poll"
+msgstr "{} ha rimosso delle opzioni da un sondaggio"
+
+msgid "{} removed this group from the community \"{}\""
+msgstr "{} ha rimosso questo gruppo dalla community \"{}\""
+
+msgid "{} removed {}"
+msgstr "{} ha rimosso {}"
+
+msgid "{} removed {} as group admin"
+msgstr "{} ha rimosso {} dagli amministratori del gruppo"
+
+msgid "{} reset this group's invite link"
+msgstr "{} ha reimpostato il link di invito di questo gruppo"
+
+msgid "{} shared recent message history"
+msgstr "{} ha condiviso la cronologia recente dei messaggi"
+
+msgid "{} shared recent message history with {}"
+msgstr "{} ha condiviso la cronologia recente dei messaggi con {}"
+
+msgid "{} turned off admin approval to join this group"
+msgstr "{} ha disattivato l'approvazione degli amministratori per entrare nel gruppo"
+
+msgid "{} turned off advanced chat privacy"
+msgstr "{} ha disattivato la privacy avanzata della chat"
+
+msgid "{} turned off disappearing messages."
+msgstr "{} ha disattivato i messaggi effimeri."
+
+msgid "{} turned on admin approval to join this group"
+msgstr "{} ha attivato l'approvazione degli amministratori per entrare nel gruppo"
+
+msgid "{} turned on advanced chat privacy"
+msgstr "{} ha attivato la privacy avanzata della chat"
+
+msgid "{} turned on disappearing messages. New messages will disappear from this chat {} after they're sent."
+msgstr "{} ha attivato i messaggi effimeri. I nuovi messaggi scompariranno da questa chat {} dopo l'invio."
+
+msgid "{}, you voted {}"
+msgstr "{}, tu hai votato {}"
+
+msgid "No votes yet"
+msgstr "Ancora nessun voto"
+
+msgid "1 chat chosen."
+msgstr "1 chat scelta."
+
+msgid "1 contact excluded."
+msgstr "1 contatto escluso."
+
+msgid "1 member"
+msgstr "1 membro"
+
+msgid "Choose a time at least {} minutes from now and no more than {} days ahead."
+msgstr "Scegli un orario tra almeno {} minuti e al massimo tra {} giorni."
+
+msgid "No chats chosen."
+msgstr "Nessuna chat scelta."
+
+msgid "No contacts excluded."
+msgstr "Nessun contatto escluso."
+
+msgid "Note: {}"
+msgstr "Nota: {}"
+
+msgid "Placed {}"
+msgstr "Ordinato {}"
+
+msgid "The time has to be at least {} minutes from now and no more than {} days ahead."
+msgstr "L'orario deve essere tra almeno {} minuti e al massimo tra {} giorni."
+
+msgid "This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again."
+msgstr "Questa copia di whatSnap non contiene il pacchetto per il menu Condividi. Reinstalla whatSnap e riprova."
+
+msgid "Today, {}"
+msgstr "Oggi, {}"
+
+msgid "Tomorrow, {}"
+msgstr "Domani, {}"
+
+msgid "Unnamed group"
+msgstr "Gruppo senza nome"
+
+msgid "Viewed by 1 person"
+msgstr "Visto da 1 persona"
+
+msgid "Viewed by {} people"
+msgstr "Visto da {} persone"
+
+msgid "announcements"
+msgstr "annunci"
+
+msgid "chosen"
+msgstr "scelta"
+
+msgid "general chat"
+msgstr "chat generale"
+
+msgid "joined"
+msgstr "iscritto"
+
+msgid "not chosen"
+msgstr "non scelta"
+
+msgid "not joined"
+msgstr "non iscritto"
+
+msgid "whatSnap couldn't be added to the Share menu.\n\nSigning failed: {}"
+msgstr "Impossibile aggiungere whatSnap al menu Condividi.\n\nFirma non riuscita: {}"
+
+msgid "whatSnap couldn't be added to the Share menu.\n\n{}"
+msgstr "Impossibile aggiungere whatSnap al menu Condividi.\n\n{}"
+
+msgid "whatSnap is now in the Windows Share menu."
+msgstr "whatSnap ora è nel menu Condividi di Windows."
+
+msgid "whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu."
+msgstr "whatSnap non è stato aggiunto al menu Condividi, perché serve l'approvazione di un amministratore una volta sola. Puoi comunque inviare file con Invia a nel menu di Esplora file."
+
+msgid "{} bytes"
+msgstr "{} byte"
+
+msgid "{} each"
+msgstr "{} cadauno"
+
+msgid "{} members"
+msgstr "{} membri"
+
+msgid "{} {} of {} messages are scheduled in this chat."
+msgstr "{} In questa chat sono programmati {} messaggi su {}."
+
+msgid "{} chats chosen."
+msgstr "{} chat scelte."
+
+msgid "{} contacts excluded."
+msgstr "{} contatti esclusi."
+

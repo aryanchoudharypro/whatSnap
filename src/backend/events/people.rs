@@ -325,31 +325,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							let joined = flag("Joined");
 							let gname = g.get("Name").and_then(|n| n.as_str()).unwrap_or("");
 							let members = g.get("ParticipantCount").and_then(|c| c.as_u64()).unwrap_or(0);
-							let label = if crate::i18n::is_indonesian() {
-								let display_name = if gname.is_empty() { "Grup tanpa nama" } else { gname };
-								let mut parts = vec![display_name.to_string()];
-								if flag("IsDefaultSubGroup") {
-									parts.push("pengumuman".to_string());
-								}
-								if flag("IsGeneralChat") {
-									parts.push("chat umum".to_string());
-								}
-								parts.push(if joined {
-									"bergabung".to_string()
-								} else {
-									"belum bergabung".to_string()
-								});
-								parts.push(format!("{members} anggota"));
-								parts.join(", ")
-							} else {
-								whatsnap::community_group_label(
-									gname,
-									flag("IsDefaultSubGroup"),
-									flag("IsGeneralChat"),
-									joined,
-									members,
-								)
-							};
+							let label = whatsnap::community_group_label(
+								gname,
+								flag("IsDefaultSubGroup"),
+								flag("IsGeneralChat"),
+								joined,
+								members,
+							);
 							labels.push(label);
 							subgroup_jids.push(g.get("JID").and_then(|j| j.as_str()).unwrap_or("").to_string());
 							subgroup_joined.push(joined);

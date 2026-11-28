@@ -54,6 +54,34 @@ fn month_name(month: u32) -> &'static str {
 	}
 }
 
+/// `text` with the English day and month names the backend writes ("Monday,
+/// March 3") in the app language.
+pub fn translate_day_and_month_names(text: &str) -> String {
+	const DAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+	const MONTHS: [&str; 12] = [
+		"January",
+		"February",
+		"March",
+		"April",
+		"May",
+		"June",
+		"July",
+		"August",
+		"September",
+		"October",
+		"November",
+		"December",
+	];
+	let mut out = text.to_string();
+	for (day, name) in (0..).zip(DAYS) {
+		out = out.replace(name, weekday_name(day));
+	}
+	for (month, name) in (1..).zip(MONTHS) {
+		out = out.replace(name, month_name(month));
+	}
+	out
+}
+
 /// The first three letters, counted as characters so a translated name that
 /// starts with an accented letter can't be cut in the middle of it.
 fn abbreviated(name: &str) -> &str {

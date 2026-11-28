@@ -47,6 +47,8 @@ pub struct PickerWords<'a> {
 	pub search: &'a str,
 	pub on: &'a str,
 	pub off: &'a str,
+	/// How many are checked: "No contacts excluded.", "1 contact excluded.", "{} contacts excluded."
+	pub none: &'a str,
 	pub one: &'a str,
 	pub many: &'a str,
 	pub require_one: Option<&'a str>,
@@ -56,8 +58,9 @@ const EXCLUDED: PickerWords<'static> = PickerWords {
 	search: "Search contacts",
 	on: "excluded",
 	off: "not excluded",
-	one: "contact",
-	many: "contacts",
+	none: "No contacts excluded.",
+	one: "1 contact excluded.",
+	many: "{} contacts excluded.",
 	require_one: Some("Choose at least one contact to exclude."),
 };
 
@@ -155,7 +158,12 @@ pub fn pick_with(
 		}
 	};
 	fill("");
-	let counts = (crate::i18n::tr_str(words.on), crate::i18n::tr_str(words.one), crate::i18n::tr_str(words.many));
+	let counts = (
+		crate::i18n::tr_str(words.on),
+		crate::i18n::tr_str(words.none),
+		crate::i18n::tr_str(words.one),
+		crate::i18n::tr_str(words.many),
+	);
 	crate::platform::announce::announce(announcer, &counted(&counts, state.borrow().checked.len()));
 
 	// Rebuilt only once typing pauses, as in the other contact pickers:
@@ -244,17 +252,11 @@ pub fn pick_with(
 	chosen
 }
 
-fn counted((on, one, many): &(String, String, String), count: usize) -> String {
-	if crate::i18n::is_indonesian() {
-		return match count {
-			0 => format!("Tidak ada {many} {on}."),
-			n => format!("{n} {many} {on}."),
-		};
-	}
+fn counted((_, none, one, many): &(String, String, String, String), count: usize) -> String {
 	match count {
-		0 => format!("No {} {}.", many, on),
-		1 => format!("1 {} {}.", one, on),
-		n => format!("{} {} {}.", n, many, on),
+		0 => none.clone(),
+		1 => one.clone(),
+		n => many.replacen("{}", &n.to_string(), 1),
 	}
 }
 

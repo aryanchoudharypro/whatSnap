@@ -892,8 +892,6 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 						let label = if let Some(pct) = s.downloads_in_progress.get(&msg.id) {
 							crate::i18n::tr_fmt("Cancel download ({}%)", &[&pct])
 						} else if let Some(size) = whatsnap::format_file_size(msg.media_size) {
-							let size =
-								if crate::i18n::is_indonesian() { size.replace(" bytes", " byte") } else { size };
 							format!("{} ({size})", crate::i18n::tr("Download"))
 						} else {
 							crate::i18n::tr("Download").to_string()
@@ -976,17 +974,10 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 						} else {
 							let total_size: i64 = uncollected.iter().map(|m| m.media_size).sum();
 							match whatsnap::format_file_size(total_size) {
-								Some(size) => {
-									let size = if crate::i18n::is_indonesian() {
-										size.replace(" bytes", " byte")
-									} else {
-										size
-									};
-									crate::i18n::tr_fmt(
-										"Download album ({} items remaining, {})",
-										&[&uncollected.len(), &size],
-									)
-								}
+								Some(size) => crate::i18n::tr_fmt(
+									"Download album ({} items remaining, {})",
+									&[&uncollected.len(), &size],
+								),
 								None => {
 									crate::i18n::tr_fmt("Download album ({} items remaining)", &[&uncollected.len()])
 								}

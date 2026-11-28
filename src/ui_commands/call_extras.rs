@@ -298,7 +298,11 @@ pub(crate) fn set_approval(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowPart
 }
 
 pub(crate) fn create_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let choices = if crate::i18n::is_indonesian() { ["Suara", "Video"] } else { ["Voice", "Video"] };
+	let choices = if crate::i18n::is_indonesian() {
+		["Suara", "Video"]
+	} else {
+		[crate::i18n::tr("Voice"), crate::i18n::tr("Video")]
+	};
 	let choice = SingleChoiceDialog::builder(
 		&parts.frame,
 		crate::i18n::tr("What kind of call?"),
