@@ -14,8 +14,18 @@ pub struct GroupFields {
 }
 
 #[derive(Clone, Copy)]
+pub struct ContactActions {
+	pub photo: StaticBitmap,
+	pub voice_call_btn: Button,
+	pub video_call_btn: Button,
+	pub contact_btn: Button,
+	pub delete_contact_btn: Button,
+}
+
+#[derive(Clone, Copy)]
 pub struct ChatOverviewParts {
 	pub group: Option<GroupFields>,
+	pub contact: Option<ContactActions>,
 	pub details_btn: Option<Button>,
 	pub panel: Panel,
 	pub summary: TextCtrl,
@@ -36,6 +46,14 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 	let panel = Panel::builder(notebook).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
+	// The photo's row goes at the top, but its widgets are made after the
+	// details box: Tab follows creation order, so the box comes first.
+	let photo_row = (!is_group).then(|| {
+		let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
+		sizer.add_sizer(&photo_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 8);
+		photo_row
+	});
+
 	let group = is_group.then(|| {
 		let name_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Group name")).build();
 		sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
@@ -50,12 +68,37 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 		GroupFields { name_label, name, desc_label, desc, save_btn }
 	});
 
-	let label = StaticText::builder(&panel).with_label(crate::i18n::tr("Chat overview")).build();
+	let label = StaticText::builder(&panel)
+		.with_label(if is_group { crate::i18n::tr("Group overview") } else { crate::i18n::tr("Contact details") })
+		.build();
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 	let summary = TextCtrl::builder(&panel)
 		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::from_bits_retain(0x0020_0000))
 		.build();
+	summary.set_font(&crate::ui::theme::Fonts::body());
 	sizer.add(&summary, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+	let contact = photo_row.map(|photo_row| {
+		let actions_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+		let action = |text: &'static str| {
+			let btn = Button::builder(&panel).with_label(crate::i18n::tr(text)).build();
+			crate::ui::owner_draw::install_tile(&btn, crate::ui::theme::Palette::PANEL_BG());
+			actions_sizer.add(&btn, 0, SizerFlag::Right, 6);
+			btn
+		};
+		let voice_call_btn = action("Voice call");
+		let video_call_btn = action("Video call");
+		let contact_btn = action("Add contact");
+		let delete_contact_btn = action("Delete contact");
+		delete_contact_btn.show(false);
+		sizer.add_sizer(&actions_sizer, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::All, 6);
+		// wx needs a picture to make it with; the real one comes later.
+		let empty = wxdragon::bitmap::Bitmap::from_rgba(&[0, 0, 0, 0], 1, 1).expect("a 1x1 bitmap");
+		let photo = StaticBitmap::builder(&panel).with_bitmap(Some(empty)).build();
+		photo_row.add(&photo, 0, SizerFlag::AlignCenterVertical, 0);
+		photo.show(false);
+		ContactActions { photo, voice_call_btn, video_call_btn, contact_btn, delete_contact_btn }
+	});
 
 	let lock_chk = CheckBox::builder(&panel).with_label(crate::i18n::tr("Lock this chat")).build();
 	sizer.add(&lock_chk, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
@@ -70,7 +113,7 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 		rows.add(&btn, 0, SizerFlag::Right | SizerFlag::Top, 6);
 		btn
 	};
-	let details_btn = (!is_group).then(|| button("Contact details..."));
+	let details_btn = None;
 	let notify_btn = button("Notification settings...");
 	let disappearing_btn = button("Disappearing messages...");
 	let privacy_btn = button("Advanced chat privacy...");
@@ -86,6 +129,7 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 
 	ChatOverviewParts {
 		group,
+		contact,
 		details_btn,
 		panel,
 		summary,
@@ -127,24 +171,27 @@ fn applies(jid: &str) -> Applies {
 pub(crate) fn refresh_block_state(s: &AppState, o: &ChatOverviewParts, jid: &str) {
 	let a = applies(jid);
 	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
-	let kind = if jid.ends_with("@g.us") { crate::i18n::tr("Group") } else { crate::i18n::tr("Contact") };
 	let locked = s.is_chat_locked(jid);
 	let blocked = crate::ui_commands::blocking::is_blocked(s, jid);
-	let mut lines = vec![format!("{kind}: {name}")];
-	lines.push(format!(
-		"{}: {}",
-		crate::i18n::tr("Notifications"),
-		if s.muted_jids.contains(jid) { crate::i18n::tr("muted") } else { crate::i18n::tr("on") }
-	));
-	lines.push(format!(
-		"{}: {}",
-		crate::i18n::tr("Locked"),
-		if locked { crate::i18n::tr("yes") } else { crate::i18n::tr("no") }
-	));
-	if a.block && blocked {
-		lines.push(crate::i18n::tr("Blocked: yes").to_string());
+	// A contact's summary is Contact info's details box: its text (About,
+	// WhatsApp name, a phone number that isn't a LID) comes from user_info,
+	// and blocking.rs updates its block line; rewriting it here would lose that.
+	if jid.ends_with("@g.us") {
+		let lines = [
+			format!("{}: {}", crate::i18n::tr("Group"), name),
+			format!(
+				"{}: {}",
+				crate::i18n::tr("Notifications"),
+				if s.muted_jids.contains(jid) { crate::i18n::tr("muted") } else { crate::i18n::tr("on") }
+			),
+			format!(
+				"{}: {}",
+				crate::i18n::tr("Locked"),
+				if locked { crate::i18n::tr("yes") } else { crate::i18n::tr("no") }
+			),
+		];
+		o.summary.set_value(&lines.join("\n"));
 	}
-	o.summary.set_value(&lines.join("\n"));
 	o.block_btn.show(a.block);
 	o.block_btn.set_label(if blocked {
 		crate::i18n::tr("Unblock contact")

@@ -359,16 +359,10 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		&chats_sizer,
 		"Keep my place in the message list instead of jumping to the newest message",
 	);
-	let open_in_message_box_check = setting_switch(
-		&chats_panel,
-		&chats_sizer,
-		"Open chats in the message box instead of the message list",
-	);
-	let up_arrow_edits_check = setting_switch(
-		&chats_panel,
-		&chats_sizer,
-		"Up Arrow in an empty message box edits your last message",
-	);
+	let open_in_message_box_check =
+		setting_switch(&chats_panel, &chats_sizer, "Open chats in the message box instead of the message list");
+	let up_arrow_edits_check =
+		setting_switch(&chats_panel, &chats_sizer, "Up Arrow in an empty message box edits your last message");
 	let replace_emoji_check =
 		setting_switch(&chats_panel, &chats_sizer, "Replace text with emoji as you type, like :-) or (y)");
 	let emoji_help_btn = setting_button(&chats_panel, "Replace Text With Emoji: See Help...");
@@ -376,12 +370,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	chats_sizer.add_spacer(10);
 	section_header(&chats_panel, &chats_sizer, "Voice Messages");
-	let voice_seek_combo = visibility_combo(
-		&chats_panel,
-		&chats_sizer,
-		"Go back and forward in voice messages by",
-		&VOICE_SEEK_CHOICES,
-	);
+	let voice_seek_combo =
+		visibility_combo(&chats_panel, &chats_sizer, "Go back and forward in voice messages by", &VOICE_SEEK_CHOICES);
 
 	chats_sizer.add_spacer(10);
 	section_header(&chats_panel, &chats_sizer, "Spelling");
@@ -712,12 +702,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		&lock_sizer,
 		"Allows unlocking hidden and locked chats using your Windows Hello biometric or PIN credentials.",
 	);
-	let chat_lock_auto_lock_combo = visibility_combo(
-		&lock_panel,
-		&lock_sizer,
-		"Lock Chats Again When Idle For",
-		CHAT_LOCK_AUTO_LOCK_CHOICES,
-	);
+	let chat_lock_auto_lock_combo =
+		visibility_combo(&lock_panel, &lock_sizer, "Lock Chats Again When Idle For", CHAT_LOCK_AUTO_LOCK_CHOICES);
 	let chat_lock_on_minimize_check =
 		setting_switch(&lock_panel, &lock_sizer, "Lock chats again when whatSnap is minimized or hidden");
 	let chat_lock_notify_check =

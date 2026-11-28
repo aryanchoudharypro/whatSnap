@@ -967,14 +967,21 @@ pub(crate) fn paint_row(
 }
 
 fn pill(dc: &impl DeviceContext, fonts: &Fonts, row: &RowPaint, c: &Colours, row_bg: Colour, text: &str) {
+	let is_unread = text.to_lowercase().contains("unread");
+	let fill = if is_unread && c.custom {
+		if theme::is_dark() { Colour::rgb(0x1F, 0x35, 0x2B) } else { Colour::rgb(0xDC, 0xF8, 0xC6) }
+	} else {
+		c.pill
+	};
 	let text = fonts.fit(dc, Face::Small, text, row.width - 64);
 	dc.set_font(&fonts.small);
 	let (tw, th) = dc.get_text_extent(&text);
 	let (w, h) = (tw + 24, (th + 8).min(row.unit - 4));
 	let (x, y) = ((row.width - w) / 2, row.y + (row.unit - h) / 2);
-	shape(dc, c, x, y, w, h, c.pill, row_bg);
+	shape(dc, c, x, y, w, h, fill, row_bg);
 	dc.set_font(&fonts.small);
-	dc.set_text_foreground(c.muted);
+	let fg = if is_unread && c.custom { c.accent } else { c.muted };
+	dc.set_text_foreground(fg);
 	dc.draw_text(&text, x + 12, y + (h - th) / 2);
 }
 

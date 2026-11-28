@@ -480,11 +480,7 @@ fn show_attach_menu(button: Button, tx: &UiCommandSender) {
 			crate::i18n::tr("&Document"),
 			crate::i18n::tr("Send any file as a document, photos at full quality"),
 		)
-		.append_item(
-			ATTACH_MEDIA_ID,
-			crate::i18n::tr("&Photos and videos"),
-			crate::i18n::tr("Send photos and videos"),
-		)
+		.append_item(ATTACH_MEDIA_ID, crate::i18n::tr("&Photos and videos"), crate::i18n::tr("Send photos and videos"))
 		.append_item(
 			ATTACH_AUDIO_ID,
 			crate::i18n::tr("&Audio"),
@@ -496,11 +492,7 @@ fn show_attach_menu(button: Button, tx: &UiCommandSender) {
 			crate::i18n::tr("Attach a contact from your WhatsApp contacts"),
 		)
 		.append_item(ATTACH_POLL_ID, crate::i18n::tr("P&oll"), crate::i18n::tr("Create a poll or a quiz"))
-		.append_item(
-			ATTACH_EVENT_ID,
-			crate::i18n::tr("&Event"),
-			crate::i18n::tr("Create an event people can answer"),
-		)
+		.append_item(ATTACH_EVENT_ID, crate::i18n::tr("&Event"), crate::i18n::tr("Create an event people can answer"))
 		.append_item(
 			ATTACH_STICKER_ID,
 			crate::i18n::tr("&Sticker"),
@@ -754,7 +746,30 @@ fn show_message_text(
 	let text = state.borrow().display_items.get(idx as usize).map(|item| item.body_text());
 	let Some(text) = text else { return };
 	let text = text.replace("\r\n", "\n").replace('\n', "\r\n");
-	let dlg = Dialog::builder(parent, crate::i18n::tr("Message Text"))
+	let title = {
+		let s = state.borrow();
+		let item = s.display_items.get(idx as usize);
+		if let Some(whatsnap::DisplayItem::Single(m)) = item {
+			let sender = if m.from_me {
+				crate::i18n::tr("You").to_string()
+			} else if !m.sender_name.is_empty() {
+				m.sender_name.clone()
+			} else {
+				crate::ui::contact_picker::display_name_for_jid(&m.sender_jid)
+			};
+			let time = whatsnap::LocalTime::from_unix(m.timestamp)
+				.map(|t| t.format(crate::i18n::tr("%l:%M %p")).trim().to_string())
+				.unwrap_or_default();
+			if !time.is_empty() {
+				crate::i18n::tr_fmt("Message from {} ({})", &[&sender, &time])
+			} else {
+				crate::i18n::tr_fmt("Message from {}", &[&sender])
+			}
+		} else {
+			crate::i18n::tr("Message Text").to_string()
+		}
+	};
+	let dlg = Dialog::builder(parent, &title)
 		.with_size(480, 320)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -1806,6 +1821,19 @@ pub fn bind_input_handlers(
 		let _ = tx_join_call.send(UiCommand::JoinGroupCall(None));
 	});
 
+	let tx_conv_menu = ui_tx.clone();
+	let state_conv_menu = state.clone();
+	let frame_conv_menu = parts.frame;
+	let conv_menu_btn_ref = parts.conversations_parts.conv_menu_btn;
+	parts.conversations_parts.conv_menu_btn.on_click(move |_| {
+		crate::ui_commands::chat_list::show_chat_overflow_menu(
+			conv_menu_btn_ref,
+			frame_conv_menu,
+			&state_conv_menu,
+			&tx_conv_menu,
+		);
+	});
+
 	let tx_create_link = ui_tx.clone();
 	parts.conversations_parts.create_call_link_btn.on_click(move |_| {
 		let _ = tx_create_link.send(UiCommand::CreateCallLink);
@@ -2132,11 +2160,7 @@ pub fn bind_input_handlers(
 	parts.conversation_data_dialog.delete_contact_btn.on_click(move |_| {
 		let _ = tx_delete_contact.send(UiCommand::DeleteContact);
 	});
-	let tx_info_privacy = ui_tx.clone();
-	parts.conversation_data_dialog.chat_privacy_btn.on_click(move |_| {
-		let _ = tx_info_privacy.send(UiCommand::ShowChatPrivacy);
-	});
-
+	// chat_privacy_btn is the overview's privacy button, which `wire` handles.
 	crate::ui::chat_overview::wire(&parts, &state, &ui_tx);
 
 	let conv_data_dialog_back = parts.conversation_data_dialog.dialog;
@@ -4375,8 +4399,8 @@ pub fn bind_input_handlers(
 			return;
 		}
 		let mins = s.settings.chat_lock_auto_lock_mins;
-		let idle = mins > 0
-			&& s.chat_lock_last_activity.elapsed() >= std::time::Duration::from_secs(u64::from(mins) * 60);
+		let idle =
+			mins > 0 && s.chat_lock_last_activity.elapsed() >= std::time::Duration::from_secs(u64::from(mins) * 60);
 		let minimized = s.settings.chat_lock_on_minimize && frame_chat_lock_timer.is_iconized();
 		if idle || minimized {
 			drop(s);
@@ -5243,7 +5267,74 @@ pub fn bind_input_handlers(
 				}
 				_ => None,
 			});
+			let can_star_msg = match display_item {
+				Some(whatsnap::DisplayItem::Single(ref m)) => crate::ui_commands::selection::can_star(&chat_jid, m),
+				Some(whatsnap::DisplayItem::Album { ref messages, .. }) => {
+					!messages.is_empty()
+						&& messages.iter().all(|m| crate::ui_commands::selection::can_star(&chat_jid, m))
+				}
+				_ => false,
+			};
+			let links = match display_item.as_ref() {
+				Some(whatsnap::DisplayItem::Single(m)) if !is_deleted => m.links(),
+				_ => Vec::new(),
+			};
+			let reaction_details = match display_item.as_ref() {
+				Some(whatsnap::DisplayItem::Single(m)) if !is_channel_chat => m.reaction_details(),
+				_ => Vec::new(),
+			};
+
 			let mut menu_builder = Menu::builder();
+
+			let can_reply = !is_deleted && (!is_channel_chat || can_post_in_channel);
+			if can_reply {
+				menu_builder =
+					menu_builder.append_item(reply_id, crate::i18n::tr("&Reply"), crate::i18n::tr("Reply to message"));
+			}
+			if !is_deleted {
+				menu_builder = menu_builder.append_item(
+					react_dialog_id,
+					crate::i18n::tr("&React..."),
+					crate::i18n::tr("React to message"),
+				);
+			}
+			if !is_deleted {
+				menu_builder = menu_builder.append_item(
+					forward_id,
+					crate::i18n::tr("&Forward..."),
+					crate::i18n::tr("Forward message to another contact"),
+				);
+			}
+			if can_star_msg {
+				let is_album = matches!(display_item, Some(whatsnap::DisplayItem::Album { .. }));
+				let star_label = match (is_album, is_starred) {
+					(true, true) => crate::i18n::tr("&Unstar all"),
+					(true, false) => crate::i18n::tr("&Star all"),
+					(false, true) => crate::i18n::tr("&Unstar"),
+					(false, false) => crate::i18n::tr("&Star"),
+				};
+				menu_builder =
+					menu_builder.append_item(star_id, star_label, crate::i18n::tr("Star or unstar this message"));
+			}
+			menu_builder = menu_builder.append_item(
+				copy_id,
+				crate::i18n::tr("&Copy	Ctrl+C"),
+				crate::i18n::tr("Copy message text or file to clipboard"),
+			);
+			if !links.is_empty() {
+				menu_builder = menu_builder.append_item(
+					copy_link_id,
+					crate::i18n::tr(if links.len() == 1 { "Copy &Link" } else { "Copy &Link..." }),
+					crate::i18n::tr("Copy a link in this message to the clipboard"),
+				);
+			}
+			if is_photo_album && !is_deleted {
+				menu_builder = menu_builder.append_item(
+					copy_all_id,
+					crate::i18n::tr("Copy all p&hotos"),
+					crate::i18n::tr("Copy all photos to clipboard"),
+				);
+			}
 			if let Some(msg) = &media_message {
 				if msg.is_media_downloaded() {
 					menu_builder = menu_builder
@@ -5261,26 +5352,13 @@ pub fn bind_input_handlers(
 					);
 				}
 			}
-			menu_builder = menu_builder.append_item(
-				copy_id,
-				crate::i18n::tr("&Copy	Ctrl+C"),
-				crate::i18n::tr("Copy message text or file to clipboard"),
-			);
-			let links = match display_item.as_ref() {
-				Some(whatsnap::DisplayItem::Single(m)) if !is_deleted => m.links(),
-				_ => Vec::new(),
-			};
-			if !links.is_empty() {
+			if is_voice_msg && !is_deleted {
 				menu_builder = menu_builder.append_item(
-					copy_link_id,
-					crate::i18n::tr(if links.len() == 1 { "Copy &Link" } else { "Copy &Link..." }),
-					crate::i18n::tr("Copy a link in this message to the clipboard"),
+					save_voice_id,
+					crate::i18n::tr("&Save voice message..."),
+					crate::i18n::tr("Save voice message to device"),
 				);
 			}
-			let reaction_details = match display_item.as_ref() {
-				Some(whatsnap::DisplayItem::Single(m)) if !is_channel_chat => m.reaction_details(),
-				_ => Vec::new(),
-			};
 			if !reaction_details.is_empty() {
 				menu_builder = menu_builder.append_item(
 					reactions_id,
@@ -5288,52 +5366,23 @@ pub fn bind_input_handlers(
 					crate::i18n::tr("See who reacted to this message, and with what"),
 				);
 			}
-			let can_reply = !is_deleted && (!is_channel_chat || can_post_in_channel);
-			if can_reply {
+			if !is_deleted && can_edit {
 				menu_builder =
-					menu_builder.append_item(reply_id, crate::i18n::tr("&Reply"), crate::i18n::tr("Reply to message"));
+					menu_builder.append_item(edit_id, crate::i18n::tr("&Edit"), crate::i18n::tr("Edit message"));
 			}
-			if !is_deleted {
+			let is_poll_msg =
+				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if m.is_poll() && !m.is_deleted);
+			if (is_from_me || is_poll_msg) && !is_deleted {
 				menu_builder = menu_builder.append_item(
-					forward_id,
-					crate::i18n::tr("&Forward..."),
-					crate::i18n::tr("Forward message to another contact"),
+					info_id,
+					crate::i18n::tr("Message &Info"),
+					crate::i18n::tr("View delivery info, or a poll's votes"),
 				);
-				if can_edit {
-					menu_builder =
-						menu_builder.append_item(edit_id, crate::i18n::tr("&Edit"), crate::i18n::tr("Edit message"));
-				}
 			}
 			let can_delete = !is_channel_chat || can_post_in_channel || is_from_me;
 			if can_delete {
 				menu_builder =
 					menu_builder.append_item(delete_id, crate::i18n::tr("&Delete"), crate::i18n::tr("Delete message"));
-			}
-			if !is_deleted {
-				menu_builder = menu_builder.append_item(
-					react_dialog_id,
-					crate::i18n::tr("&React..."),
-					crate::i18n::tr("React to message"),
-				);
-			}
-			let can_star_msg = match display_item {
-				Some(whatsnap::DisplayItem::Single(ref m)) => crate::ui_commands::selection::can_star(&chat_jid, m),
-				Some(whatsnap::DisplayItem::Album { ref messages, .. }) => {
-					!messages.is_empty()
-						&& messages.iter().all(|m| crate::ui_commands::selection::can_star(&chat_jid, m))
-				}
-				_ => false,
-			};
-			if can_star_msg {
-				let is_album = matches!(display_item, Some(whatsnap::DisplayItem::Album { .. }));
-				let star_label = match (is_album, is_starred) {
-					(true, true) => crate::i18n::tr("&Unstar all"),
-					(true, false) => crate::i18n::tr("&Star all"),
-					(false, true) => crate::i18n::tr("&Unstar"),
-					(false, false) => crate::i18n::tr("&Star"),
-				};
-				menu_builder =
-					menu_builder.append_item(star_id, star_label, crate::i18n::tr("Star or unstar this message"));
 			}
 			if can_retry && !is_deleted {
 				menu_builder = menu_builder.append_item(
@@ -5347,29 +5396,6 @@ pub fn bind_input_handlers(
 					resend_id,
 					crate::i18n::tr("Re&quest again"),
 					crate::i18n::tr("Ask your phone to send this message again"),
-				);
-			}
-			if is_voice_msg && !is_deleted {
-				menu_builder = menu_builder.append_item(
-					save_voice_id,
-					crate::i18n::tr("&Save voice message..."),
-					crate::i18n::tr("Save voice message to device"),
-				);
-			}
-			let is_poll_msg =
-				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if m.is_poll() && !m.is_deleted);
-			if (is_from_me || is_poll_msg) && !is_deleted {
-				menu_builder = menu_builder.append_item(
-					info_id,
-					crate::i18n::tr("Message &Info"),
-					crate::i18n::tr("View delivery info, or a poll's votes"),
-				);
-			}
-			if is_photo_album && !is_deleted {
-				menu_builder = menu_builder.append_item(
-					copy_all_id,
-					crate::i18n::tr("Copy all p&hotos"),
-					crate::i18n::tr("Copy all photos to clipboard"),
 				);
 			}
 			if phone_match.is_some() && !is_deleted {

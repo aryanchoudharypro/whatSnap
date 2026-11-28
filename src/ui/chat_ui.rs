@@ -229,6 +229,10 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 			cp.remove_quote_btn.show(false);
 			changed = true;
 		}
+		if cp.reply_preview_panel.is_shown() {
+			cp.reply_preview_panel.show(false);
+			changed = true;
+		}
 		if changed {
 			cp.conversation_panel.layout();
 		}
@@ -269,6 +273,19 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 			cp.remove_quote_btn.show(false);
 			changed = true;
 		}
+		if !cp.reply_preview_panel.is_shown() {
+			cp.reply_preview_panel.show(true);
+			changed = true;
+		}
+		let edit_title = crate::i18n::tr("Editing message");
+		if cp.reply_title_label.get_label() != edit_title {
+			cp.reply_title_label.set_label(edit_title);
+		}
+		let orig = s.editing_message_original_text.as_deref().unwrap_or("");
+		let orig_snip = reply_snippet(orig);
+		if cp.reply_text_label.get_label() != orig_snip {
+			cp.reply_text_label.set_label(&orig_snip);
+		}
 		if cp.record_voice_btn.is_shown() {
 			cp.record_voice_btn.show(false);
 			changed = true;
@@ -293,6 +310,23 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 		if cp.remove_quote_btn.is_shown() != show_quote {
 			cp.remove_quote_btn.show(show_quote);
 			changed = true;
+		}
+		if cp.reply_preview_panel.is_shown() != show_quote {
+			cp.reply_preview_panel.show(show_quote);
+			changed = true;
+		}
+		if show_quote {
+			let (who, what) = if let Some(ref p) = s.pending_reply_preview {
+				p.split_once(": ").unwrap_or(("", p.as_str()))
+			} else {
+				("", "")
+			};
+			if cp.reply_title_label.get_label() != who {
+				cp.reply_title_label.set_label(who);
+			}
+			if cp.reply_text_label.get_label() != what {
+				cp.reply_text_label.set_label(what);
+			}
 		}
 		if cp.send_message_btn.is_shown() != has_text {
 			cp.send_message_btn.show(has_text);
@@ -371,6 +405,28 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	} else {
 		0
 	};
+	if jid.ends_with("@g.us")
+		&& kind == 0
+		&& presence_label.is_none_or(|l| l.is_empty())
+		&& let Some(members) = s.group_header_members.get(jid).filter(|m| !m.is_empty())
+	{
+		let preview = members.iter().take(4).map(String::as_str).collect::<Vec<_>>().join(", ");
+		let suffix = if members.len() > 4 { format!("{preview}, ...") } else { preview };
+		return format!("{name} ({suffix})");
+	}
+	if jid.ends_with("@newsletter") {
+		return format!("{name} ({})", crate::i18n::tr("Channel"));
+	}
+	if !jid.ends_with("@g.us")
+		&& !jid.ends_with("@newsletter")
+		&& kind == 0
+		&& presence_label.map_or(true, |l| l.is_empty())
+	{
+		let is_online = s.contact_online.get(jid).or_else(|| s.contact_online.get(&norm_jid)).copied().unwrap_or(false);
+		if is_online {
+			return format!("{name} (online)");
+		}
+	}
 	crate::backend::events::format_conv_data_label(jid, &name, &name, kind == 1, kind == 2, presence_label)
 }
 
@@ -398,6 +454,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	if s.editing_message_id.take().is_some() {
 		s.editing_message_original_text = None;
 		parts.conversations_parts.cancel_edit_btn.show(false);
+		parts.conversations_parts.reply_preview_panel.show(false);
 		parts.conversations_parts.add_attachment_btn.show(true);
 		parts.conversations_parts.emoji_btn.show(true);
 		parts.conversations_parts.message_label.set_label(crate::i18n::tr("Type a message"));
@@ -480,6 +537,16 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		}
 	};
 	let _ = s.ws_tx.send(payload.to_string());
+	// The header's member names: like WA Web, fetch a group's metadata the
+	// first time it's opened, not on every open, and not for a group we've
+	// left (the query would only fail and show an error).
+	if jid.ends_with("@g.us") && !s.not_member_jids.contains(jid) && s.group_info_fetched.insert(jid.to_string()) {
+		let group_req = serde_json::json!({
+			"action": "get_group_info",
+			"data": { "jid": jid }
+		});
+		let _ = s.ws_tx.send(group_req.to_string());
+	}
 	drop(s);
 	crate::handle_ui_command(UiCommand::SubscribePresence(jid.to_string()), state, parts);
 	crate::handle_ui_command(UiCommand::MarkRead { jid: jid.to_string(), message_ids: Vec::new() }, state, parts);

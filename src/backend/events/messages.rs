@@ -1018,11 +1018,23 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					InfoMediaLists { media: &gd.media_list, documents: &gd.documents_list, links: &gd.links_list };
 				(s.group_data_media, s.group_data_documents, s.group_data_links) =
 					fill_info_media(&s, lists, Some(&found));
+				gd.notebook.set_page_text(2, &format!("{} ({})", crate::i18n::tr("Media"), s.group_data_media.len()));
+				gd.notebook
+					.set_page_text(3, &format!("{} ({})", crate::i18n::tr("Documents"), s.group_data_documents.len()));
+				gd.notebook.set_page_text(4, &format!("{} ({})", crate::i18n::tr("Links"), s.group_data_links.len()));
 			} else if cd.dialog.is_shown() {
 				let lists =
 					InfoMediaLists { media: &cd.media_list, documents: &cd.documents_list, links: &cd.links_list };
 				(s.conversation_data_media, s.conversation_data_documents, s.conversation_data_links) =
 					fill_info_media(&s, lists, Some(&found));
+				cd.notebook
+					.set_page_text(1, &format!("{} ({})", crate::i18n::tr("Media"), s.conversation_data_media.len()));
+				cd.notebook.set_page_text(
+					2,
+					&format!("{} ({})", crate::i18n::tr("Documents"), s.conversation_data_documents.len()),
+				);
+				cd.notebook
+					.set_page_text(3, &format!("{} ({})", crate::i18n::tr("Links"), s.conversation_data_links.len()));
 			}
 		}
 		"history_updated" => {

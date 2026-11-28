@@ -29,6 +29,9 @@ fn build_libopus() {
 		.define("OPUS_INSTALL_CMAKE_CONFIG_MODULE", "OFF")
 		// The release C runtime in every profile, linked the same way as the Rust code: static
 		// (/MT) with crt-static (.cargo/config.toml), so the exe needs no Visual C++ redistributable.
+		// libopus's CMakeLists overwrites CMAKE_MSVC_RUNTIME_LIBRARY from its own
+		// OPUS_STATIC_RUNTIME option, so that is the switch that actually counts.
+		.define("OPUS_STATIC_RUNTIME", if crt_static() { "ON" } else { "OFF" })
 		.define("CMAKE_MSVC_RUNTIME_LIBRARY", if crt_static() { "MultiThreaded" } else { "MultiThreadedDLL" })
 		.profile("Release")
 		.build();

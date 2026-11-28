@@ -163,8 +163,7 @@ pub(crate) fn apply_title(s: &AppState, parts: &WindowParts) {
 /// The window title from the user's template.
 pub(crate) fn title_text(s: &AppState) -> String {
 	let a = s.accounts.borrow();
-	let account =
-		if a.registry.live_count() > 1 { a.registry.display_name(&a.registry.active) } else { String::new() };
+	let account = if a.registry.live_count() > 1 { a.registry.display_name(&a.registry.active) } else { String::new() };
 	let chat = s
 		.selected_chat
 		.as_deref()

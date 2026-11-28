@@ -300,9 +300,8 @@ pub(super) fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell
 	let count = parts.conversations_parts.messages_list.get_count();
 	// A chat opened at a message (from a search or a link) goes to it even
 	// when chats open in the message box.
-	let to_message_box = s.settings.open_chat_in_message_box
-		&& s.search_target_id.is_none()
-		&& s.search_target_text.is_none();
+	let to_message_box =
+		s.settings.open_chat_in_message_box && s.search_target_id.is_none() && s.search_target_text.is_none();
 	let focus_opened_chat = || {
 		if to_message_box && parts.conversations_parts.message_field.is_shown() {
 			parts.conversations_parts.message_field.set_focus();
