@@ -714,6 +714,7 @@ pub const MENU_ID_ITALIC: i32 = 6093;
 pub const MENU_ID_STRIKETHROUGH: i32 = 6094;
 pub const MENU_ID_INLINE_CODE: i32 = 6095;
 pub const MENU_ID_CLEAR_COMPOSER: i32 = 6096;
+pub const MENU_ID_FIND_CHANNELS: i32 = 6097;
 
 const CONVERSATION_MENU_IDS: [i32; 26] = [
 	MENU_ID_CHAT_INFO,
@@ -1085,6 +1086,87 @@ fn fit_edit_menu(s: &crate::AppState, menu_bar: &MenuBar) {
 	}
 }
 
+#[cfg(target_os = "windows")]
+fn is_nav_panel_shown() -> bool {
+	if let Some(hwnd) = crate::ui::owner_draw::nav_panel_hwnd() {
+		unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(hwnd).as_bool() }
+	} else {
+		true
+	}
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_nav_panel_shown() -> bool {
+	true
+}
+
+fn fit_view_menu(s: &crate::AppState, menu_bar: &MenuBar) {
+	let Some((_, menu)) = menu_bar.find_item_and_menu(MENU_ID_NAV_CONVERSATIONS) else { return };
+	while let Some(item) = menu.find_item_by_position(0) {
+		menu.delete_item(&item);
+	}
+
+	for &tab in &s.settings.tab_order() {
+		let (id, help) = GO_MENU_ITEMS[tab];
+		menu.append(id, &s.keymap.menu_label_for(id), crate::i18n::tr(help), ItemKind::Normal);
+	}
+
+	menu.append_separator();
+
+	let search_shortcut = s.keymap.shortcut_text("search").unwrap_or_else(|| "Ctrl+/".to_string());
+	let search_base = match s.active_tab {
+		0 => crate::i18n::tr("Search &Chats"),
+		1 => crate::i18n::tr("Search &Calls"),
+		2 => crate::i18n::tr("Search &Status"),
+		3 => crate::i18n::tr("Search &Starred Messages"),
+		4 => crate::i18n::tr("Search &Archived Chats"),
+		5 => crate::i18n::tr("Search Comm&unities"),
+		6 => crate::i18n::tr("Search C&hannels"),
+		_ => crate::i18n::tr("&Search"),
+	};
+	let search_label = if search_shortcut.is_empty() {
+		search_base.to_string()
+	} else {
+		format!("{}\t{}", search_base, search_shortcut)
+	};
+	let search_help = match s.active_tab {
+		1 => crate::i18n::tr("Filter calls by contact name"),
+		2 => crate::i18n::tr("Filter status updates by contact name"),
+		6 => crate::i18n::tr("Filter channels by name"),
+		_ => crate::i18n::tr("Search chats and messages"),
+	};
+	menu.append(MENU_ID_SEARCH_GLOBAL, &search_label, search_help, ItemKind::Normal);
+
+	if s.active_tab == 0 {
+		menu.append(
+			MENU_ID_MANAGE_LISTS,
+			&crate::i18n::tr("Manage &Lists..."),
+			crate::i18n::tr("Make, rename or delete your chat lists"),
+			ItemKind::Normal,
+		);
+	} else if s.active_tab == 6 {
+		menu.append(
+			MENU_ID_FIND_CHANNELS,
+			&crate::i18n::tr("Explore &Channels..."),
+			crate::i18n::tr("Discover and follow new public WhatsApp channels"),
+			ItemKind::Normal,
+		);
+	}
+
+	menu.append_separator();
+	let nav_label = if is_nav_panel_shown() {
+		crate::i18n::tr("&Hide Navigation Panel\tF4")
+	} else {
+		crate::i18n::tr("&Show Navigation Panel\tF4")
+	};
+	menu.append(
+		MENU_ID_TOGGLE_NAV,
+		&nav_label,
+		crate::i18n::tr("Show or hide the main navigation sidebar"),
+		ItemKind::Normal,
+	);
+}
+
 /// Greys out what doesn't apply right now, and leaves out of the
 /// Conversation menu what never applies to the open chat. A disabled item's
 /// shortcut does nothing either, so this runs whenever the tab or the open
@@ -1096,6 +1178,7 @@ pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 		fit_conversation_menu(s, &menu_bar, jid);
 	}
 	fit_edit_menu(s, &menu_bar);
+	fit_view_menu(s, &menu_bar);
 	menu_bar.enable_item(MENU_ID_CLOSE_CHAT, chat.is_some());
 	let list_shows_chats = !matches!(s.active_tab, 1 | 2 | 6);
 	for id in CONVERSATION_MENU_IDS {
@@ -1143,6 +1226,7 @@ pub fn build_main_window() -> WindowParts {
 	}
 
 	nav_panel.set_sizer(nav_sizer, true);
+	crate::ui::owner_draw::register_nav_panel(&nav_panel);
 
 	let account_menu = Menu::builder()
 		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), crate::i18n::tr("Start a new chat"))
@@ -1202,7 +1286,7 @@ pub fn build_main_window() -> WindowParts {
 	}
 	let view_menu = view_builder
 		.append_separator()
-		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), crate::i18n::tr("Search chats"))
+		.append_item(MENU_ID_SEARCH_GLOBAL, crate::i18n::tr("Search &Chats\tCtrl+/"), crate::i18n::tr("Search chats and messages"))
 		.append_item(
 			MENU_ID_MANAGE_LISTS,
 			crate::i18n::tr("Manage &Lists..."),
@@ -1211,7 +1295,7 @@ pub fn build_main_window() -> WindowParts {
 		.append_separator()
 		.append_item(
 			MENU_ID_TOGGLE_NAV,
-			crate::i18n::tr("Toggle &Navigation Panel\tF4"),
+			crate::i18n::tr("&Hide Navigation Panel\tF4"),
 			crate::i18n::tr("Show or hide the main navigation sidebar"),
 		)
 		.build();
@@ -2780,6 +2864,8 @@ pub fn bind_input_handlers(
 			let _ = tx_chat_menu.send(UiCommand::NewCommunity);
 		} else if id == MENU_ID_MANAGE_LISTS {
 			let _ = tx_chat_menu.send(UiCommand::ManageChatLists);
+		} else if id == MENU_ID_FIND_CHANNELS {
+			let _ = tx_chat_menu.send(UiCommand::FindChannels);
 		} else if id == MENU_ID_SEARCH_GLOBAL {
 			search_field_for_menu.set_focus();
 		} else if id == MENU_ID_SEARCH_CHAT {
@@ -3043,6 +3129,11 @@ pub fn bind_input_handlers(
 			let shown = nav_panel_for_menu.is_shown();
 			nav_panel_for_menu.show(!shown);
 			main_panel_for_menu.layout();
+			refresh_menu_bar(&state_chat_menu.borrow(), &frame_for_menu);
+			crate::platform::announce::announce(
+				msgs_announcer_for_menu,
+				crate::i18n::tr(if !shown { "Navigation panel shown" } else { "Navigation panel hidden" }),
+			);
 		} else if id == MENU_ID_CLEAR_CHAT {
 			let s = state_chat_menu.borrow();
 			let Some(jid) = s.selected_chat.clone() else { return };
