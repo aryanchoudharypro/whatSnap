@@ -68,6 +68,7 @@ pub struct SettingsDialogParts {
 	pub announce_typing_check: CheckBox,
 	pub announce_recording_check: CheckBox,
 	pub tray_icon_check: CheckBox,
+	pub show_menu_bar_check: CheckBox,
 	pub autostart_check: CheckBox,
 	pub start_maximized_check: CheckBox,
 	pub check_updates_check: CheckBox,
@@ -276,6 +277,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		&general_panel,
 		&general_sizer,
 		"Show an icon in the notification area; closing minimizes to it",
+	);
+	let show_menu_bar_check = setting_switch(
+		&general_panel,
+		&general_sizer,
+		"Always show top menu bar (uncheck to show only when Alt is pressed)",
 	);
 	let start_maximized_check = setting_switch(&general_panel, &general_sizer, "Start maximized");
 
@@ -819,6 +825,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		announce_typing_check,
 		announce_recording_check,
 		tray_icon_check,
+		show_menu_bar_check,
 		autostart_check,
 		start_maximized_check,
 		check_updates_check,
@@ -1032,6 +1039,7 @@ impl SettingsDialogParts {
 		self.announce_typing_check.set_value(settings.announce_typing);
 		self.announce_recording_check.set_value(settings.announce_recording);
 		self.tray_icon_check.set_value(settings.show_tray_icon);
+		self.show_menu_bar_check.set_value(settings.show_menu_bar);
 		self.meta_ai_enabled_check.set_value(settings.meta_ai_enabled);
 		self.verbose_backend_logging_check.set_value(settings.verbose_backend_logging);
 		self.start_maximized_check.set_value(settings.start_maximized);
@@ -1064,6 +1072,7 @@ impl SettingsDialogParts {
 		settings.announce_typing = self.announce_typing_check.is_checked();
 		settings.announce_recording = self.announce_recording_check.is_checked();
 		settings.show_tray_icon = self.tray_icon_check.is_checked();
+		settings.show_menu_bar = self.show_menu_bar_check.is_checked();
 		settings.meta_ai_enabled = self.meta_ai_enabled_check.is_checked();
 		settings.verbose_backend_logging = self.verbose_backend_logging_check.is_checked();
 		settings.start_maximized = self.start_maximized_check.is_checked();

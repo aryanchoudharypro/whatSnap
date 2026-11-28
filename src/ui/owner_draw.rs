@@ -570,6 +570,14 @@ pub(crate) fn set_own_jid(jid: &str) {
 	}
 }
 
+pub(crate) fn register_nav_panel(panel: &Panel) {
+	REGISTRY.with(|r| r.borrow_mut().nav_panel = Some(hwnd_of(panel)));
+}
+
+pub(crate) fn nav_panel_hwnd() -> Option<HWND> {
+	REGISTRY.with(|r| r.borrow().nav_panel)
+}
+
 pub(crate) fn set_header_chat(jid: &str) {
 	let header = REGISTRY.with(|r| {
 		let mut r = r.borrow_mut();
