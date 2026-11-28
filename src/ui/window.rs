@@ -715,6 +715,10 @@ pub const MENU_ID_STRIKETHROUGH: i32 = 6094;
 pub const MENU_ID_INLINE_CODE: i32 = 6095;
 pub const MENU_ID_CLEAR_COMPOSER: i32 = 6096;
 pub const MENU_ID_FIND_CHANNELS: i32 = 6097;
+pub const MENU_ID_HELP_FEATURE_REQUEST: i32 = 6098;
+pub const MENU_ID_HELP_DISCUSSIONS: i32 = 6099;
+pub const MENU_ID_HELP_COPY_DIAGNOSTICS: i32 = 6100;
+pub const MENU_ID_HELP_VIEW_CRASH_LOG: i32 = 6101;
 
 const CONVERSATION_MENU_IDS: [i32; 26] = [
 	MENU_ID_CHAT_INFO,
@@ -1438,31 +1442,25 @@ pub fn build_main_window() -> WindowParts {
 			crate::i18n::tr("View and customize keyboard shortcuts"),
 		)
 		.append_item(
-			MENU_ID_CHECK_UPDATES,
-			crate::i18n::tr("&Check for Updates..."),
-			crate::i18n::tr("See if a newer version of whatSnap is out"),
-		)
-		.append_item(
 			MENU_ID_HELP_RELEASES,
 			crate::i18n::tr("&What's New / Release Notes..."),
 			crate::i18n::tr("View the latest release notes and changelog on GitHub"),
 		)
 		.append_separator()
 		.append_item(
-			MENU_ID_HELP_LOGS,
-			crate::i18n::tr("Open &Logs Folder..."),
-			crate::i18n::tr("Open the application logs folder in File Explorer for diagnostics"),
-		)
-		.append_item(
-			MENU_ID_HELP_DATA_DIR,
-			crate::i18n::tr("Open &Data Folder..."),
-			crate::i18n::tr("Open the whatSnap application data folder in File Explorer"),
-		)
-		.append_separator()
-		.append_item(
 			MENU_ID_HELP_ISSUES,
-			crate::i18n::tr("Report an &Issue (GitHub)..."),
+			crate::i18n::tr("Report an &Issue / Bug (GitHub)..."),
 			crate::i18n::tr("Open whatSnap issue tracker on GitHub in your browser"),
+		)
+		.append_item(
+			MENU_ID_HELP_FEATURE_REQUEST,
+			crate::i18n::tr("Request a &Feature (GitHub)..."),
+			crate::i18n::tr("Suggest a new idea or feature on GitHub"),
+		)
+		.append_item(
+			MENU_ID_HELP_DISCUSSIONS,
+			crate::i18n::tr("Community &Discussions (GitHub)..."),
+			crate::i18n::tr("Join whatSnap community discussions and ask questions"),
 		)
 		.append_item(
 			MENU_ID_HELP_GITHUB,
@@ -1470,6 +1468,32 @@ pub fn build_main_window() -> WindowParts {
 			crate::i18n::tr("Visit whatSnap official GitHub repository"),
 		)
 		.append_separator()
+		.append_item(
+			MENU_ID_HELP_COPY_DIAGNOSTICS,
+			crate::i18n::tr("&Copy System & Diagnostic Info"),
+			crate::i18n::tr("Copy version, operating system, and paths to clipboard for easy bug reporting"),
+		)
+		.append_item(
+			MENU_ID_HELP_LOGS,
+			crate::i18n::tr("Open &Logs Folder..."),
+			crate::i18n::tr("Open the application logs folder in File Explorer for diagnostics"),
+		)
+		.append_item(
+			MENU_ID_HELP_DATA_DIR,
+			crate::i18n::tr("Open Da&ta Folder..."),
+			crate::i18n::tr("Open the whatSnap application data folder in File Explorer"),
+		)
+		.append_item(
+			MENU_ID_HELP_VIEW_CRASH_LOG,
+			crate::i18n::tr("View Latest C&rash Log..."),
+			crate::i18n::tr("Open the latest crash or error log file in Notepad"),
+		)
+		.append_separator()
+		.append_item(
+			MENU_ID_CHECK_UPDATES,
+			crate::i18n::tr("Check for U&pdates..."),
+			crate::i18n::tr("See if a newer version of whatSnap is out"),
+		)
 		.append_item(
 			MENU_ID_HELP_ABOUT,
 			crate::i18n::tr("&About whatSnap"),
@@ -3324,8 +3348,40 @@ pub fn bind_input_handlers(
 			let _ = std::process::Command::new("explorer").arg(&app_dir).spawn();
 		} else if id == MENU_ID_HELP_ISSUES {
 			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap/issues");
+		} else if id == MENU_ID_HELP_FEATURE_REQUEST {
+			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap/issues/new");
+		} else if id == MENU_ID_HELP_DISCUSSIONS {
+			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap/discussions");
 		} else if id == MENU_ID_HELP_GITHUB {
 			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap");
+		} else if id == MENU_ID_HELP_COPY_DIAGNOSTICS {
+			let version = env!("CARGO_PKG_VERSION");
+			let os = std::env::consts::OS;
+			let arch = std::env::consts::ARCH;
+			let log_dir = crate::platform::paths::log_dir();
+			let data_dir = crate::platform::paths::app_data_dir();
+			let diag = format!(
+				"### whatSnap Diagnostic Information\n- **Version:** {}\n- **OS:** {}\n- **Architecture:** {}\n- **Logs Folder:** `{}`\n- **Data Folder:** `{}`\n",
+				version, os, arch, log_dir.display(), data_dir.display()
+			);
+			crate::platform::clipboard::copy_text(&diag);
+			crate::platform::announce::announce(msgs_announcer_for_menu, &crate::i18n::tr("System and diagnostic information copied to clipboard"));
+		} else if id == MENU_ID_HELP_VIEW_CRASH_LOG {
+			let log_dir = crate::platform::paths::log_dir();
+			let crash_file = log_dir.join("crash.log");
+			let panic_file = log_dir.join("panic.log");
+			let target = if crash_file.exists() {
+				Some(crash_file)
+			} else if panic_file.exists() {
+				Some(panic_file)
+			} else {
+				None
+			};
+			if let Some(target) = target {
+				let _ = std::process::Command::new("notepad").arg(&target).spawn();
+			} else {
+				crate::platform::announce::announce(msgs_announcer_for_menu, &crate::i18n::tr("No crash logs found. whatSnap is operating normally."));
+			}
 		} else if id == MENU_ID_HELP_ABOUT {
 			let version = env!("CARGO_PKG_VERSION");
 			let os = std::env::consts::OS;
@@ -5046,7 +5102,7 @@ pub fn bind_input_handlers(
 
 	let guard_menu_bar = enter_release_handled.clone();
 	parts.frame.on_menu_selected(move |evt| {
-		if (MENU_ID_SETTINGS..=6099).contains(&evt.get_id()) && enter_key_held() {
+		if (MENU_ID_SETTINGS..=6110).contains(&evt.get_id()) && enter_key_held() {
 			guard_menu_bar.set(true);
 		}
 	});
