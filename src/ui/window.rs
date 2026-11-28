@@ -1200,6 +1200,80 @@ fn fit_view_menu(s: &crate::AppState, menu_bar: &MenuBar) {
 	);
 }
 
+fn is_in_call(s: &crate::AppState) -> bool {
+	s.active_call_id.is_some() || s.active_call_audio.is_some() || s.call_placing || s.incoming_call_caller.is_some()
+}
+
+fn is_call_muted(s: &crate::AppState) -> bool {
+	if let Some(audio) = &s.active_call_audio {
+		audio.is_muted.load(std::sync::atomic::Ordering::Relaxed)
+	} else {
+		s.call_start_muted
+	}
+}
+
+fn fit_calls_menu(s: &crate::AppState, menu_bar: &MenuBar) {
+	let Some((_, menu)) = menu_bar.find_item_and_menu(MENU_ID_CREATE_CALL_LINK) else { return };
+	while let Some(item) = menu.find_item_by_position(0) {
+		menu.delete_item(&item);
+	}
+
+	if is_in_call(s) {
+		let mute_shortcut = s.keymap.shortcut_text("call_mute").unwrap_or_else(|| "Ctrl+M".to_string());
+		let muted = is_call_muted(s);
+		let mute_base = if muted { crate::i18n::tr("Un&mute Microphone") } else { crate::i18n::tr("&Mute Microphone") };
+		let mute_label = if mute_shortcut.is_empty() {
+			mute_base.to_string()
+		} else {
+			format!("{}\t{}", mute_base, mute_shortcut)
+		};
+		menu.append(MENU_ID_CALL_MUTE, &mute_label, crate::i18n::tr("Mute or unmute the microphone during the active call"), ItemKind::Normal);
+
+		let end_shortcut = s.keymap.shortcut_text("call_end").unwrap_or_else(|| "Ctrl+W".to_string());
+		let end_label = if end_shortcut.is_empty() {
+			crate::i18n::tr("&End Call").to_string()
+		} else {
+			format!("{}\t{}", crate::i18n::tr("&End Call"), end_shortcut)
+		};
+		menu.append(MENU_ID_CALL_END, &end_label, crate::i18n::tr("End the active call"), ItemKind::Normal);
+		menu.append_separator();
+	} else if let Some(jid) = conversation_menu_chat(s) {
+		if crate::ui_commands::calls::can_call(s, jid) {
+			let voice_shortcut = s.keymap.shortcut_text("voice_call").unwrap_or_else(|| "Alt+Shift+A".to_string());
+			let voice_base = if jid.ends_with("@g.us") { crate::i18n::tr("Group &Voice Call") } else { crate::i18n::tr("&Voice Call") };
+			let voice_label = if voice_shortcut.is_empty() {
+				voice_base.to_string()
+			} else {
+				format!("{}\t{}", voice_base, voice_shortcut)
+			};
+			menu.append(MENU_ID_VOICE_CALL, &voice_label, crate::i18n::tr("Start a voice call with this conversation"), ItemKind::Normal);
+
+			let video_shortcut = s.keymap.shortcut_text("video_call").unwrap_or_else(|| "Alt+Shift+V".to_string());
+			let video_base = if jid.ends_with("@g.us") { crate::i18n::tr("Group &Video Call") } else { crate::i18n::tr("&Video Call") };
+			let video_label = if video_shortcut.is_empty() {
+				video_base.to_string()
+			} else {
+				format!("{}\t{}", video_base, video_shortcut)
+			};
+			menu.append(MENU_ID_VIDEO_CALL, &video_label, crate::i18n::tr("Start a video call with this conversation"), ItemKind::Normal);
+			menu.append_separator();
+		}
+	}
+
+	menu.append(
+		MENU_ID_CREATE_CALL_LINK,
+		&crate::i18n::tr("&Create Call Link..."),
+		crate::i18n::tr("Make a link anyone can use to join a call"),
+		ItemKind::Normal,
+	);
+	menu.append(
+		MENU_ID_JOIN_CALL_LINK,
+		&crate::i18n::tr("&Join Call Link..."),
+		crate::i18n::tr("Join a call from a link someone shared"),
+		ItemKind::Normal,
+	);
+}
+
 /// Greys out what doesn't apply right now, and leaves out of the
 /// Conversation menu what never applies to the open chat. A disabled item's
 /// shortcut does nothing either, so this runs whenever the tab or the open
@@ -1209,6 +1283,7 @@ pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 	fit_conversation_menu(s, &menu_bar);
 	fit_edit_menu(s, &menu_bar);
 	fit_view_menu(s, &menu_bar);
+	fit_calls_menu(s, &menu_bar);
 	let chat = conversation_menu_chat(s);
 	let list_shows_chats = !matches!(s.active_tab, 1 | 2 | 6);
 	for id in CONVERSATION_MENU_IDS {
@@ -1339,13 +1414,6 @@ pub fn build_main_window() -> WindowParts {
 		.build();
 
 	let call_menu = Menu::builder()
-		.append_item(
-			MENU_ID_CALL_MUTE,
-			&default_menu_label(MENU_ID_CALL_MUTE),
-			crate::i18n::tr("Mute/unmute the microphone during a call"),
-		)
-		.append_item(MENU_ID_CALL_END, &default_menu_label(MENU_ID_CALL_END), crate::i18n::tr("End the active call"))
-		.append_separator()
 		.append_item(
 			MENU_ID_CREATE_CALL_LINK,
 			crate::i18n::tr("&Create Call Link..."),
