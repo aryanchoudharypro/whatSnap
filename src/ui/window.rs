@@ -705,6 +705,9 @@ pub const MENU_ID_HELP_KEYBOARD_SHORTCUTS: i32 = 6084;
 pub const MENU_ID_HELP_ISSUES: i32 = 6085;
 pub const MENU_ID_HELP_GITHUB: i32 = 6086;
 pub const MENU_ID_HELP_ABOUT: i32 = 6087;
+pub const MENU_ID_HELP_RELEASES: i32 = 6088;
+pub const MENU_ID_HELP_LOGS: i32 = 6089;
+pub const MENU_ID_HELP_DATA_DIR: i32 = 6090;
 
 const CONVERSATION_MENU_IDS: [i32; 26] = [
 	MENU_ID_CHAT_INFO,
@@ -1230,8 +1233,24 @@ pub fn build_main_window() -> WindowParts {
 		)
 		.append_item(
 			MENU_ID_CHECK_UPDATES,
-			crate::i18n::tr("Check for &Updates..."),
+			crate::i18n::tr("&Check for Updates..."),
 			crate::i18n::tr("See if a newer version of whatSnap is out"),
+		)
+		.append_item(
+			MENU_ID_HELP_RELEASES,
+			crate::i18n::tr("&What's New / Release Notes..."),
+			crate::i18n::tr("View the latest release notes and changelog on GitHub"),
+		)
+		.append_separator()
+		.append_item(
+			MENU_ID_HELP_LOGS,
+			crate::i18n::tr("Open &Logs Folder..."),
+			crate::i18n::tr("Open the application logs folder in File Explorer for diagnostics"),
+		)
+		.append_item(
+			MENU_ID_HELP_DATA_DIR,
+			crate::i18n::tr("Open &Data Folder..."),
+			crate::i18n::tr("Open the whatSnap application data folder in File Explorer"),
 		)
 		.append_separator()
 		.append_item(
@@ -3035,6 +3054,21 @@ pub fn bind_input_handlers(
 					if html.exists() {
 						crate::platform::shell_open::open_url(&format!("file:///{}", html.display().to_string().replace('\\', "/")));
 						opened = true;
+					} else {
+						let doc_md = parent.join("doc").join("readme.md");
+						if doc_md.exists() {
+							crate::platform::shell_open::open_url(&format!("file:///{}", doc_md.display().to_string().replace('\\', "/")));
+							opened = true;
+						}
+					}
+				}
+			}
+			if !opened {
+				if let Ok(cwd) = std::env::current_dir() {
+					let doc_md = cwd.join("doc").join("readme.md");
+					if doc_md.exists() {
+						crate::platform::shell_open::open_url(&format!("file:///{}", doc_md.display().to_string().replace('\\', "/")));
+						opened = true;
 					}
 				}
 			}
@@ -3049,15 +3083,25 @@ pub fn bind_input_handlers(
 				state_chat_menu.borrow().settings.save();
 				updated.apply(&frame_for_menu);
 			}
+		} else if id == MENU_ID_HELP_RELEASES {
+			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap/releases");
+		} else if id == MENU_ID_HELP_LOGS {
+			let log_dir = crate::platform::paths::log_dir();
+			let _ = std::process::Command::new("explorer").arg(&log_dir).spawn();
+		} else if id == MENU_ID_HELP_DATA_DIR {
+			let app_dir = crate::platform::paths::app_data_dir();
+			let _ = std::process::Command::new("explorer").arg(&app_dir).spawn();
 		} else if id == MENU_ID_HELP_ISSUES {
 			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap/issues");
 		} else if id == MENU_ID_HELP_GITHUB {
 			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap");
 		} else if id == MENU_ID_HELP_ABOUT {
 			let version = env!("CARGO_PKG_VERSION");
-			let info = crate::i18n::tr_fmt(
-				"whatSnap v{}\n\nA fast, lightweight, and accessible WhatsApp companion client for Windows.\n\nGitHub: https://github.com/aryanchoudharypro/whatsnap",
-				&[&version],
+			let os = std::env::consts::OS;
+			let arch = std::env::consts::ARCH;
+			let info = format!(
+				"whatSnap v{} ({}-{})\n\nA fast, lightweight, and accessible WhatsApp companion client for Windows.\n\nRepository:\nhttps://github.com/aryanchoudharypro/whatsnap\n\nIssue Tracker:\nhttps://github.com/aryanchoudharypro/whatsnap/issues\n\nUser Documentation:\nhttps://github.com/aryanchoudharypro/whatSnap/blob/master/doc/readme.md",
+				version, os, arch
 			);
 			MessageDialog::builder(&frame_for_menu, &info, crate::i18n::tr("About whatSnap"))
 				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
