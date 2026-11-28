@@ -12,6 +12,8 @@ pub struct Settings {
 	pub announce_typing: bool,
 	pub announce_recording: bool,
 	pub show_tray_icon: bool,
+	/// Whether the top menu bar is always shown. If false, it hides until Alt is pressed.
+	pub show_menu_bar: bool,
 	/// Whether the "Message Meta AI" button appears in the New Conversation
 	/// dialog. Turning this off only removes that entry point - an existing
 	/// Meta AI chat already in the chat list is left alone, same as other
@@ -161,6 +163,7 @@ impl Default for Settings {
 			announce_typing: true,
 			announce_recording: true,
 			show_tray_icon: true,
+			show_menu_bar: true,
 			meta_ai_enabled: true,
 			input_device_name: None,
 			output_device_name: None,

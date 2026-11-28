@@ -687,34 +687,52 @@ pub const MENU_ID_SCHEDULE_MESSAGE: i32 = 6064;
 pub const MENU_ID_SCHEDULED_MESSAGES: i32 = 6065;
 pub const MENU_ID_VOICE_CALL: i32 = 6066;
 pub const MENU_ID_VIDEO_CALL: i32 = 6067;
+pub const MENU_ID_PROFILE: i32 = 6070;
+pub const MENU_ID_CLOSE_CHAT: i32 = 6071;
+pub const MENU_ID_EXIT: i32 = 6072;
+pub const MENU_ID_UNDO: i32 = 6073;
+pub const MENU_ID_REDO: i32 = 6074;
+pub const MENU_ID_CUT: i32 = 6075;
+pub const MENU_ID_COPY: i32 = 6076;
+pub const MENU_ID_PASTE: i32 = 6077;
+pub const MENU_ID_SELECT_ALL: i32 = 6078;
+pub const MENU_ID_TOGGLE_NAV: i32 = 6079;
+pub const MENU_ID_CLEAR_CHAT: i32 = 6080;
+pub const MENU_ID_DELETE_CHAT: i32 = 6081;
+pub const MENU_ID_LEAVE_GROUP: i32 = 6082;
+pub const MENU_ID_HELP_USER_MANUAL: i32 = 6083;
+pub const MENU_ID_HELP_KEYBOARD_SHORTCUTS: i32 = 6084;
+pub const MENU_ID_HELP_ISSUES: i32 = 6085;
+pub const MENU_ID_HELP_GITHUB: i32 = 6086;
+pub const MENU_ID_HELP_ABOUT: i32 = 6087;
 
 const CONVERSATION_MENU_IDS: [i32; 26] = [
 	MENU_ID_CHAT_INFO,
 	MENU_ID_VOICE_CALL,
 	MENU_ID_VIDEO_CALL,
+	MENU_ID_SEARCH_CHAT,
 	MENU_ID_GO_TO_DATE,
+	MENU_ID_PINNED_MESSAGES,
 	MENU_ID_BUSINESS_CATALOG,
 	MENU_ID_SCHEDULE_MESSAGE,
 	MENU_ID_SCHEDULED_MESSAGES,
-	MENU_ID_SEARCH_CHAT,
-	MENU_ID_PINNED_MESSAGES,
 	MENU_ID_MUTE_CHAT,
 	MENU_ID_ARCHIVE_CHAT,
 	MENU_ID_PIN_CHAT,
 	MENU_ID_LOCK_CHAT,
 	MENU_ID_MARK_UNREAD,
-	MENU_ID_DISAPPEARING,
-	MENU_ID_CHAT_PRIVACY,
-	MENU_ID_REPORT_CHAT,
-	MENU_ID_BLOCK_CHAT,
-	MENU_ID_STAR_MESSAGE,
+	MENU_ID_TOGGLE_ANNOUNCE,
 	MENU_ID_FOCUS_MESSAGE_FIELD,
 	MENU_ID_FOCUS_MESSAGES_LIST,
 	MENU_ID_ANNOUNCE_STATUS,
-	MENU_ID_TOGGLE_ANNOUNCE,
-	MENU_ID_EMOJI_PANEL,
-	MENU_ID_STICKER_PANEL,
-	MENU_ID_NEXT_SPELLING_ERROR,
+	MENU_ID_STAR_MESSAGE,
+	MENU_ID_DISAPPEARING,
+	MENU_ID_CHAT_PRIVACY,
+	MENU_ID_CLEAR_CHAT,
+	MENU_ID_LEAVE_GROUP,
+	MENU_ID_DELETE_CHAT,
+	MENU_ID_BLOCK_CHAT,
+	MENU_ID_REPORT_CHAT,
 ];
 
 #[derive(Clone, Copy)]
@@ -834,17 +852,12 @@ enum ConversationEntry {
 
 use ConversationEntry::{Item, Separator};
 
-const CONVERSATION_MENU: [ConversationEntry; 31] = [
+const CONVERSATION_MENU: [ConversationEntry; 33] = [
 	Item(MENU_ID_CHAT_INFO, None, "Open info for the open chat"),
+	Separator,
 	Item(MENU_ID_VOICE_CALL, None, "Start a voice call with the open chat, or join its group call"),
 	Item(MENU_ID_VIDEO_CALL, None, "Start a video call with the open chat, or join its group call"),
-	Item(MENU_ID_FOCUS_MESSAGE_FIELD, None, "Move focus to the message box, or back to where you were"),
-	Item(MENU_ID_FOCUS_MESSAGES_LIST, None, "Move focus to the messages list"),
-	Item(MENU_ID_ANNOUNCE_STATUS, None, "Say the open chat's status: online, typing and so on"),
-	Item(MENU_ID_TOGGLE_ANNOUNCE, None, "Turn reading new messages aloud on or off for the open chat"),
-	Item(MENU_ID_EMOJI_PANEL, None, "Pick an emoji to put in the message box"),
-	Item(MENU_ID_STICKER_PANEL, None, "Pick a sticker to send: favorites, recent ones or WhatsApp's own packs"),
-	Item(MENU_ID_NEXT_SPELLING_ERROR, None, "Select the next misspelled word in the message box and offer its fixes"),
+	Separator,
 	Item(MENU_ID_SEARCH_CHAT, None, "Search within the open chat"),
 	Item(MENU_ID_GO_TO_DATE, Some("Go to &Date..."), "Jump to the messages of a date in the open chat"),
 	Item(MENU_ID_PINNED_MESSAGES, Some("Pi&nned Messages..."), "See and go to the open chat's pinned messages"),
@@ -857,11 +870,17 @@ const CONVERSATION_MENU: [ConversationEntry; 31] = [
 	Item(MENU_ID_SCHEDULE_MESSAGE, None, "Pick a date and time for the message in the message box to be sent"),
 	Item(MENU_ID_SCHEDULED_MESSAGES, None, "See, send now or delete the open chat's scheduled messages"),
 	Separator,
-	Item(MENU_ID_MUTE_CHAT, None, "Mute the open chat"),
-	Item(MENU_ID_ARCHIVE_CHAT, None, "Archive the open chat"),
-	Item(MENU_ID_PIN_CHAT, None, "Pin the open chat"),
+	Item(MENU_ID_MUTE_CHAT, None, "Mute or unmute the open chat"),
+	Item(MENU_ID_ARCHIVE_CHAT, None, "Archive or unarchive the open chat"),
+	Item(MENU_ID_PIN_CHAT, None, "Pin or unpin the open chat"),
 	Item(MENU_ID_LOCK_CHAT, None, "Lock or unlock the open chat"),
 	Item(MENU_ID_MARK_UNREAD, None, "Toggle read/unread on the open chat"),
+	Item(MENU_ID_TOGGLE_ANNOUNCE, None, "Turn reading new messages aloud on or off for the open chat"),
+	Separator,
+	Item(MENU_ID_FOCUS_MESSAGE_FIELD, None, "Move focus to the message box, or back to where you were"),
+	Item(MENU_ID_FOCUS_MESSAGES_LIST, None, "Move focus to the messages list"),
+	Item(MENU_ID_ANNOUNCE_STATUS, None, "Say the open chat's status: online, typing and so on"),
+	Item(MENU_ID_STAR_MESSAGE, None, "Star or unstar the selected message"),
 	Separator,
 	Item(
 		MENU_ID_DISAPPEARING,
@@ -874,10 +893,11 @@ const CONVERSATION_MENU: [ConversationEntry; 31] = [
 		"Turn advanced chat privacy on or off for the open chat",
 	),
 	Separator,
-	Item(MENU_ID_REPORT_CHAT, Some("&Report..."), "Report the open chat's contact or group to WhatsApp"),
-	Item(MENU_ID_BLOCK_CHAT, Some("&Block or Unblock Contact"), "Block or unblock the open chat's contact"),
-	Separator,
-	Item(MENU_ID_STAR_MESSAGE, None, "Star the selected message"),
+	Item(MENU_ID_CLEAR_CHAT, Some("&Clear Chat Messages..."), "Delete all messages in the open chat"),
+	Item(MENU_ID_LEAVE_GROUP, Some("&Leave Group..."), "Leave this group"),
+	Item(MENU_ID_DELETE_CHAT, Some("&Delete Chat..."), "Delete this conversation"),
+	Item(MENU_ID_BLOCK_CHAT, Some("&Block Contact"), "Block or unblock the open chat's contact"),
+	Item(MENU_ID_REPORT_CHAT, Some("&Report to WhatsApp..."), "Report the open chat to WhatsApp"),
 ];
 
 fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
@@ -893,7 +913,9 @@ fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
 			(is_person || is_group) && !jid.ends_with("@bot") && s.scheduled_messages_enabled
 		}
 		MENU_ID_BUSINESS_CATALOG => is_person && s.business_jids.contains(jid),
-		MENU_ID_BLOCK_CHAT => is_person,
+		MENU_ID_BLOCK_CHAT | MENU_ID_DELETE_CHAT => is_person,
+		MENU_ID_LEAVE_GROUP => is_group,
+		MENU_ID_CLEAR_CHAT => !is_channel && !is_broadcast,
 		MENU_ID_VOICE_CALL | MENU_ID_VIDEO_CALL => crate::ui_commands::calls::can_call(s, jid),
 		MENU_ID_PINNED_MESSAGES => !is_broadcast,
 		MENU_ID_DISAPPEARING | MENU_ID_STAR_MESSAGE => !is_channel,
@@ -917,41 +939,115 @@ fn conversation_entries(applies: impl Fn(i32) -> bool) -> Vec<&'static Conversat
 	shown
 }
 
-fn fill_conversation_menu(menu: &Menu, entries: &[&ConversationEntry], keymap: &crate::keymap::Keymap) {
+fn fill_conversation_menu(
+	menu: &Menu,
+	entries: &[&ConversationEntry],
+	keymap: &crate::keymap::Keymap,
+	s: Option<&crate::AppState>,
+	jid: Option<&str>,
+) {
 	while let Some(item) = menu.find_item_by_position(0) {
 		menu.delete_item(&item);
 	}
 	for entry in entries {
 		match entry {
-			Item(id, Some(label), help) => {
-				menu.append(*id, crate::i18n::tr(label), crate::i18n::tr(help), ItemKind::Normal);
-			}
-			Item(id, None, help) => {
-				menu.append(*id, &keymap.menu_label_for(*id), crate::i18n::tr(help), ItemKind::Normal);
+			Item(id, static_label, help) => {
+				let dynamic_label: Option<String> = if let (Some(s), Some(jid)) = (s, jid) {
+					match *id {
+						MENU_ID_CHAT_INFO => {
+							if jid.ends_with("@g.us") {
+								Some(crate::i18n::tr("Group &Info...\tAlt+I").to_string())
+							} else if jid.ends_with("@newsletter") {
+								Some(crate::i18n::tr("Channel &Info...\tAlt+I").to_string())
+							} else {
+								Some(crate::i18n::tr("Contact &Info...\tAlt+I").to_string())
+							}
+						}
+						MENU_ID_PIN_CHAT => {
+							let is_pinned = s.pinned_jids.contains(jid);
+							Some(crate::i18n::tr(if is_pinned { "Un&pin Chat\tCtrl+Shift+P" } else { "&Pin Chat\tCtrl+Shift+P" }).to_string())
+						}
+						MENU_ID_ARCHIVE_CHAT => {
+							let is_archived = s.archived_jids.contains(jid);
+							Some(crate::i18n::tr(if is_archived { "&Unarchive Chat\tCtrl+Shift+E" } else { "&Archive Chat\tCtrl+Shift+E" }).to_string())
+						}
+						MENU_ID_LOCK_CHAT => {
+							let is_locked = s.is_chat_locked(jid);
+							Some(crate::i18n::tr(if is_locked { "Un&lock Chat\tCtrl+L" } else { "&Lock Chat\tCtrl+L" }).to_string())
+						}
+						MENU_ID_MUTE_CHAT => {
+							let is_muted = s.muted_jids.contains(jid);
+							Some(crate::i18n::tr(if is_muted { "Un&mute Chat" } else { "&Mute Chat..." }).to_string())
+						}
+						MENU_ID_MARK_UNREAD => {
+							let is_unread = s.unread_counts.get(jid).copied().unwrap_or(0) > 0;
+							Some(crate::i18n::tr(if is_unread { "Mark as &Read\tCtrl+Shift+U" } else { "Mark as &Unread\tCtrl+Shift+U" }).to_string())
+						}
+						MENU_ID_BLOCK_CHAT => {
+							let is_blocked = s.blocked_jids.contains(jid);
+							Some(crate::i18n::tr(if is_blocked { "Un&block Contact" } else { "&Block Contact" }).to_string())
+						}
+						MENU_ID_TOGGLE_ANNOUNCE => {
+							let is_on = s.settings.announces_incoming(jid);
+							Some(crate::i18n::tr(if is_on { "Read Ne&w Messages Aloud (On)\tAlt+L" } else { "Read Ne&w Messages Aloud (Off)\tAlt+L" }).to_string())
+						}
+						_ => None,
+					}
+				} else {
+					None
+				};
+
+				let label = if let Some(dyn_lbl) = dynamic_label {
+					dyn_lbl
+				} else if let Some(lbl) = static_label {
+					crate::i18n::tr(lbl).to_string()
+				} else {
+					keymap.menu_label_for(*id)
+				};
+				menu.append(*id, &label, crate::i18n::tr(help), ItemKind::Normal);
 			}
 			Separator => menu.append_separator(),
 		}
 	}
 }
 
-fn conversation_menu_layout(menu: &Menu) -> Vec<i32> {
-	menu.get_menu_items().iter().map(|item| item.get_item_id().max(0)).collect()
-}
-
 fn fit_conversation_menu(s: &crate::AppState, menu_bar: &MenuBar, jid: &str) {
 	let Some((_, menu)) = menu_bar.find_item_and_menu(MENU_ID_CHAT_INFO) else { return };
 	let entries = conversation_entries(|id| conversation_item_applies(s, jid, id));
-	let wanted: Vec<i32> = entries
-		.iter()
-		.map(|e| match e {
-			Item(id, ..) => *id,
-			Separator => 0,
-		})
-		.collect();
-	if conversation_menu_layout(&menu) != wanted {
-		fill_conversation_menu(&menu, &entries, &s.keymap);
+	fill_conversation_menu(&menu, &entries, &s.keymap, Some(s), Some(jid));
+}
+
+#[cfg(target_os = "windows")]
+pub fn set_menu_bar_visible(frame: &Frame, visible: bool) {
+	use windows::Win32::{
+		Foundation::HWND,
+		UI::WindowsAndMessaging::{DrawMenuBar, GetMenu, HMENU, SetMenu},
+	};
+	static SAVED_MENU: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+	let hwnd = HWND(frame.get_handle().cast());
+	if visible {
+		let saved = SAVED_MENU.swap(0, std::sync::atomic::Ordering::SeqCst);
+		if saved != 0 {
+			unsafe {
+				let _ = SetMenu(hwnd, Some(HMENU(saved as *mut _)));
+				let _ = DrawMenuBar(hwnd);
+			}
+		}
+	} else {
+		let current = unsafe { GetMenu(hwnd) };
+		if !current.0.is_null() {
+			SAVED_MENU.store(current.0 as usize, std::sync::atomic::Ordering::SeqCst);
+			unsafe {
+				let _ = SetMenu(hwnd, None);
+				let _ = DrawMenuBar(hwnd);
+			}
+		}
 	}
 }
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_menu_bar_visible(_frame: &Frame, _visible: bool) {}
 
 /// Greys out what doesn't apply right now, and leaves out of the
 /// Conversation menu what never applies to the open chat. A disabled item's
@@ -963,11 +1059,7 @@ pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 	if let Some(jid) = chat {
 		fit_conversation_menu(s, &menu_bar, jid);
 	}
-	// The chat list's own actions (mute, archive, pin, lock, mark unread)
-	// also work on the chat focused in the list, so they stay enabled
-	// wherever the list shows chats. Windows swallows the shortcut of a
-	// greyed item without passing the key on, so greying them made
-	// Ctrl+Shift+U and the rest do nothing in the list with no chat open.
+	menu_bar.enable_item(MENU_ID_CLOSE_CHAT, chat.is_some());
 	let list_shows_chats = !matches!(s.active_tab, 1 | 2 | 6);
 	for id in CONVERSATION_MENU_IDS {
 		let list_action = CHAT_LIST_ACTIONS.iter().any(|(action, _)| *action == id);
@@ -1015,13 +1107,26 @@ pub fn build_main_window() -> WindowParts {
 
 	nav_panel.set_sizer(nav_sizer, true);
 
-	let account_menu = Menu::builder()
-		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), crate::i18n::tr("Open settings"))
+	let file_menu = Menu::builder()
+		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), crate::i18n::tr("Start a new chat"))
+		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), crate::i18n::tr("Start a new group"))
+		.append_item(
+			MENU_ID_NEW_COMMUNITY,
+			crate::i18n::tr("New C&ommunity..."),
+			crate::i18n::tr("Start a community to bring groups together"),
+		)
+		.append_separator()
+		.append_item(
+			MENU_ID_PROFILE,
+			crate::i18n::tr("&Profile...\tCtrl+P"),
+			crate::i18n::tr("View or edit your profile name, about status, and photo"),
+		)
 		.append_item(
 			MENU_ID_ACCOUNTS,
 			&default_menu_label(MENU_ID_ACCOUNTS),
 			crate::i18n::tr("Switch between, add and remove WhatsApp accounts"),
 		)
+		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), crate::i18n::tr("Open settings"))
 		.append_item(
 			MENU_ID_RECONNECT,
 			&default_menu_label(MENU_ID_RECONNECT),
@@ -1032,27 +1137,48 @@ pub fn build_main_window() -> WindowParts {
 			crate::i18n::tr("&Blocked Contacts..."),
 			crate::i18n::tr("See and change who you have blocked"),
 		)
-		.append_item(
-			MENU_ID_CHECK_UPDATES,
-			crate::i18n::tr("Check for &Updates..."),
-			crate::i18n::tr("See if a newer version of whatSnap is out"),
-		)
 		.append_separator()
-		.append_item(MENU_ID_LOGOUT, crate::i18n::tr("Log &Out"), crate::i18n::tr("Log out of WhatsApp on this device"))
+		.append_item(
+			MENU_ID_CLOSE_CHAT,
+			&default_menu_label(MENU_ID_CLOSE_CHAT),
+			crate::i18n::tr("Close the currently open chat and return to the chat list"),
+		)
+		.append_item(MENU_ID_LOGOUT, crate::i18n::tr("Log &Out..."), crate::i18n::tr("Log out of WhatsApp on this device"))
+		.append_item(MENU_ID_EXIT, crate::i18n::tr("E&xit\tAlt+F4"), crate::i18n::tr("Quit whatSnap"))
 		.build();
-	let go_menu = Menu::builder().build();
+
+	let edit_menu = Menu::builder()
+		.append_item(MENU_ID_UNDO, crate::i18n::tr("&Undo\tCtrl+Z"), crate::i18n::tr("Undo the last action"))
+		.append_item(MENU_ID_REDO, crate::i18n::tr("&Redo\tCtrl+Y"), crate::i18n::tr("Redo the last action"))
+		.append_separator()
+		.append_item(MENU_ID_CUT, crate::i18n::tr("Cu&t\tCtrl+X"), crate::i18n::tr("Cut selection to clipboard"))
+		.append_item(MENU_ID_COPY, crate::i18n::tr("&Copy\tCtrl+C"), crate::i18n::tr("Copy selection to clipboard"))
+		.append_item(MENU_ID_PASTE, crate::i18n::tr("&Paste\tCtrl+V"), crate::i18n::tr("Paste from clipboard"))
+		.append_item(MENU_ID_SELECT_ALL, crate::i18n::tr("Select &All\tCtrl+A"), crate::i18n::tr("Select all text"))
+		.append_separator()
+		.append_item(
+			MENU_ID_EMOJI_PANEL,
+			&default_menu_label(MENU_ID_EMOJI_PANEL),
+			crate::i18n::tr("Pick an emoji to put in the message box"),
+		)
+		.append_item(
+			MENU_ID_STICKER_PANEL,
+			&default_menu_label(MENU_ID_STICKER_PANEL),
+			crate::i18n::tr("Pick a sticker to send: favorites, recent ones or WhatsApp's own packs"),
+		)
+		.append_item(
+			MENU_ID_NEXT_SPELLING_ERROR,
+			&default_menu_label(MENU_ID_NEXT_SPELLING_ERROR),
+			crate::i18n::tr("Select the next misspelled word in the message box and offer its fixes"),
+		)
+		.build();
+
+	let mut view_builder = Menu::builder();
 	for &tab in &tab_order {
 		let (id, help) = GO_MENU_ITEMS[tab];
-		go_menu.append(id, &default_menu_label(id), crate::i18n::tr(help), ItemKind::Normal);
+		view_builder = view_builder.append_item(id, &default_menu_label(id), crate::i18n::tr(help));
 	}
-	let chats_menu = Menu::builder()
-		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), crate::i18n::tr("Start a new chat"))
-		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), crate::i18n::tr("Start a new group"))
-		.append_item(
-			MENU_ID_NEW_COMMUNITY,
-			crate::i18n::tr("New C&ommunity..."),
-			crate::i18n::tr("Start a community to bring groups together"),
-		)
+	let view_menu = view_builder
 		.append_separator()
 		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), crate::i18n::tr("Search chats"))
 		.append_item(
@@ -1060,9 +1186,17 @@ pub fn build_main_window() -> WindowParts {
 			crate::i18n::tr("Manage &Lists..."),
 			crate::i18n::tr("Make, rename or delete your chat lists"),
 		)
+		.append_separator()
+		.append_item(
+			MENU_ID_TOGGLE_NAV,
+			crate::i18n::tr("Toggle &Navigation Panel\tF4"),
+			crate::i18n::tr("Show or hide the main navigation sidebar"),
+		)
 		.build();
-	let conversation_menu = Menu::builder().build();
-	fill_conversation_menu(&conversation_menu, &CONVERSATION_MENU.iter().collect::<Vec<_>>(), &Default::default());
+
+	let chat_menu = Menu::builder().build();
+	fill_conversation_menu(&chat_menu, &CONVERSATION_MENU.iter().collect::<Vec<_>>(), &Default::default(), None, None);
+
 	let call_menu = Menu::builder()
 		.append_item(
 			MENU_ID_CALL_MUTE,
@@ -1082,14 +1216,56 @@ pub fn build_main_window() -> WindowParts {
 			crate::i18n::tr("Join a call from a link someone shared"),
 		)
 		.build();
+
+	let help_menu = Menu::builder()
+		.append_item(
+			MENU_ID_HELP_USER_MANUAL,
+			&default_menu_label(MENU_ID_HELP_USER_MANUAL),
+			crate::i18n::tr("Open the comprehensive whatSnap user guide and documentation"),
+		)
+		.append_item(
+			MENU_ID_HELP_KEYBOARD_SHORTCUTS,
+			&default_menu_label(MENU_ID_HELP_KEYBOARD_SHORTCUTS),
+			crate::i18n::tr("View and customize keyboard shortcuts"),
+		)
+		.append_item(
+			MENU_ID_CHECK_UPDATES,
+			crate::i18n::tr("Check for &Updates..."),
+			crate::i18n::tr("See if a newer version of whatSnap is out"),
+		)
+		.append_separator()
+		.append_item(
+			MENU_ID_HELP_ISSUES,
+			crate::i18n::tr("Report an &Issue (GitHub)..."),
+			crate::i18n::tr("Open whatSnap issue tracker on GitHub in your browser"),
+		)
+		.append_item(
+			MENU_ID_HELP_GITHUB,
+			crate::i18n::tr("whatSnap on &GitHub (Source Code)..."),
+			crate::i18n::tr("Visit whatSnap official GitHub repository"),
+		)
+		.append_separator()
+		.append_item(
+			MENU_ID_HELP_ABOUT,
+			crate::i18n::tr("&About whatSnap"),
+			crate::i18n::tr("Information about whatSnap application"),
+		)
+		.build();
+
 	let menu_bar = MenuBar::builder()
-		.append(account_menu, crate::i18n::tr("&Account"))
-		.append(go_menu, crate::i18n::tr("&Go"))
-		.append(chats_menu, crate::i18n::tr("&Chats"))
-		.append(conversation_menu, crate::i18n::tr("C&onversation"))
+		.append(file_menu, crate::i18n::tr("&File"))
+		.append(edit_menu, crate::i18n::tr("&Edit"))
+		.append(view_menu, crate::i18n::tr("&View"))
+		.append(chat_menu, crate::i18n::tr("&Chat"))
 		.append(call_menu, crate::i18n::tr("Call&s"))
+		.append(help_menu, crate::i18n::tr("&Help"))
 		.build();
 	frame.set_menu_bar(menu_bar);
+
+	let saved_settings = crate::settings::Settings::load();
+	if !saved_settings.show_menu_bar {
+		set_menu_bar_visible(&frame, false);
+	}
 
 	let content_panel = Panel::builder(&main_panel).build();
 	theme::style_content(&content_panel);
@@ -2307,6 +2483,7 @@ pub fn bind_input_handlers(
 	let announce_typing_check = parts.settings_dialog.announce_typing_check;
 	let announce_recording_check = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check = parts.settings_dialog.tray_icon_check;
+	let show_menu_bar_check = parts.settings_dialog.show_menu_bar_check;
 	let autostart_check = parts.settings_dialog.autostart_check;
 	let start_maximized_check_open = parts.settings_dialog.start_maximized_check;
 	let check_updates_check_open = parts.settings_dialog.check_updates_check;
@@ -2359,6 +2536,7 @@ pub fn bind_input_handlers(
 		announce_typing_check.set_value(s.settings.announce_typing);
 		announce_recording_check.set_value(s.settings.announce_recording);
 		tray_icon_check.set_value(s.settings.show_tray_icon);
+		show_menu_bar_check.set_value(s.settings.show_menu_bar);
 		meta_ai_enabled_check_open.set_value(s.settings.meta_ai_enabled);
 		verbose_logging_check_open.set_value(s.settings.verbose_backend_logging);
 		start_maximized_check_open.set_value(s.settings.start_maximized);
@@ -2536,6 +2714,11 @@ pub fn bind_input_handlers(
 	let conv_list_for_focus_menu = parts.conversations_parts.conversations_list;
 	let return_pane_for_menu = return_pane.clone();
 	let return_spot_for_menu = return_spot.clone();
+	let frame_for_menu = parts.frame;
+	let nav_panel_for_menu = parts.nav_panel;
+	let main_panel_for_menu = parts.main_panel;
+	let settings_dialog_for_menu = parts.settings_dialog.dialog;
+	let notebook_for_menu = parts.settings_dialog.notebook;
 	parts.frame.on_menu_selected(move |evt| {
 		let id = evt.get_id();
 		// Belt and braces for the greying out: never act on a chat that
@@ -2760,14 +2943,141 @@ pub fn bind_input_handlers(
 					}
 				}
 			}
+		} else if id == MENU_ID_PROFILE {
+			if !settings_dialog_for_menu.is_shown() {
+				unsafe {
+					wxdragon::ffi::wxd_Window_PostMenuCommand(
+						frame_for_menu.handle_ptr() as *mut wxdragon::ffi::wxd_Window_t,
+						MENU_ID_SETTINGS,
+					);
+				}
+			}
+			notebook_for_menu.set_selection(5);
+		} else if id == MENU_ID_CLOSE_CHAT {
+			let _ = tx_chat_menu.send(UiCommand::CloseConversation);
+		} else if id == MENU_ID_EXIT {
+			frame_for_menu.close(false);
+		} else if id == MENU_ID_UNDO || id == MENU_ID_REDO || id == MENU_ID_CUT || id == MENU_ID_COPY || id == MENU_ID_PASTE || id == MENU_ID_SELECT_ALL {
+			#[cfg(target_os = "windows")]
+			{
+				use windows::Win32::{
+					Foundation::{LPARAM, WPARAM},
+					UI::{
+						Controls::EM_SETSEL,
+						Input::KeyboardAndMouse::GetFocus,
+						WindowsAndMessaging::{SendMessageW, WM_CLEAR, WM_COPY, WM_CUT, WM_PASTE, WM_UNDO},
+					},
+				};
+				let focused = unsafe { GetFocus() };
+				if !focused.0.is_null() {
+					let (msg, wparam, lparam) = match id {
+						MENU_ID_UNDO => (WM_UNDO, Some(WPARAM(0)), Some(LPARAM(0))),
+						MENU_ID_REDO => (WM_CLEAR, Some(WPARAM(0)), Some(LPARAM(0))),
+						MENU_ID_CUT => (WM_CUT, Some(WPARAM(0)), Some(LPARAM(0))),
+						MENU_ID_COPY => (WM_COPY, Some(WPARAM(0)), Some(LPARAM(0))),
+						MENU_ID_PASTE => (WM_PASTE, Some(WPARAM(0)), Some(LPARAM(0))),
+						MENU_ID_SELECT_ALL => (EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1))),
+						_ => unreachable!(),
+					};
+					unsafe {
+						SendMessageW(focused, msg, wparam, lparam);
+					}
+				}
+			}
+		} else if id == MENU_ID_TOGGLE_NAV {
+			let shown = nav_panel_for_menu.is_shown();
+			nav_panel_for_menu.show(!shown);
+			main_panel_for_menu.layout();
+		} else if id == MENU_ID_CLEAR_CHAT {
+			let s = state_chat_menu.borrow();
+			let Some(jid) = s.selected_chat.clone() else { return };
+			let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+			drop(s);
+			let prompt = crate::i18n::tr_fmt(
+				"Delete all messages in the chat with {}? The chat itself will stay in your list.",
+				&[&chat_name],
+			);
+			let dialog = MessageDialog::builder(&frame_for_menu, &prompt, crate::i18n::tr("Confirm Clear Chat"))
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+				.build();
+			if dialog.show_modal() == wxdragon::id::ID_OK {
+				let _ = tx_chat_menu.send(UiCommand::ClearChat { jid });
+			}
+		} else if id == MENU_ID_LEAVE_GROUP {
+			let s = state_chat_menu.borrow();
+			let Some(jid) = s.selected_chat.clone() else { return };
+			let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+			drop(s);
+			let prompt = crate::i18n::tr_fmt("Are you sure you want to leave {}?", &[&chat_name]);
+			let dialog = MessageDialog::builder(&frame_for_menu, &prompt, crate::i18n::tr("Leave Group"))
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+				.build();
+			if dialog.show_modal() == wxdragon::id::ID_OK {
+				let _ = tx_chat_menu.send(UiCommand::LeaveGroup { jid });
+			}
+		} else if id == MENU_ID_DELETE_CHAT {
+			let s = state_chat_menu.borrow();
+			let Some(jid) = s.selected_chat.clone() else { return };
+			let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+			drop(s);
+			let prompt = crate::i18n::tr_fmt("Delete the chat with {}?", &[&chat_name]);
+			let dialog = MessageDialog::builder(&frame_for_menu, &prompt, crate::i18n::tr("Confirm Delete Chat"))
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+				.build();
+			if dialog.show_modal() == wxdragon::id::ID_OK {
+				let _ = tx_chat_menu.send(UiCommand::DeleteChat { jid });
+			}
+		} else if id == MENU_ID_HELP_USER_MANUAL {
+			let mut opened = false;
+			if let Ok(exe_path) = std::env::current_exe() {
+				if let Some(parent) = exe_path.parent() {
+					let html = parent.join("readme.html");
+					if html.exists() {
+						crate::platform::shell_open::open_url(&format!("file:///{}", html.display().to_string().replace('\\', "/")));
+						opened = true;
+					}
+				}
+			}
+			if !opened {
+				crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatSnap/blob/master/doc/readme.md");
+			}
+		} else if id == MENU_ID_HELP_KEYBOARD_SHORTCUTS {
+			let current = (*state_chat_menu.borrow().keymap).clone();
+			if let Some(updated) = wx_utils::shortcuts::prompt_for_shortcuts(&frame_for_menu, &current) {
+				state_chat_menu.borrow_mut().keymap = std::rc::Rc::new(updated.clone());
+				state_chat_menu.borrow_mut().settings.shortcuts = updated.saved();
+				state_chat_menu.borrow().settings.save();
+				updated.apply(&frame_for_menu);
+			}
+		} else if id == MENU_ID_HELP_ISSUES {
+			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap/issues");
+		} else if id == MENU_ID_HELP_GITHUB {
+			crate::platform::shell_open::open_url("https://github.com/aryanchoudharypro/whatsnap");
+		} else if id == MENU_ID_HELP_ABOUT {
+			let version = env!("CARGO_PKG_VERSION");
+			let info = crate::i18n::tr_fmt(
+				"whatSnap v{}\n\nA fast, lightweight, and accessible WhatsApp companion client for Windows.\n\nGitHub: https://github.com/aryanchoudharypro/whatsnap",
+				&[&version],
+			);
+			MessageDialog::builder(&frame_for_menu, &info, crate::i18n::tr("About whatSnap"))
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+				.build()
+				.show_modal();
+		}
+		if !state_chat_menu.borrow().settings.show_menu_bar {
+			set_menu_bar_visible(&frame_for_menu, false);
 		}
 	});
 
 	let tx_voice_keys = ui_tx.clone();
 	let state_voice_keys = state.clone();
+	let frame_voice_keys = parts.frame;
 	let attach_key_btn = parts.conversations_parts.add_attachment_btn;
 	parts.frame.on_char_hook(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
+			if !state_voice_keys.borrow().settings.show_menu_bar && key_event.alt_down() {
+				set_menu_bar_visible(&frame_voice_keys, true);
+			}
 			let keymap = state_voice_keys.borrow().keymap.clone();
 			let command = if keymap.is_pressed(voice::START_RECORDING, key_event) {
 				Some(UiCommand::StartRecording)
@@ -3110,6 +3420,7 @@ pub fn bind_input_handlers(
 	let announce_typing_check_ok = parts.settings_dialog.announce_typing_check;
 	let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
+	let show_menu_bar_check_ok = parts.settings_dialog.show_menu_bar_check;
 	let autostart_check_ok = parts.settings_dialog.autostart_check;
 	let start_maximized_check_ok = parts.settings_dialog.start_maximized_check;
 	let check_updates_check_ok = parts.settings_dialog.check_updates_check;
@@ -3175,6 +3486,8 @@ pub fn bind_input_handlers(
 		s.settings.announce_typing = announce_typing_check_ok.is_checked();
 		s.settings.announce_recording = announce_recording_check_ok.is_checked();
 		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
+		s.settings.show_menu_bar = show_menu_bar_check_ok.is_checked();
+		set_menu_bar_visible(&frame_shortcuts_save, s.settings.show_menu_bar);
 		s.settings.meta_ai_enabled = meta_ai_enabled_check_ok.is_checked();
 		s.settings.verbose_backend_logging = verbose_logging_check_ok.is_checked();
 		s.settings.start_maximized = start_maximized_check_ok.is_checked();
