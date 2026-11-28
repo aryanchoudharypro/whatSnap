@@ -709,6 +709,11 @@ pub const MENU_ID_HELP_RELEASES: i32 = 6088;
 pub const MENU_ID_HELP_LOGS: i32 = 6089;
 pub const MENU_ID_HELP_DATA_DIR: i32 = 6090;
 pub const MENU_ID_NEW_CONTACT: i32 = 6091;
+pub const MENU_ID_BOLD: i32 = 6092;
+pub const MENU_ID_ITALIC: i32 = 6093;
+pub const MENU_ID_STRIKETHROUGH: i32 = 6094;
+pub const MENU_ID_INLINE_CODE: i32 = 6095;
+pub const MENU_ID_CLEAR_COMPOSER: i32 = 6096;
 
 const CONVERSATION_MENU_IDS: [i32; 26] = [
 	MENU_ID_CHAT_INFO,
@@ -1053,6 +1058,33 @@ pub fn set_menu_bar_visible(frame: &Frame, visible: bool) {
 #[cfg(not(target_os = "windows"))]
 pub fn set_menu_bar_visible(_frame: &Frame, _visible: bool) {}
 
+fn fit_edit_menu(s: &crate::AppState, menu_bar: &MenuBar) {
+	let Some((_, menu)) = menu_bar.find_item_and_menu(MENU_ID_UNDO) else { return };
+	while let Some(item) = menu.find_item_by_position(0) {
+		menu.delete_item(&item);
+	}
+	menu.append(MENU_ID_UNDO, &crate::i18n::tr("&Undo\tCtrl+Z"), crate::i18n::tr("Undo the last action"), ItemKind::Normal);
+	menu.append(MENU_ID_REDO, &crate::i18n::tr("&Redo\tCtrl+Y"), crate::i18n::tr("Redo the last undone action"), ItemKind::Normal);
+	menu.append_separator();
+	menu.append(MENU_ID_CUT, &crate::i18n::tr("Cu&t\tCtrl+X"), crate::i18n::tr("Cut selection to clipboard"), ItemKind::Normal);
+	menu.append(MENU_ID_COPY, &crate::i18n::tr("&Copy\tCtrl+C"), crate::i18n::tr("Copy selection to clipboard"), ItemKind::Normal);
+	menu.append(MENU_ID_PASTE, &crate::i18n::tr("&Paste\tCtrl+V"), crate::i18n::tr("Paste from clipboard"), ItemKind::Normal);
+	menu.append(MENU_ID_SELECT_ALL, &crate::i18n::tr("Select &All\tCtrl+A"), crate::i18n::tr("Select all text"), ItemKind::Normal);
+
+	if conversation_menu_chat(s).is_some() {
+		menu.append_separator();
+		menu.append(MENU_ID_BOLD, &crate::i18n::tr("&Bold\tCtrl+B"), crate::i18n::tr("Format selected text as bold with *"), ItemKind::Normal);
+		menu.append(MENU_ID_ITALIC, &crate::i18n::tr("&Italic\tCtrl+I"), crate::i18n::tr("Format selected text as italic with _"), ItemKind::Normal);
+		menu.append(MENU_ID_STRIKETHROUGH, &crate::i18n::tr("Stri&kethrough\tCtrl+Shift+X"), crate::i18n::tr("Format selected text with strikethrough with ~"), ItemKind::Normal);
+		menu.append(MENU_ID_INLINE_CODE, &crate::i18n::tr("&Inline Code\tCtrl+Shift+I"), crate::i18n::tr("Format selected text as monospace inline code with `"), ItemKind::Normal);
+		menu.append_separator();
+		menu.append(MENU_ID_EMOJI_PANEL, &default_menu_label(MENU_ID_EMOJI_PANEL), crate::i18n::tr("Pick an emoji to insert"), ItemKind::Normal);
+		menu.append(MENU_ID_STICKER_PANEL, &default_menu_label(MENU_ID_STICKER_PANEL), crate::i18n::tr("Browse and send stickers"), ItemKind::Normal);
+		menu.append(MENU_ID_NEXT_SPELLING_ERROR, &default_menu_label(MENU_ID_NEXT_SPELLING_ERROR), crate::i18n::tr("Select the next misspelled word in the message box and offer its fixes"), ItemKind::Normal);
+		menu.append(MENU_ID_CLEAR_COMPOSER, &crate::i18n::tr("Clear &Draft"), crate::i18n::tr("Clear the current draft in the message box"), ItemKind::Normal);
+	}
+}
+
 /// Greys out what doesn't apply right now, and leaves out of the
 /// Conversation menu what never applies to the open chat. A disabled item's
 /// shortcut does nothing either, so this runs whenever the tab or the open
@@ -1063,6 +1095,7 @@ pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 	if let Some(jid) = chat {
 		fit_conversation_menu(s, &menu_bar, jid);
 	}
+	fit_edit_menu(s, &menu_bar);
 	menu_bar.enable_item(MENU_ID_CLOSE_CHAT, chat.is_some());
 	let list_shows_chats = !matches!(s.active_tab, 1 | 2 | 6);
 	for id in CONVERSATION_MENU_IDS {
@@ -1154,28 +1187,12 @@ pub fn build_main_window() -> WindowParts {
 
 	let edit_menu = Menu::builder()
 		.append_item(MENU_ID_UNDO, crate::i18n::tr("&Undo\tCtrl+Z"), crate::i18n::tr("Undo the last action"))
-		.append_item(MENU_ID_REDO, crate::i18n::tr("&Redo\tCtrl+Y"), crate::i18n::tr("Redo the last action"))
+		.append_item(MENU_ID_REDO, crate::i18n::tr("&Redo\tCtrl+Y"), crate::i18n::tr("Redo the last undone action"))
 		.append_separator()
 		.append_item(MENU_ID_CUT, crate::i18n::tr("Cu&t\tCtrl+X"), crate::i18n::tr("Cut selection to clipboard"))
 		.append_item(MENU_ID_COPY, crate::i18n::tr("&Copy\tCtrl+C"), crate::i18n::tr("Copy selection to clipboard"))
 		.append_item(MENU_ID_PASTE, crate::i18n::tr("&Paste\tCtrl+V"), crate::i18n::tr("Paste from clipboard"))
 		.append_item(MENU_ID_SELECT_ALL, crate::i18n::tr("Select &All\tCtrl+A"), crate::i18n::tr("Select all text"))
-		.append_separator()
-		.append_item(
-			MENU_ID_EMOJI_PANEL,
-			&default_menu_label(MENU_ID_EMOJI_PANEL),
-			crate::i18n::tr("Pick an emoji to put in the message box"),
-		)
-		.append_item(
-			MENU_ID_STICKER_PANEL,
-			&default_menu_label(MENU_ID_STICKER_PANEL),
-			crate::i18n::tr("Pick a sticker to send: favorites, recent ones or WhatsApp's own packs"),
-		)
-		.append_item(
-			MENU_ID_NEXT_SPELLING_ERROR,
-			&default_menu_label(MENU_ID_NEXT_SPELLING_ERROR),
-			crate::i18n::tr("Select the next misspelled word in the message box and offer its fixes"),
-		)
 		.build();
 
 	let mut view_builder = Menu::builder();
@@ -3007,6 +3024,21 @@ pub fn bind_input_handlers(
 					}
 				}
 			}
+		} else if id == MENU_ID_BOLD {
+			let said = toggle_format(&msg_field_for_menu, "*", "Bold");
+			crate::platform::announce::announce(msgs_announcer_for_menu, &said);
+		} else if id == MENU_ID_ITALIC {
+			let said = toggle_format(&msg_field_for_menu, "_", "Italic");
+			crate::platform::announce::announce(msgs_announcer_for_menu, &said);
+		} else if id == MENU_ID_STRIKETHROUGH {
+			let said = toggle_format(&msg_field_for_menu, "~", "Strikethrough");
+			crate::platform::announce::announce(msgs_announcer_for_menu, &said);
+		} else if id == MENU_ID_INLINE_CODE {
+			let said = toggle_format(&msg_field_for_menu, "`", "Inline code");
+			crate::platform::announce::announce(msgs_announcer_for_menu, &said);
+		} else if id == MENU_ID_CLEAR_COMPOSER {
+			msg_field_for_menu.set_value("");
+			crate::platform::announce::announce(msgs_announcer_for_menu, &crate::i18n::tr("Message box cleared"));
 		} else if id == MENU_ID_TOGGLE_NAV {
 			let shown = nav_panel_for_menu.is_shown();
 			nav_panel_for_menu.show(!shown);
