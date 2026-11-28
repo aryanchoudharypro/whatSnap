@@ -49,7 +49,7 @@ pub struct ActionDef {
 	pub default: &'static str,
 }
 
-pub const TABS: [&str; 8] = ["File", "Edit", "View", "Chat", "Voice", "Call", "Messages", "Help"];
+pub const TABS: [&str; 8] = ["Account", "Edit", "View", "Chat", "Voice", "Call", "Messages", "Help"];
 
 pub const ACTIONS: &[ActionDef] = &[
 	ActionDef { id: "settings", menu_id: Some(MENU_ID_SETTINGS), tab: 0, label: "&Settings...", default: "Ctrl+," },
@@ -57,7 +57,7 @@ pub const ACTIONS: &[ActionDef] = &[
 		id: "accounts",
 		menu_id: Some(MENU_ID_ACCOUNTS),
 		tab: 0,
-		label: "A&ccounts...",
+		label: "&Accounts...",
 		default: "Ctrl+Shift+A",
 	},
 	ActionDef { id: "reconnect", menu_id: Some(MENU_ID_RECONNECT), tab: 0, label: "&Reconnect Now", default: "F5" },
@@ -68,13 +68,6 @@ pub const ACTIONS: &[ActionDef] = &[
 		tab: 0,
 		label: "New &Group",
 		default: "Ctrl+Shift+N",
-	},
-	ActionDef {
-		id: "close_chat",
-		menu_id: Some(MENU_ID_CLOSE_CHAT),
-		tab: 0,
-		label: "&Close Chat",
-		default: "Esc",
 	},
 	ActionDef {
 		id: "emoji_panel",

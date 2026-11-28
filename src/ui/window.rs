@@ -708,6 +708,7 @@ pub const MENU_ID_HELP_ABOUT: i32 = 6087;
 pub const MENU_ID_HELP_RELEASES: i32 = 6088;
 pub const MENU_ID_HELP_LOGS: i32 = 6089;
 pub const MENU_ID_HELP_DATA_DIR: i32 = 6090;
+pub const MENU_ID_NEW_CONTACT: i32 = 6091;
 
 const CONVERSATION_MENU_IDS: [i32; 26] = [
 	MENU_ID_CHAT_INFO,
@@ -1110,18 +1111,19 @@ pub fn build_main_window() -> WindowParts {
 
 	nav_panel.set_sizer(nav_sizer, true);
 
-	let file_menu = Menu::builder()
+	let account_menu = Menu::builder()
 		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), crate::i18n::tr("Start a new chat"))
+		.append_item(MENU_ID_NEW_CONTACT, crate::i18n::tr("New &Contact..."), crate::i18n::tr("Save a new contact directly to WhatsApp"))
 		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), crate::i18n::tr("Start a new group"))
 		.append_item(
 			MENU_ID_NEW_COMMUNITY,
-			crate::i18n::tr("New C&ommunity..."),
+			crate::i18n::tr("New Comm&unity..."),
 			crate::i18n::tr("Start a community to bring groups together"),
 		)
 		.append_separator()
 		.append_item(
 			MENU_ID_PROFILE,
-			crate::i18n::tr("&Profile...\tCtrl+P"),
+			crate::i18n::tr("My Pro&file...\tCtrl+P"),
 			crate::i18n::tr("View or edit your profile name, about status, and photo"),
 		)
 		.append_item(
@@ -1129,25 +1131,25 @@ pub fn build_main_window() -> WindowParts {
 			&default_menu_label(MENU_ID_ACCOUNTS),
 			crate::i18n::tr("Switch between, add and remove WhatsApp accounts"),
 		)
-		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), crate::i18n::tr("Open settings"))
-		.append_item(
-			MENU_ID_RECONNECT,
-			&default_menu_label(MENU_ID_RECONNECT),
-			crate::i18n::tr("Retry connecting to WhatsApp right away"),
-		)
 		.append_item(
 			MENU_ID_BLOCKED_CONTACTS,
 			crate::i18n::tr("&Blocked Contacts..."),
 			crate::i18n::tr("See and change who you have blocked"),
 		)
+		.append_item(
+			MENU_ID_RECONNECT,
+			&default_menu_label(MENU_ID_RECONNECT),
+			crate::i18n::tr("Retry connecting to WhatsApp right away"),
+		)
+		.append_separator()
+		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), crate::i18n::tr("Open settings"))
+		.append_item(MENU_ID_LOGOUT, crate::i18n::tr("&Log Out..."), crate::i18n::tr("Log out of WhatsApp on this device"))
 		.append_separator()
 		.append_item(
-			MENU_ID_CLOSE_CHAT,
-			&default_menu_label(MENU_ID_CLOSE_CHAT),
-			crate::i18n::tr("Close the currently open chat and return to the chat list"),
+			MENU_ID_EXIT,
+			crate::i18n::tr("E&xit whatSnap\tCtrl+Q"),
+			crate::i18n::tr("Completely close whatSnap, remove from tray, and stop background backend"),
 		)
-		.append_item(MENU_ID_LOGOUT, crate::i18n::tr("Log &Out..."), crate::i18n::tr("Log out of WhatsApp on this device"))
-		.append_item(MENU_ID_EXIT, crate::i18n::tr("E&xit\tAlt+F4"), crate::i18n::tr("Quit whatSnap"))
 		.build();
 
 	let edit_menu = Menu::builder()
@@ -1272,7 +1274,7 @@ pub fn build_main_window() -> WindowParts {
 		.build();
 
 	let menu_bar = MenuBar::builder()
-		.append(file_menu, crate::i18n::tr("&File"))
+		.append(account_menu, crate::i18n::tr("&Account"))
 		.append(edit_menu, crate::i18n::tr("&Edit"))
 		.append(view_menu, crate::i18n::tr("&View"))
 		.append(chat_menu, crate::i18n::tr("&Chat"))
@@ -2972,10 +2974,12 @@ pub fn bind_input_handlers(
 				}
 			}
 			notebook_for_menu.set_selection(5);
+		} else if id == MENU_ID_NEW_CONTACT {
+			let _ = tx_chat_menu.send(UiCommand::OpenNewContactForm);
 		} else if id == MENU_ID_CLOSE_CHAT {
 			let _ = tx_chat_menu.send(UiCommand::CloseConversation);
 		} else if id == MENU_ID_EXIT {
-			frame_for_menu.close(false);
+			let _ = tx_chat_menu.send(UiCommand::ExitApp);
 		} else if id == MENU_ID_UNDO || id == MENU_ID_REDO || id == MENU_ID_CUT || id == MENU_ID_COPY || id == MENU_ID_PASTE || id == MENU_ID_SELECT_ALL {
 			#[cfg(target_os = "windows")]
 			{
@@ -3119,6 +3123,11 @@ pub fn bind_input_handlers(
 	let attach_key_btn = parts.conversations_parts.add_attachment_btn;
 	parts.frame.on_char_hook(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
+			if key_event.control_down() && matches!(key_event.get_key_code(), Some(81 | 113)) {
+				let _ = tx_voice_keys.send(UiCommand::ExitApp);
+				event.skip(false);
+				return;
+			}
 			if !state_voice_keys.borrow().settings.show_menu_bar && key_event.alt_down() {
 				set_menu_bar_visible(&frame_voice_keys, true);
 			}
