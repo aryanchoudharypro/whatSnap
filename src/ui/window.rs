@@ -929,7 +929,7 @@ fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
 		MENU_ID_VOICE_CALL | MENU_ID_VIDEO_CALL => crate::ui_commands::calls::can_call(s, jid),
 		MENU_ID_PINNED_MESSAGES => !is_broadcast,
 		MENU_ID_DISAPPEARING | MENU_ID_STAR_MESSAGE => !is_channel,
-		MENU_ID_REPORT_CHAT | MENU_ID_CHAT_PRIVACY => !is_channel && !is_broadcast,
+		MENU_ID_REPORT_CHAT | MENU_ID_CHAT_PRIVACY | MENU_ID_ANNOUNCE_STATUS => !is_channel && !is_broadcast,
 		_ => true,
 	}
 }
@@ -973,6 +973,16 @@ fn fill_conversation_menu(
 								Some(crate::i18n::tr("Contact &Info...\tAlt+I").to_string())
 							}
 						}
+						MENU_ID_VOICE_CALL => {
+							let shortcut = s.keymap.shortcut_text("voice_call").unwrap_or_else(|| "Alt+Shift+A".to_string());
+							let base = if jid.ends_with("@g.us") { crate::i18n::tr("Group &Voice Call") } else { crate::i18n::tr("&Voice Call") };
+							Some(format!("{}\t{}", base, shortcut))
+						}
+						MENU_ID_VIDEO_CALL => {
+							let shortcut = s.keymap.shortcut_text("video_call").unwrap_or_else(|| "Alt+Shift+V".to_string());
+							let base = if jid.ends_with("@g.us") { crate::i18n::tr("Group &Video Call") } else { crate::i18n::tr("&Video Call") };
+							Some(format!("{}\t{}", base, shortcut))
+						}
 						MENU_ID_PIN_CHAT => {
 							let is_pinned = s.pinned_jids.contains(jid);
 							Some(crate::i18n::tr(if is_pinned { "Un&pin Chat\tCtrl+Shift+P" } else { "&Pin Chat\tCtrl+Shift+P" }).to_string())
@@ -1001,6 +1011,12 @@ fn fill_conversation_menu(
 							let is_on = s.settings.announces_incoming(jid);
 							Some(crate::i18n::tr(if is_on { "Read Ne&w Messages Aloud (On)\tAlt+L" } else { "Read Ne&w Messages Aloud (Off)\tAlt+L" }).to_string())
 						}
+						MENU_ID_CLEAR_CHAT => {
+							Some(crate::i18n::tr(if jid.ends_with("@g.us") { "&Clear Group Messages..." } else { "&Clear Chat Messages..." }).to_string())
+						}
+						MENU_ID_REPORT_CHAT => {
+							Some(crate::i18n::tr(if jid.ends_with("@g.us") { "&Report Group to WhatsApp..." } else { "&Report Contact to WhatsApp..." }).to_string())
+						}
 						_ => None,
 					}
 				} else {
@@ -1021,10 +1037,27 @@ fn fill_conversation_menu(
 	}
 }
 
-fn fit_conversation_menu(s: &crate::AppState, menu_bar: &MenuBar, jid: &str) {
-	let Some((_, menu)) = menu_bar.find_item_and_menu(MENU_ID_CHAT_INFO) else { return };
-	let entries = conversation_entries(|id| conversation_item_applies(s, jid, id));
-	fill_conversation_menu(&menu, &entries, &s.keymap, Some(s), Some(jid));
+fn fit_conversation_menu(s: &crate::AppState, menu_bar: &MenuBar) {
+	let menu = menu_bar
+		.find_item_and_menu(MENU_ID_PIN_CHAT)
+		.or_else(|| menu_bar.find_item_and_menu(MENU_ID_CHAT_INFO))
+		.or_else(|| menu_bar.find_item_and_menu(MENU_ID_ARCHIVE_CHAT));
+	let Some((_, menu)) = menu else { return };
+
+	let chat = conversation_menu_chat(s);
+	if let Some(jid) = chat {
+		let entries = conversation_entries(|id| conversation_item_applies(s, jid, id));
+		fill_conversation_menu(&menu, &entries, &s.keymap, Some(s), Some(jid));
+	} else {
+		while let Some(item) = menu.find_item_by_position(0) {
+			menu.delete_item(&item);
+		}
+		menu.append(MENU_ID_PIN_CHAT, &s.keymap.menu_label_for(MENU_ID_PIN_CHAT), crate::i18n::tr("Pin or unpin the selected chat"), ItemKind::Normal);
+		menu.append(MENU_ID_ARCHIVE_CHAT, &s.keymap.menu_label_for(MENU_ID_ARCHIVE_CHAT), crate::i18n::tr("Archive or unarchive the selected chat"), ItemKind::Normal);
+		menu.append(MENU_ID_MUTE_CHAT, &crate::i18n::tr("&Mute Chat..."), crate::i18n::tr("Mute or unmute the selected chat"), ItemKind::Normal);
+		menu.append(MENU_ID_LOCK_CHAT, &s.keymap.menu_label_for(MENU_ID_LOCK_CHAT), crate::i18n::tr("Lock or unlock the selected chat"), ItemKind::Normal);
+		menu.append(MENU_ID_MARK_UNREAD, &s.keymap.menu_label_for(MENU_ID_MARK_UNREAD), crate::i18n::tr("Toggle read/unread on the selected chat"), ItemKind::Normal);
+	}
 }
 
 #[cfg(target_os = "windows")]
@@ -1173,13 +1206,10 @@ fn fit_view_menu(s: &crate::AppState, menu_bar: &MenuBar) {
 /// chat changes, not only when a menu opens.
 pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 	let Some(menu_bar) = frame.get_menu_bar() else { return };
-	let chat = conversation_menu_chat(s);
-	if let Some(jid) = chat {
-		fit_conversation_menu(s, &menu_bar, jid);
-	}
+	fit_conversation_menu(s, &menu_bar);
 	fit_edit_menu(s, &menu_bar);
 	fit_view_menu(s, &menu_bar);
-	menu_bar.enable_item(MENU_ID_CLOSE_CHAT, chat.is_some());
+	let chat = conversation_menu_chat(s);
 	let list_shows_chats = !matches!(s.active_tab, 1 | 2 | 6);
 	for id in CONVERSATION_MENU_IDS {
 		let list_action = CHAT_LIST_ACTIONS.iter().any(|(action, _)| *action == id);
@@ -1300,8 +1330,13 @@ pub fn build_main_window() -> WindowParts {
 		)
 		.build();
 
-	let chat_menu = Menu::builder().build();
-	fill_conversation_menu(&chat_menu, &CONVERSATION_MENU.iter().collect::<Vec<_>>(), &Default::default(), None, None);
+	let chat_menu = Menu::builder()
+		.append_item(MENU_ID_PIN_CHAT, crate::i18n::tr("&Pin Chat\tCtrl+Shift+P"), crate::i18n::tr("Pin or unpin the selected chat"))
+		.append_item(MENU_ID_ARCHIVE_CHAT, crate::i18n::tr("&Archive Chat\tCtrl+Shift+E"), crate::i18n::tr("Archive or unarchive the selected chat"))
+		.append_item(MENU_ID_MUTE_CHAT, crate::i18n::tr("&Mute Chat..."), crate::i18n::tr("Mute or unmute the selected chat"))
+		.append_item(MENU_ID_LOCK_CHAT, crate::i18n::tr("&Lock Chat\tCtrl+L"), crate::i18n::tr("Lock or unlock the selected chat"))
+		.append_item(MENU_ID_MARK_UNREAD, crate::i18n::tr("Mark as &Unread\tCtrl+Shift+U"), crate::i18n::tr("Toggle read/unread on the selected chat"))
+		.build();
 
 	let call_menu = Menu::builder()
 		.append_item(
